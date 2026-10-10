@@ -9,6 +9,10 @@ import * as tauri from "@/lib/tauri";
 import { getParentDir } from "@/lib/paths";
 import type { DirEntry } from "@/types/fs";
 import { canMoveInto, computeMovePath } from "./tree-move";
+import { workspaceIdentity } from "@/hooks/use-workspace";
+import { beginPathMutation } from "@/lib/agent-turn";
+import { captureFeedbackPathRewrite } from "@/hooks/feedback-api";
+import { rewriteChatPaths } from "@/hooks/use-claude";
 
 export type MoveOutcome =
   | { status: "moved"; entry: DirEntry; newPath: string }
@@ -31,19 +35,30 @@ export function useMoveEntry() {
   // its name (rename) or its parent (move) — the handling is identical.
   const applyPathChange = useCallback(
     async (entry: DirEntry, newPath: string): Promise<void> => {
-      await tauri.renameEntry(entry.path, newPath);
-      if (entry.is_dir) {
-        rewritePathPrefix(entry.path, newPath);
-        rewriteExpandedDir(entry.path, newPath);
-        rewritePinnedPath(entry.path, newPath);
-      } else {
-        renameOpenFile(entry.path, newPath);
-        rewritePinnedPath(entry.path, newPath);
+      const release = beginPathMutation();
+      const origin = workspaceIdentity();
+      const rewriteFeedback = captureFeedbackPathRewrite();
+      try {
+        await tauri.renameEntry(entry.path, newPath);
+        await rewriteFeedback(entry.path, newPath, entry.is_dir);
+        if (origin.root) await rewriteChatPaths(origin.root, entry.path, newPath, entry.is_dir);
+        const current = workspaceIdentity();
+        if (current.root !== origin.root || current.generation !== origin.generation) return;
+        if (entry.is_dir) {
+          rewritePathPrefix(entry.path, newPath);
+          rewriteExpandedDir(entry.path, newPath);
+          rewritePinnedPath(entry.path, newPath);
+        } else {
+          renameOpenFile(entry.path, newPath);
+          rewritePinnedPath(entry.path, newPath);
+        }
+        const fromParent = getParentDir(entry.path);
+        const toParent = getParentDir(newPath);
+        await refreshDirectory(fromParent);
+        if (toParent !== fromParent) await refreshDirectory(toParent);
+      } finally {
+        release();
       }
-      const fromParent = getParentDir(entry.path);
-      const toParent = getParentDir(newPath);
-      await refreshDirectory(fromParent);
-      if (toParent !== fromParent) await refreshDirectory(toParent);
     },
     [refreshDirectory, rewriteExpandedDir, rewritePinnedPath],
   );

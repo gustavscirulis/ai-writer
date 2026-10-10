@@ -7,7 +7,17 @@ import * as tauri from "@/lib/tauri";
 import { flushSave } from "@/lib/save";
 import { getPreference, setPreference } from "@/lib/preferences";
 import { getEditorView, synchronizeEditorView } from "@/lib/editor-views";
-import { markAgentReload, consumeAgentReload, setAgentEditing } from "@/lib/agent-turn";
+import {
+  markAgentReload,
+  consumeAgentReload,
+  setAgentEditing,
+  isPathMutating,
+  isAppClosing,
+} from "@/lib/agent-turn";
+import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
+import { parseDocument } from "@/lib/frontmatter";
+import { attachmentRange } from "@/lib/feedback-anchors";
+import { reconcileFeedbackAfterTurn } from "@/stores/feedback-store";
 import {
   parseClaudeLine,
   reduceClaudeMessages,
@@ -17,46 +27,98 @@ import {
   type ToolPermission,
 } from "@/lib/claude-stream";
 
-interface ClaudeState {
-  draft: string;
-  setDraft: (draft: string) => void;
+export interface Chat {
   messages: ChatMessage[];
+  draft: string;
+}
+export const EMPTY_CHAT: Chat = { messages: [], draft: "" };
+
+interface ClaudeState {
+  /** One conversation per note, keyed by its path. */
+  chats: Record<string, Chat>;
+  /** The note whose chat the current or most recent turn belongs to. */
+  chatPath: string | null;
+  setDraft: (path: string, draft: string) => void;
   activity: ClaudeActivity;
   status: "idle" | "running" | "stopping" | "error";
   error: string | null;
   notices: string[];
   permissions: ToolPermission[];
   decidePermission: (id: string, allow: boolean) => Promise<void>;
-  sessionId: string | null;
-  send: (text: string) => Promise<boolean>;
+  send: (text: string, options?: SendOptions) => Promise<boolean>;
   stop: () => Promise<void>;
-  newChat: () => Promise<void>;
+  newChat: (path: string) => Promise<void>;
+  rewriteChatPaths: (root: string, from: string, to: string, isDir: boolean) => Promise<void>;
 }
 let pendingSend: Promise<boolean> | null = null;
 let generation = 0;
 let channelGeneration = 0;
 let processId: string | null = null;
+let processPath: string | null = null;
 let streamingId: string | null = null;
 let streamingBlockIndex = 0;
 const permissionRequestIds = new Set<string>();
+let activeRequest: {
+  options: AgentTurnOptions;
+  before: string | null;
+  cancelled: boolean;
+  error: string | null;
+} | null = null;
 let finishing = false;
 let handedOff = false;
-let sessionRoot: string | null = null;
 let paths: string[] = [];
 let turnWorkspaceGeneration = 0;
-const sessionKey = (root: string) => `workspace:${root}:agent:claude-session`;
+const sessionsKey = (root: string) => `workspace:${root}:agent:claude-sessions`;
+
+type Sessions = Record<string, string>;
+const loadedSessions = new Map<string, Promise<Sessions>>();
+function loadSessions(root: string) {
+  let sessions = loadedSessions.get(root);
+  if (!sessions) {
+    sessions = getPreference<Sessions | null>(sessionsKey(root), null).then((stored) => ({
+      ...stored,
+    }));
+    loadedSessions.set(root, sessions);
+  }
+  return sessions;
+}
 
 const sessionWrites = new Map<string, Promise<void>>();
-function persistSession(root: string, session: string | null) {
-  const key = sessionKey(root);
-  const task = (sessionWrites.get(key) ?? Promise.resolve()).then(() =>
-    setPreference(key, session),
-  );
+function updateSessions(root: string, update: (sessions: Sessions) => Sessions) {
+  const key = sessionsKey(root);
+  const task = (sessionWrites.get(key) ?? Promise.resolve()).then(async () => {
+    const sessions = update(await loadSessions(root));
+    loadedSessions.set(root, Promise.resolve(sessions));
+    await setPreference(key, sessions);
+  });
   sessionWrites.set(key, task);
   void task.finally(() => {
     if (sessionWrites.get(key) === task) sessionWrites.delete(key);
   });
   return task;
+}
+function persistSession(root: string, path: string, session: string | null) {
+  return updateSessions(root, (sessions) => {
+    const next = { ...sessions };
+    if (session) next[path] = session;
+    else delete next[path];
+    return next;
+  });
+}
+
+function movedPath(path: string, from: string, to: string, isDir: boolean) {
+  if (path === from) return to;
+  return isDir && path.startsWith(`${from}/`) ? to + path.slice(from.length) : null;
+}
+function rekey<T>(record: Record<string, T>, from: string, to: string, isDir: boolean) {
+  const next: Record<string, T> = {};
+  for (const [path, value] of Object.entries(record))
+    next[movedPath(path, from, to, isDir) ?? path] = value;
+  return next;
+}
+
+function withChat(chats: Record<string, Chat>, path: string, update: (chat: Chat) => Chat) {
+  return { ...chats, [path]: update(chats[path] ?? EMPTY_CHAT) };
 }
 
 function current(token: number) {
@@ -65,6 +127,29 @@ function current(token: number) {
     useWorkspaceStore.getState().workspaceGeneration === turnWorkspaceGeneration
   );
 }
+/** Attachment lines refer to the saved file, frontmatter included, as Claude's Read tool shows it. */
+function attachmentContext(path: string, attachments: SendOptions["attachments"]) {
+  if (!attachments?.length) return [];
+  const view = getEditorView(path);
+  const file = useEditorStore.getState().openFiles.get(path);
+  const body = file ? parseDocument(file.diskContent).body : null;
+  const doc = view && body === view.state.doc.toString() ? view.state.doc : null;
+  const offset =
+    file && body !== null
+      ? file.diskContent.slice(0, file.diskContent.length - body.length).split("\n").length - 1
+      : 0;
+  return attachments.map(({ anchor, quote }) => {
+    const text = quote ?? anchor.text;
+    const { from, to } = attachmentRange(anchor, quote);
+    if (!doc || !anchor.attached || to > doc.length) return { text };
+    return {
+      fromLine: doc.lineAt(from).number + offset,
+      toLine: doc.lineAt(Math.max(from, to - 1)).number + offset,
+      text,
+    };
+  });
+}
+
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -74,7 +159,26 @@ async function finish(token: number, error: string | null = null) {
   finishing = true;
   useClaudeStore.setState({ permissions: [], activity: null, status: "stopping" });
   let reloadFailed = false;
+  const request = activeRequest;
+  if (request && error) request.error = error;
+  let changed = false;
+  let capturedDeleted = false;
   try {
+    if (request?.before !== null && request) {
+      try {
+        const captured = await tauri.readFile(request.options.path);
+        if (!current(token)) return;
+        changed = captured.content !== request.before;
+      } catch (readError) {
+        if (await tauri.fileExists(request.options.path)) throw readError;
+        if (!current(token)) return;
+        changed = true;
+        capturedDeleted = true;
+        error = `The file was deleted on disk: ${request.options.path}`;
+        request.error = error;
+        useEditorStore.getState().removePathReferences(request.options.path);
+      }
+    }
     // The watcher is suppressed during the handoff. Exactly one owned reload
     // per open file preserves a single undo step across all Claude Edit calls.
     const reconciled = new Set<string>();
@@ -107,25 +211,40 @@ async function finish(token: number, error: string | null = null) {
         consumeAgentReload(path, file.reloadVersion + 1);
       }
     }
+    if (handedOff) {
+      const failures = await reconcileFeedbackAfterTurn();
+      if (request && !capturedDeleted && failures.has(request.options.path))
+        throw failures.get(request.options.path);
+    }
+    if (!current(token)) return;
   } catch (err) {
     reloadFailed = true;
     error = `Could not reload your notes: ${errorText(err)}. Retry reload before editing.`;
   } finally {
     if (current(token)) {
       if (!reloadFailed) setAgentEditing(false);
+      if (!reloadFailed && request && activeRequest === request) {
+        activeRequest = null;
+        request.options.complete({
+          status: request.cancelled ? "cancelled" : error || request.error ? "failed" : "completed",
+          changed,
+          error: error ?? request.error,
+        });
+      }
+      finishing = false;
       useClaudeStore.setState({
         status: reloadFailed ? "stopping" : error ? "error" : "idle",
         error,
       });
-      finishing = false;
     }
   }
 }
 
 export const useClaudeStore = create<ClaudeState>((set, get) => ({
-  draft: "",
-  setDraft: (draft) => set({ draft }),
-  messages: [],
+  chats: {},
+  chatPath: null,
+  setDraft: (path, draft) =>
+    set((state) => ({ chats: withChat(state.chats, path, (chat) => ({ ...chat, draft })) })),
   activity: null,
   status: "idle",
   error: null,
@@ -171,31 +290,30 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         }));
     }
   },
-  sessionId: null,
-  send: (text) => {
+  send: (text, { turn: options, attachments } = {}) => {
     if (!text.trim() || get().status === "running" || get().status === "stopping")
       return Promise.resolve(false);
     const task = (async () => {
       if (!text.trim() || get().status === "running" || get().status === "stopping") return false;
       const workspace = useWorkspaceStore.getState();
-      const activePath = useEditorStore.getState().activeFilePath;
+      const activePath = options?.path ?? useEditorStore.getState().activeFilePath;
+      if (isAppClosing()) return false;
+      if (isPathMutating()) {
+        set({ chatPath: activePath, error: "Wait for the file move to finish before sending." });
+        return false;
+      }
       if (!workspace.root || workspace.workspaceEpoch === null || !activePath) {
-        set({ status: "error", error: "Open a Markdown file in a workspace first." });
+        set({
+          chatPath: activePath,
+          status: "error",
+          error: "Open a Markdown file in a workspace first.",
+        });
         return false;
       }
       const token = generation;
       turnWorkspaceGeneration = workspace.workspaceGeneration;
       const root = workspace.root;
-      const view = getEditorView(activePath);
-      const selection = view?.state.selection.main;
-      const selected =
-        view && selection && !selection.empty
-          ? {
-              fromLine: view.state.doc.lineAt(selection.from).number,
-              toLine: view.state.doc.lineAt(selection.to).number,
-              text: view.state.sliceDoc(selection.from, selection.to),
-            }
-          : null;
+      activeRequest = options ? { options, before: null, cancelled: false, error: null } : null;
       handedOff = false;
       paths = [...useEditorStore.getState().openFiles.keys()];
       // Lock synchronously, including explicit widget/store mutations, before
@@ -203,20 +321,31 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       setAgentEditing(true);
       streamingId = null;
       streamingBlockIndex = 0;
-      set({ status: "running", activity: "thinking", error: null });
+      set({ chatPath: activePath, status: "running", activity: "thinking", error: null });
       try {
         for (const path of paths) {
           await flushSave(path);
           if (!current(token)) return false;
         }
-        handedOff = true;
-        if (sessionRoot !== root) {
-          const session = await getPreference<string | null>(sessionKey(root), null);
+        let prepared = text.trim();
+        if (options) {
+          const saved = await tauri.readFile(activePath);
           if (!current(token)) return false;
-          sessionRoot = root;
-          set({ sessionId: session });
+          if (activeRequest) activeRequest.before = saved.content;
+          prepared = await options.prepare(saved.content);
+          if (!current(token)) return false;
+        }
+        handedOff = true;
+        // A process resumes exactly one note's session.
+        if (processId && processPath !== activePath) {
+          const previous = processId;
+          await tauri.claudeStop(previous);
+          if (processId === previous) processId = null;
+          if (!current(token)) return false;
         }
         if (!processId) {
+          const session = (await loadSessions(root))[activePath] ?? null;
+          if (!current(token)) return false;
           set({ notices: [] });
           const channelToken = ++channelGeneration;
           permissionRequestIds.clear();
@@ -303,8 +432,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
                     void get().stop();
                   });
               } else if (parsed.type === "init") {
-                set({ sessionId: parsed.sessionId });
-                void persistSession(root, parsed.sessionId);
+                const path = get().chatPath;
+                if (path) void persistSession(root, path, parsed.sessionId);
               } else if (parsed.type === "result") {
                 void finish(token, parsed.error);
               } else {
@@ -315,16 +444,22 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
                 }
                 if (parsed.type === "block_start") streamingBlockIndex = parsed.index;
                 set((state) => {
+                  const path = state.chatPath;
+                  if (!path) return state;
+                  const chat = state.chats[path] ?? EMPTY_CHAT;
                   const messages = reduceClaudeMessages(
-                    state.messages,
+                    chat.messages,
                     parsed,
                     streamingId,
                     streamingBlockIndex,
                   );
                   const activity = getClaudeActivity(parsed, messages, state.activity);
-                  return messages === state.messages && activity === state.activity
+                  return messages === chat.messages && activity === state.activity
                     ? state
-                    : { messages, activity };
+                    : {
+                        chats: { ...state.chats, [path]: { ...chat, messages } },
+                        activity,
+                      };
                 });
                 if (parsed.type === "message_stop") streamingId = null;
               }
@@ -333,12 +468,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
               void get().stop();
             }
           };
-          const id = await tauri.claudeStart(
-            root,
-            workspace.workspaceEpoch,
-            get().sessionId,
-            channel,
-          );
+          const id = await tauri.claudeStart(root, workspace.workspaceEpoch, session, channel);
           if (!current(token) || exited) {
             try {
               await tauri.claudeStop(id);
@@ -349,19 +479,34 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
                 get().status === "stopping"
               ) {
                 processId = id;
+                processPath = activePath;
                 set({ error: `Could not stop Claude Code: ${errorText(stopError)}` });
               } else console.error("[chat] Stale startup termination failed", stopError);
             }
             return false;
           }
           processId = id;
+          processPath = activePath;
         }
-        const content = `<writer_context>${JSON.stringify({ openFile: activePath, selection: selected })}</writer_context>\n\n${text.trim()}`;
+        const context = {
+          openFile: activePath,
+          attachments: options ? [] : attachmentContext(activePath, attachments),
+        };
+        const content = `<writer_context>${JSON.stringify(context)}</writer_context>\n\n${prepared}`;
         set((state) => ({
-          messages: [
-            ...state.messages,
-            { id: crypto.randomUUID(), role: "user", text: text.trim(), tools: [] },
-          ],
+          chats: withChat(state.chats, activePath, (chat) => ({
+            ...chat,
+            messages: [
+              ...chat.messages,
+              {
+                id: crypto.randomUUID(),
+                role: "user",
+                text: text.trim(),
+                tools: [],
+                ...(attachments?.length ? { attachments } : {}),
+              },
+            ],
+          })),
         }));
         await tauri.claudeSend(
           processId,
@@ -396,6 +541,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   stop: async () => {
     if (get().status !== "running" && get().status !== "stopping") return;
     const token = ++generation;
+    if (activeRequest) activeRequest.cancelled = true;
     const terminalError =
       get().status === "running" ||
       get().error?.startsWith("Invalid Claude stream:") ||
@@ -425,38 +571,57 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       if (current(token)) set({ error: `Could not stop Claude Code: ${errorText(err)}` });
     }
   },
-  newChat: async () => {
+  newChat: async (path) => {
     const workspace = useWorkspaceStore.getState();
-    await get().stop();
+    if (get().chatPath === path) await get().stop();
     if (useWorkspaceStore.getState().workspaceGeneration !== workspace.workspaceGeneration) return;
     if (get().status === "stopping") return;
-    const id = processId;
-    const token = ++generation;
-    streamingId = null;
-    set({ status: "stopping", permissions: [], activity: null });
-    try {
-      if (id) {
-        await tauri.claudeStop(id);
-        if (processId === id) processId = null;
-      }
-      if (workspace.root) {
-        await persistSession(workspace.root, null);
-        if (generation === token) sessionRoot = workspace.root;
-      }
-      if (generation === token)
-        set({
-          messages: [],
-          draft: "",
-          sessionId: null,
-          error: null,
-          notices: [],
-          permissions: [],
-          status: "idle",
-        });
-    } catch (error) {
-      if (generation === token)
-        set({ status: "stopping", error: `Could not stop Claude Code: ${errorText(error)}` });
+    const owned = processPath === path ? processId : null;
+    const token = owned ? ++generation : generation;
+    if (owned) {
+      streamingId = null;
+      set({ status: "stopping", permissions: [], activity: null });
     }
+    try {
+      if (owned) {
+        await tauri.claudeStop(owned);
+        if (processId === owned) processId = null;
+      }
+      if (workspace.root) await persistSession(workspace.root, path, null);
+      if (
+        (owned && generation !== token) ||
+        useWorkspaceStore.getState().workspaceGeneration !== workspace.workspaceGeneration
+      )
+        return;
+      set((state) => {
+        const chats = { ...state.chats };
+        delete chats[path];
+        const reset = owned !== null || state.chatPath === path;
+        return {
+          chats,
+          ...(owned ? { notices: [] } : {}),
+          ...(reset ? { status: "idle", error: null, chatPath: null } : {}),
+        };
+      });
+    } catch (error) {
+      if (owned && generation === token)
+        set({
+          status: "stopping",
+          chatPath: path,
+          error: `Could not stop Claude Code: ${errorText(error)}`,
+        });
+    }
+  },
+  rewriteChatPaths: async (root, from, to, isDir) => {
+    const move = (path: string) => movedPath(path, from, to, isDir) ?? path;
+    if (useWorkspaceStore.getState().root === root) {
+      if (processPath) processPath = move(processPath);
+      set((state) => ({
+        chats: rekey(state.chats, from, to, isDir),
+        chatPath: state.chatPath && move(state.chatPath),
+      }));
+    }
+    await updateSessions(root, (sessions) => rekey(sessions, from, to, isDir));
   },
 }));
 
@@ -464,21 +629,23 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
 useWorkspaceStore.subscribe((state, previous) => {
   if (state.workspaceGeneration === previous.workspaceGeneration) return;
   generation++;
+  const abandoned = activeRequest;
+  activeRequest = null;
+  abandoned?.options.complete({ status: "cancelled", changed: false, error: "Workspace changed." });
   const id = processId;
   processId = null;
   streamingId = null;
   permissionRequestIds.clear();
-  sessionRoot = null;
+  loadedSessions.clear();
   finishing = false;
   paths = [];
   setAgentEditing(false);
   useClaudeStore.setState({
-    messages: [],
+    chats: {},
+    chatPath: null,
     activity: null,
     notices: [],
     permissions: [],
-    draft: "",
-    sessionId: null,
     status: "idle",
     error: null,
   });

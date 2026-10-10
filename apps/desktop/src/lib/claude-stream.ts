@@ -1,3 +1,11 @@
+import type { FeedbackAnchor } from "@/lib/feedback-anchors";
+
+/** Text the user pointed at when sending; `note` is set when it was a saved note. */
+export interface ChatAttachment {
+  anchor: FeedbackAnchor;
+  quote: string | null;
+  note?: string;
+}
 export interface ChatTool {
   id: string;
   name: string;
@@ -10,6 +18,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   tools: ChatTool[];
+  attachments?: ChatAttachment[];
   textBlocks?: { key: string; text: string; snapshotId?: string; snapshotIndex?: number }[];
 }
 export interface ToolPermission {

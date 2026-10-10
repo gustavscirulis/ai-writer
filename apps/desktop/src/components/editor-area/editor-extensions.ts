@@ -29,6 +29,7 @@ import { mermaidDecorations } from "./mermaid-decorations";
 import { tableDecorations } from "./table-decorations";
 import { viewportParsePlugin } from "./viewport-parse";
 import { wikiLinkExtension } from "./wiki-link-extension";
+import { feedbackExtension } from "./feedback-extension";
 
 // Focus the editor when its pane is revealed (tab switch). Panes hide via an
 // `invisible` class, so watch for that flipping off.
@@ -136,6 +137,7 @@ export function createEditorExtensions(
     imageSrcResolver(getFilePath),
     wikiLinkExtension(getFilePath, isDisposed),
     markdownFormatting,
+    feedbackExtension(getFilePath),
     storeSyncExtension(getFilePath),
     editorClipboardExtension(getFilePath, isDisposed),
     focusOnRevealExtension(isDisposed),

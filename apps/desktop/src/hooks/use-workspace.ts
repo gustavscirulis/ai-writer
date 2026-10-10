@@ -54,3 +54,8 @@ export function useCloseWorkspace() {
     });
   }, [closeWorkspace]);
 }
+
+export const workspaceIdentity = () => {
+  const { root, workspaceGeneration } = useWorkspaceStore.getState();
+  return { root, generation: workspaceGeneration };
+};

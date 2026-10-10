@@ -2,9 +2,17 @@
 
 ## In Progress
 
+- Stream feedback in Chat: [`SPECs/stream-feedback-chat.md`](SPECs/stream-feedback-chat.md). Chosen from the unified feedback/chat prototype ([`SPECs/unified-feedback-chat-prototype.md`](SPECs/unified-feedback-chat-prototype.md)); replaces the separate Feedback column from [`SPECs/paragraph-feedback.md`](SPECs/paragraph-feedback.md).
+  - How it works:
+    - Select text and press ⌘L (or the "Comment" pill), or ⌥-click / use the right-hand button on a block, to attach it to the composer.
+    - Enter edits now; ⌘Enter saves notes to a tray above the composer, applied together.
+  - Status: verified in the playground and the seeded desktop dev server. Native Tauri QA (a real apply turn, reload recovery) is still pending.
+
 - Reveal-in-sidebar + residual external-watcher misses: [`SPECs/reveal-in-sidebar-and-external-watcher-spec.md`](SPECs/reveal-in-sidebar-and-external-watcher-spec.md) — keep the explicit tab-context-menu "Reveal in sidebar" action working, leave ordinary file opens from expanding the Everything tree, and characterize the remaining external-file-watcher miss cases through a logging + manual-repro pass before patching further.
 
 ## Done
+
+- Chat panel redesign ("Thread"): chosen from a three-way prototype (Thread / Margin / Float) in the playground. User bubbles quote the sent selection (`ChatMessage.selection`, set in `claude-store` send), consecutive assistant messages grouped into one turn with a single collapsible tool summary (`AssistantTurn`; the stream emits one message per tool step), CLI notices on the same `Disclosure` row, a live "Selection · N words" composer chip fed by `subscribeEditorSelection` in `editor-views.ts` (notified from `storeSyncExtension`), inline approval card with input preview, auto-growing composer (JS height since WKWebView lacks `field-sizing`), suggestion chips. Verified rendered in the browser against the real stores in light/dark, empty/thinking/approval states; native window QA still pending.
 
 - Chat thinking and answer streaming: [`SPECs/chat-thinking-streaming.md`](SPECs/chat-thinking-streaming.md) — reduced-motion-aware text shimmer, incremental block-safe replies, partial-answer preservation and reader-follow scrolling. Rendered browser QA remains blocked by localhost permission.
 

@@ -5,11 +5,14 @@ import {
   useHasChatMessages,
 } from "@/hooks/use-claude";
 
-export function ChatActivity() {
+export function ChatActivity({ path }: { path: string | null }) {
   const status = useChatStatus();
-  const hasMessages = useHasChatMessages();
+  const hasMessages = useHasChatMessages(path);
   const activity = useChatActivity();
   const permissions = useToolPermissions();
+  const shown =
+    status === "stopping" ||
+    (status === "running" && permissions.length === 0 && activity !== "working");
   const thinking = status === "running" && permissions.length === 0 && activity === "thinking";
   const label =
     status === "running"
@@ -27,12 +30,20 @@ export function ChatActivity() {
           : "";
   return (
     <div
-      className="mt-5 text-[12px] text-[var(--text-muted)]"
+      className={shown ? "mt-5 flex items-center gap-2 text-[12px]" : "sr-only"}
       role="status"
       aria-live="polite"
       aria-atomic="true"
     >
-      <span className={thinking ? "chat-thinking-shimmer" : undefined}>{label}</span>
+      {shown && (
+        <span
+          aria-hidden="true"
+          className="chat-pulse size-1.5 shrink-0 rounded-full bg-[var(--accent)]"
+        />
+      )}
+      <span className={thinking ? "chat-thinking-shimmer" : "text-[var(--text-muted)]"}>
+        {label}
+      </span>
     </div>
   );
 }

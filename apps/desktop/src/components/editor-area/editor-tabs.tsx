@@ -101,7 +101,7 @@ function EditorTabButton({
   );
 }
 
-export function EditorTabs() {
+export function EditorTabs({ compact = false }: { compact?: boolean }) {
   const tabs = useOpenTabs();
   const activeTabId = useActiveTabId();
   const setActiveTab = useSetActiveTab();
@@ -160,7 +160,11 @@ export function EditorTabs() {
         paddingBlock: "var(--chrome-control-padding)",
       }}
     >
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        hidden={compact}
+        style={compact ? { display: "none" } : undefined}
+      >
         <button
           type="button"
           onMouseDown={(event) => event.preventDefault()}

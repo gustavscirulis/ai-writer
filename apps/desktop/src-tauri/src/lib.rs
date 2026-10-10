@@ -3,6 +3,7 @@ mod config;
 #[cfg(target_os = "macos")]
 mod dock_menu;
 mod error;
+mod feedback_persistence;
 mod ignore;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -23,7 +24,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use tauri::menu::MenuItem;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-#[cfg(target_os = "macos")]
 use tauri::RunEvent;
 use tauri::{DragDropEvent, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 
@@ -77,6 +77,11 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
                 workspace.stop_agent();
             }
         }
+        WindowEvent::CloseRequested { api, .. } => {
+            if feedback_persistence::request_close(&handle, &label) {
+                api.prevent_close();
+            }
+        }
         WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
             for path in paths {
                 if let Some(payload) = resolve_path(path) {
@@ -88,6 +93,7 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
         WindowEvent::Destroyed => {
             // Remove the state; the `WorkspaceState`'s `RecommendedWatcher`
             // drops on the last `Arc` release, unregistering FSEvents/inotify.
+            feedback_persistence::remove(&handle, &label);
             handle.state::<AppState>().remove(&label);
         }
         _ => {}
@@ -511,6 +517,7 @@ pub fn run() {
 
     builder
         .manage(AppState::new())
+        .manage(feedback_persistence::FeedbackPersistence::default())
         .setup(|app| {
             // Initialize the main window's per-window state (settings layer,
             // pending-open queue). `get_or_create` lazily builds the
@@ -597,6 +604,8 @@ pub fn run() {
             commands::workspace::open_workspace_in_terminal,
             commands::workspace::open_workspace_in_new_window,
             commands::workspace::restore_workspace,
+            feedback_persistence::feedback_persistence_ready,
+            feedback_persistence::feedback_persistence_ack,
             commands::workspace::get_recent_workspaces,
             commands::workspace::remove_recent_workspace,
             commands::workspace::take_pending_open,
@@ -630,6 +639,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            if let RunEvent::ExitRequested { api, .. } = &_event {
+                if feedback_persistence::request_exit(_app) {
+                    api.prevent_exit();
+                }
+            }
             // Dock click with every window hidden or closed: bring the main
             // window back. It is only ever hidden (never destroyed) by the
             // close-requested handler, so it still holds its workspace.
