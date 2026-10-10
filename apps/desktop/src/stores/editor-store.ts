@@ -1,3 +1,4 @@
+import { agentIORevision, isAgentEditing } from "@/lib/agent-turn";
 import { create } from "zustand";
 import type { FileContent } from "@/types/fs";
 import * as tauri from "@/lib/tauri";
@@ -80,7 +81,7 @@ interface EditorState {
     activeIndex: number | null,
     prefetchedActiveFile?: FileContent | null,
   ) => Promise<void>;
-  updateContent: (path: string, content: string) => void;
+  updateContent: (path: string, content: string, frontmatter?: string | null) => void;
   updateFrontmatter: (path: string, frontmatter: string | null) => void;
   markSaved: (path: string, diskContent: string, hasNewerChanges?: boolean) => void;
   setSaveError: (path: string, error: string | null) => void;
@@ -291,13 +292,18 @@ async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () =>
     });
   }
 
+  let ioRevision = agentIORevision();
   const loadPromise = tauri
     .readFile(path)
-    .then((raw) => {
+    .then(async (raw) => {
+      while (ioRevision !== agentIORevision()) {
+        ioRevision = agentIORevision();
+        raw = await tauri.readFile(path);
+      }
       const parsed = parseDocument(raw.content);
       set((state) => {
         const file = state.openFiles.get(path);
-        if (!file) return state;
+        if (!file || !file.isLoading) return state;
         const files = new Map(state.openFiles);
         files.set(
           path,
@@ -316,9 +322,12 @@ async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () =>
       });
     })
     .catch((error) => {
+      // An owned reload may already have completed this initial navigation.
+      // Do not remove its file or reject the navigation that now succeeded.
+      if (!get().openFiles.get(path)?.isLoading) return;
       set((state) => {
         const file = state.openFiles.get(path);
-        if (!file) return state;
+        if (!file?.isLoading) return state;
         const files = new Map(state.openFiles);
         files.delete(path);
         return { openFiles: files };
@@ -1105,24 +1114,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (shouldEnsureLauncher) get().ensureLauncherTab();
   },
 
-  updateContent: (path: string, content: string) => {
+  updateContent: (path: string, content: string, frontmatter?: string | null) => {
+    if (isAgentEditing()) return;
     const file = get().openFiles.get(path);
     if (!file) return;
 
     set((state) => {
       const existing = state.openFiles.get(path);
       if (!existing) return state;
-      if (existing.content === content && existing.isDirty) return state;
+      const metadata = frontmatter === undefined ? existing.frontmatter : frontmatter;
+      if (existing.content === content && existing.frontmatter === metadata && existing.isDirty)
+        return state;
 
-      const { title, titleSource } = inferTitle(content, existing.frontmatter);
+      const { title, titleSource } = inferTitle(content, metadata);
       const files = new Map(state.openFiles);
-      files.set(path, {
+      const next = {
         ...existing,
         content,
+        frontmatter: metadata,
         title,
         titleSource,
         isDirty: true,
-      });
+      };
+      files.set(path, existing.frontmatter === metadata ? next : withDerivedDate(next));
       return { openFiles: files };
     });
 
@@ -1131,6 +1145,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   updateFrontmatter: (path: string, frontmatter: string | null) => {
+    if (isAgentEditing()) return;
     set((state) => {
       const file = state.openFiles.get(path);
       if (!file || file.frontmatter === frontmatter) return state;
@@ -1198,6 +1213,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           titleSource: parsed.titleSource,
           diskContent: rawContent,
           isDirty: false,
+          isLoading: false,
           reloadVersion: file.reloadVersion + 1,
         }),
       );

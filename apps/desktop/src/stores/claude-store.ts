@@ -1,0 +1,489 @@
+import { create } from "zustand";
+import { Channel } from "@tauri-apps/api/core";
+import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useSettingsStore } from "@/stores/settings-store";
+import { useEditorStore } from "@/stores/editor-store";
+import * as tauri from "@/lib/tauri";
+import { flushSave } from "@/lib/save";
+import { getPreference, setPreference } from "@/lib/preferences";
+import { getEditorView, synchronizeEditorView } from "@/lib/editor-views";
+import { markAgentReload, consumeAgentReload, setAgentEditing } from "@/lib/agent-turn";
+import {
+  parseClaudeLine,
+  reduceClaudeMessages,
+  getClaudeActivity,
+  type ClaudeActivity,
+  type ChatMessage,
+  type ToolPermission,
+} from "@/lib/claude-stream";
+
+interface ClaudeState {
+  draft: string;
+  setDraft: (draft: string) => void;
+  messages: ChatMessage[];
+  activity: ClaudeActivity;
+  status: "idle" | "running" | "stopping" | "error";
+  error: string | null;
+  notices: string[];
+  permissions: ToolPermission[];
+  decidePermission: (id: string, allow: boolean) => Promise<void>;
+  sessionId: string | null;
+  send: (text: string) => Promise<boolean>;
+  stop: () => Promise<void>;
+  newChat: () => Promise<void>;
+}
+let pendingSend: Promise<boolean> | null = null;
+let generation = 0;
+let channelGeneration = 0;
+let processId: string | null = null;
+let streamingId: string | null = null;
+let streamingBlockIndex = 0;
+const permissionRequestIds = new Set<string>();
+let finishing = false;
+let handedOff = false;
+let sessionRoot: string | null = null;
+let paths: string[] = [];
+let turnWorkspaceGeneration = 0;
+const sessionKey = (root: string) => `workspace:${root}:agent:claude-session`;
+
+const sessionWrites = new Map<string, Promise<void>>();
+function persistSession(root: string, session: string | null) {
+  const key = sessionKey(root);
+  const task = (sessionWrites.get(key) ?? Promise.resolve()).then(() =>
+    setPreference(key, session),
+  );
+  sessionWrites.set(key, task);
+  void task.finally(() => {
+    if (sessionWrites.get(key) === task) sessionWrites.delete(key);
+  });
+  return task;
+}
+
+function current(token: number) {
+  return (
+    generation === token &&
+    useWorkspaceStore.getState().workspaceGeneration === turnWorkspaceGeneration
+  );
+}
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function finish(token: number, error: string | null = null) {
+  if (!current(token) || finishing) return;
+  finishing = true;
+  useClaudeStore.setState({ permissions: [], activity: null, status: "stopping" });
+  let reloadFailed = false;
+  try {
+    // The watcher is suppressed during the handoff. Exactly one owned reload
+    // per open file preserves a single undo step across all Claude Edit calls.
+    const reconciled = new Set<string>();
+    while (handedOff) {
+      const path = [...useEditorStore.getState().openFiles.keys()].find(
+        (entry) => !reconciled.has(entry),
+      );
+      if (!path) break;
+      reconciled.add(path);
+      if (!useEditorStore.getState().openFiles.has(path)) continue;
+      let content;
+      try {
+        content = await tauri.readFile(path);
+      } catch (readError) {
+        if (!useEditorStore.getState().openFiles.has(path)) continue;
+        if (!(await tauri.fileExists(path))) {
+          if (!current(token)) return;
+          useEditorStore.getState().removePathReferences(path);
+          error = `The file was deleted on disk: ${path}`;
+          continue;
+        }
+        throw readError;
+      }
+      if (!current(token)) return;
+      const file = useEditorStore.getState().openFiles.get(path);
+      if (file && file.diskContent !== content.content) {
+        markAgentReload(path, file.reloadVersion + 1, file.frontmatter);
+        useEditorStore.getState().reloadFromDisk(path, content.content);
+        synchronizeEditorView(path);
+        consumeAgentReload(path, file.reloadVersion + 1);
+      }
+    }
+  } catch (err) {
+    reloadFailed = true;
+    error = `Could not reload your notes: ${errorText(err)}. Retry reload before editing.`;
+  } finally {
+    if (current(token)) {
+      if (!reloadFailed) setAgentEditing(false);
+      useClaudeStore.setState({
+        status: reloadFailed ? "stopping" : error ? "error" : "idle",
+        error,
+      });
+      finishing = false;
+    }
+  }
+}
+
+export const useClaudeStore = create<ClaudeState>((set, get) => ({
+  draft: "",
+  setDraft: (draft) => set({ draft }),
+  messages: [],
+  activity: null,
+  status: "idle",
+  error: null,
+  notices: [],
+  permissions: [],
+  decidePermission: async (id, allow) => {
+    const permission = get().permissions.find((request) => request.id === id);
+    const process = processId;
+    if (!permission || permission.pending || !process || get().status !== "running") return;
+    const token = generation;
+    const pending = { ...permission, pending: true, error: undefined };
+    set((state) => ({
+      permissions: state.permissions.map((entry) => (entry === permission ? pending : entry)),
+    }));
+    try {
+      await tauri.claudeSend(
+        process,
+        JSON.stringify({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: id,
+            response: allow
+              ? { behavior: "allow", updatedInput: permission.input }
+              : { behavior: "deny", message: "Denied by the user in Writer." },
+          },
+        }),
+      );
+      if (current(token))
+        set((state) => ({ permissions: state.permissions.filter((entry) => entry !== pending) }));
+    } catch (error) {
+      if (current(token))
+        set((state) => ({
+          permissions: state.permissions.map((entry) =>
+            entry === pending
+              ? {
+                  ...entry,
+                  pending: false,
+                  error: `Could not send your decision: ${errorText(error)}`,
+                }
+              : entry,
+          ),
+        }));
+    }
+  },
+  sessionId: null,
+  send: (text) => {
+    if (!text.trim() || get().status === "running" || get().status === "stopping")
+      return Promise.resolve(false);
+    const task = (async () => {
+      if (!text.trim() || get().status === "running" || get().status === "stopping") return false;
+      const workspace = useWorkspaceStore.getState();
+      const activePath = useEditorStore.getState().activeFilePath;
+      if (!workspace.root || workspace.workspaceEpoch === null || !activePath) {
+        set({ status: "error", error: "Open a Markdown file in a workspace first." });
+        return false;
+      }
+      const token = generation;
+      turnWorkspaceGeneration = workspace.workspaceGeneration;
+      const root = workspace.root;
+      const view = getEditorView(activePath);
+      const selection = view?.state.selection.main;
+      const selected =
+        view && selection && !selection.empty
+          ? {
+              fromLine: view.state.doc.lineAt(selection.from).number,
+              toLine: view.state.doc.lineAt(selection.to).number,
+              text: view.state.sliceDoc(selection.from, selection.to),
+            }
+          : null;
+      handedOff = false;
+      paths = [...useEditorStore.getState().openFiles.keys()];
+      // Lock synchronously, including explicit widget/store mutations, before
+      // awaiting a save or starting a process.
+      setAgentEditing(true);
+      streamingId = null;
+      streamingBlockIndex = 0;
+      set({ status: "running", activity: "thinking", error: null });
+      try {
+        for (const path of paths) {
+          await flushSave(path);
+          if (!current(token)) return false;
+        }
+        handedOff = true;
+        if (sessionRoot !== root) {
+          const session = await getPreference<string | null>(sessionKey(root), null);
+          if (!current(token)) return false;
+          sessionRoot = root;
+          set({ sessionId: session });
+        }
+        if (!processId) {
+          set({ notices: [] });
+          const channelToken = ++channelGeneration;
+          permissionRequestIds.clear();
+          let exited = false;
+          const channel = new Channel<tauri.AgentEvent>();
+          channel.onmessage = (event) => {
+            if (!current(token) || channelToken !== channelGeneration) return;
+            try {
+              if (event.type === "exit") {
+                exited = true;
+                processId = null;
+                if (get().status === "running")
+                  void finish(
+                    token,
+                    `Claude Code exited${event.code === null ? "" : ` (${event.code})`}. Send again to resume.`,
+                  );
+                return;
+              }
+              if (event.type === "stderr") {
+                const notice = event.message.trim();
+                if (notice)
+                  set((state) =>
+                    state.notices.includes(notice)
+                      ? state
+                      : { notices: [...state.notices, notice].slice(-50) },
+                  );
+                return;
+              }
+              const parsed = parseClaudeLine(event.line);
+              if (!parsed) return;
+              if (parsed.type === "permission") {
+                if (permissionRequestIds.has(parsed.permission.id)) return;
+                permissionRequestIds.add(parsed.permission.id);
+                if (get().status !== "running") {
+                  const id = processId;
+                  if (id)
+                    void tauri
+                      .claudeSend(
+                        id,
+                        JSON.stringify({
+                          type: "control_response",
+                          response: {
+                            subtype: "success",
+                            request_id: parsed.permission.id,
+                            response: { behavior: "deny", message: "No active Writer turn." },
+                          },
+                        }),
+                      )
+                      .catch((error) =>
+                        console.error("[chat] Could not deny inactive request", error),
+                      );
+                  return;
+                }
+                set((state) => ({ permissions: [...state.permissions, parsed.permission] }));
+                void useSettingsStore
+                  .getState()
+                  .setSetting("appearance.agent-panel-visible", true)
+                  .catch((error) => console.error("[chat] Could not open approval panel", error));
+              } else if (parsed.type === "permission_cancel") {
+                permissionRequestIds.add(parsed.id);
+                set((state) => ({
+                  permissions: state.permissions.filter((entry) => entry.id !== parsed.id),
+                }));
+              } else if (parsed.type === "unsupported_control") {
+                const id = processId;
+                if (!id) throw new Error("Control request received before process startup");
+                const message = `Writer does not support this interactive request: ${parsed.subtype || "unknown"}`;
+                set((state) => ({ notices: [...state.notices, message].slice(-50) }));
+                void tauri
+                  .claudeSend(
+                    id,
+                    JSON.stringify({
+                      type: "control_response",
+                      response: {
+                        subtype: "error",
+                        request_id: parsed.id,
+                        error: message,
+                      },
+                    }),
+                  )
+                  .catch((error) => {
+                    if (!current(token) || channelToken !== channelGeneration) return;
+                    set({ error: `Could not answer Claude Code: ${errorText(error)}` });
+                    void get().stop();
+                  });
+              } else if (parsed.type === "init") {
+                set({ sessionId: parsed.sessionId });
+                void persistSession(root, parsed.sessionId);
+              } else if (parsed.type === "result") {
+                void finish(token, parsed.error);
+              } else {
+                if (get().status !== "running") return;
+                if (parsed.type === "start") {
+                  streamingId = parsed.id;
+                  streamingBlockIndex = 0;
+                }
+                if (parsed.type === "block_start") streamingBlockIndex = parsed.index;
+                set((state) => {
+                  const messages = reduceClaudeMessages(
+                    state.messages,
+                    parsed,
+                    streamingId,
+                    streamingBlockIndex,
+                  );
+                  const activity = getClaudeActivity(parsed, messages, state.activity);
+                  return messages === state.messages && activity === state.activity
+                    ? state
+                    : { messages, activity };
+                });
+                if (parsed.type === "message_stop") streamingId = null;
+              }
+            } catch (err) {
+              set({ error: `Invalid Claude stream: ${errorText(err)}` });
+              void get().stop();
+            }
+          };
+          const id = await tauri.claudeStart(
+            root,
+            workspace.workspaceEpoch,
+            get().sessionId,
+            channel,
+          );
+          if (!current(token) || exited) {
+            try {
+              await tauri.claudeStop(id);
+            } catch (stopError) {
+              if (
+                useWorkspaceStore.getState().workspaceGeneration ===
+                  workspace.workspaceGeneration &&
+                get().status === "stopping"
+              ) {
+                processId = id;
+                set({ error: `Could not stop Claude Code: ${errorText(stopError)}` });
+              } else console.error("[chat] Stale startup termination failed", stopError);
+            }
+            return false;
+          }
+          processId = id;
+        }
+        const content = `<writer_context>${JSON.stringify({ openFile: activePath, selection: selected })}</writer_context>\n\n${text.trim()}`;
+        set((state) => ({
+          messages: [
+            ...state.messages,
+            { id: crypto.randomUUID(), role: "user", text: text.trim(), tools: [] },
+          ],
+        }));
+        await tauri.claudeSend(
+          processId,
+          JSON.stringify({ type: "user", message: { role: "user", content } }),
+        );
+        return true;
+      } catch (err) {
+        if (current(token)) {
+          const id = processId;
+          if (id) {
+            try {
+              await tauri.claudeStop(id);
+              processId = null;
+            } catch (stopError) {
+              set({
+                status: "stopping",
+                error: `Could not stop Claude Code: ${errorText(stopError)}`,
+              });
+              return false;
+            }
+          }
+          await finish(token, errorText(err));
+        }
+        return false;
+      }
+    })();
+    pendingSend = task;
+    return task.finally(() => {
+      if (pendingSend === task) pendingSend = null;
+    });
+  },
+  stop: async () => {
+    if (get().status !== "running" && get().status !== "stopping") return;
+    const token = ++generation;
+    const terminalError =
+      get().status === "running" ||
+      get().error?.startsWith("Invalid Claude stream:") ||
+      get().error?.startsWith("Could not answer Claude Code:")
+        ? get().error
+        : null;
+    set({ status: "stopping", permissions: [], activity: null });
+    const id = processId;
+    try {
+      if (id) {
+        await tauri.claudeStop(id);
+        if (processId === id) processId = null;
+      }
+      if (pendingSend) await pendingSend;
+      if (!current(token)) return;
+      if (processId) {
+        const started = processId;
+        await tauri.claudeStop(started);
+        if (processId === started) processId = null;
+      }
+      if (current(token)) {
+        finishing = false;
+        await finish(token, terminalError);
+      }
+    } catch (err) {
+      // Keep buffers locked when backend termination could not be confirmed.
+      if (current(token)) set({ error: `Could not stop Claude Code: ${errorText(err)}` });
+    }
+  },
+  newChat: async () => {
+    const workspace = useWorkspaceStore.getState();
+    await get().stop();
+    if (useWorkspaceStore.getState().workspaceGeneration !== workspace.workspaceGeneration) return;
+    if (get().status === "stopping") return;
+    const id = processId;
+    const token = ++generation;
+    streamingId = null;
+    set({ status: "stopping", permissions: [], activity: null });
+    try {
+      if (id) {
+        await tauri.claudeStop(id);
+        if (processId === id) processId = null;
+      }
+      if (workspace.root) {
+        await persistSession(workspace.root, null);
+        if (generation === token) sessionRoot = workspace.root;
+      }
+      if (generation === token)
+        set({
+          messages: [],
+          draft: "",
+          sessionId: null,
+          error: null,
+          notices: [],
+          permissions: [],
+          status: "idle",
+        });
+    } catch (error) {
+      if (generation === token)
+        set({ status: "stopping", error: `Could not stop Claude Code: ${errorText(error)}` });
+    }
+  },
+}));
+
+// Workspace lifecycle is an external boundary, not a React state watcher.
+useWorkspaceStore.subscribe((state, previous) => {
+  if (state.workspaceGeneration === previous.workspaceGeneration) return;
+  generation++;
+  const id = processId;
+  processId = null;
+  streamingId = null;
+  permissionRequestIds.clear();
+  sessionRoot = null;
+  finishing = false;
+  paths = [];
+  setAgentEditing(false);
+  useClaudeStore.setState({
+    messages: [],
+    activity: null,
+    notices: [],
+    permissions: [],
+    draft: "",
+    sessionId: null,
+    status: "idle",
+    error: null,
+  });
+  if (id)
+    void tauri
+      .claudeStop(id)
+      .catch((error) => console.error("[chat] Workspace stop failed", error));
+});

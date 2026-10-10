@@ -88,6 +88,22 @@
       "default": "system"
     },
     {
+      "key": "appearance.agent-panel-visible",
+      "label": "Chat Panel",
+      "description": "Show the experimental chat panel. Runs your installed Claude Code CLI with its own account and permissions.",
+      "category": "Appearance",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "appearance.agent-panel-width",
+      "label": "Chat Panel Width",
+      "description": "Width of the chat panel in pixels",
+      "category": "Appearance",
+      "type": "number",
+      "default": 340
+    },
+    {
       "key": "appearance.sidebar-width",
       "label": "Sidebar Width",
       "description": "Default sidebar width in pixels",

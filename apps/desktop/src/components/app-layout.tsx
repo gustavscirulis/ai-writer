@@ -1,3 +1,10 @@
+import { ClaudePanel, clampChatWidth } from "./claude-panel";
+import {
+  toggleChatPanel,
+  useChatPanelVisible,
+  useChatPanelWidth,
+  useViewportWidth,
+} from "@/hooks/use-claude";
 import { useCallback, useRef, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { EditorArea } from "./editor-area";
@@ -26,7 +33,9 @@ export function AppLayout() {
 
 function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   const { isSidebarCollapsed, sidebarWidth, setSidebarWidth } = useSidebar();
-  const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
+  const chatVisible = useChatPanelVisible() && !showWelcome;
+  const chatWidth = useChatPanelWidth();
+  const viewportWidth = useViewportWidth();
   const maxSidebarWidth = Math.max(280, Math.min(420, Math.floor(viewportWidth * 0.35)));
   const draggingRef = useRef(false);
   const [isSidebarDragging, setIsSidebarDragging] = useState(false);
@@ -34,6 +43,10 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
     clampSidebarWidth(sidebarWidth, maxSidebarWidth),
   );
   const draftSidebarWidthRef = useRef(draftSidebarWidth);
+  const maxChatWidth = Math.max(
+    260,
+    Math.min(560, viewportWidth - (isSidebarCollapsed ? 0 : draftSidebarWidth) - 320),
+  );
   const tabChromeLeft = isSidebarCollapsed ? 132 : draftSidebarWidth + 12;
 
   const setClampedSidebarWidth = useCallback(
@@ -114,7 +127,15 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   );
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-transparent text-text-primary">
+    <div
+      data-app-layout
+      className="relative h-screen w-screen overflow-hidden bg-transparent text-text-primary"
+      style={
+        {
+          "--agent-panel-width": `${chatVisible ? clampChatWidth(chatWidth, maxChatWidth) : 0}px`,
+        } as React.CSSProperties
+      }
+    >
       <div
         data-tauri-drag-region
         className="absolute inset-x-0 top-0 z-30"
@@ -137,7 +158,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           className="pointer-events-none absolute top-0 z-40"
           style={{
             left: tabChromeLeft,
-            right: 12,
+            right: chatVisible ? "calc(var(--agent-panel-width) + 12px)" : 70,
             transition: isSidebarDragging ? "none" : "left 140ms ease-out",
           }}
         >
@@ -145,6 +166,17 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
             <EditorTabs />
           </div>
         </div>
+      )}
+      {!showWelcome && !chatVisible && (
+        <button
+          type="button"
+          onClick={toggleChatPanel}
+          aria-label="Open chat panel"
+          title="Open chat panel (⌘⇧L)"
+          className="absolute right-4 top-4 z-50 rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
+        >
+          Chat
+        </button>
       )}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex min-h-0 flex-1">
@@ -172,6 +204,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           <div className="relative min-w-0 flex-1 bg-bg">
             {showWelcome ? <WelcomeScreen /> : <EditorArea />}
           </div>
+          {chatVisible && <ClaudePanel maxWidth={maxChatWidth} />}
         </div>
       </div>
     </div>

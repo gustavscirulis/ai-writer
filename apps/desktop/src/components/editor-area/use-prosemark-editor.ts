@@ -1,3 +1,11 @@
+import { registerEditorView } from "@/lib/editor-views";
+import { getAgentReload } from "@/lib/agent-turn";
+import {
+  agentEditingExtensions,
+  watchAgentEditing,
+  agentReloadTransaction,
+  agentFrontmatter,
+} from "./agent-editing";
 import { useRef, useCallback, useEffect } from "react";
 import { EditorView } from "@codemirror/view";
 import { Compartment, EditorSelection, EditorState, Transaction } from "@codemirror/state";
@@ -51,6 +59,8 @@ export function useProsemarkEditor(
   onViewChange?: (view: EditorView | null) => void,
 ) {
   const viewRef = useRef<EditorView | null>(null);
+  const agentCleanupRef = useRef<(() => void) | null>(null);
+  const readOnlyCompartment = useRef(new Compartment());
   const scrollCleanupRef = useRef<(() => void) | null>(null);
   const disposedRef = useRef(false);
   const filePathRef = useRef(filePath);
@@ -72,67 +82,108 @@ export function useProsemarkEditor(
   autoFocusRef.current = autoFocus;
   onViewChangeRef.current = onViewChange;
 
-  // Stable ref callback — only handles mount/unmount.
-  const mountRef = useCallback((el: HTMLDivElement | null) => {
-    if (!el) {
-      disposedRef.current = true;
-      scrollCleanupRef.current?.();
-      scrollCleanupRef.current = null;
-      const view = viewRef.current;
-      if (view) {
-        closeEditorSearch({ view });
-        view.destroy();
-      }
-      viewRef.current = null;
-      onViewChangeRef.current?.(null);
-      return;
-    }
-
-    if (viewRef.current) return;
-
-    disposedRef.current = false;
-
-    const currentPath = filePathRef.current;
-    const file = editorApi.getOpenFile(currentPath);
-    const initialContent = file?.content ?? "";
-
-    const view = new EditorView({
-      parent: el,
-      state: EditorState.create({
-        doc: initialContent,
-        extensions: createEditorExtensions(
-          () => filePathRef.current,
-          () => disposedRef.current,
-          historyCompartmentRef.current!,
-        ),
-      }),
-    });
-
-    viewRef.current = view;
-    prevPathRef.current = currentPath;
-    prevReloadVersionRef.current = file?.reloadVersion ?? 0;
-    onViewChangeRef.current?.(view);
-
-    mark("editor-ready");
-    logTimeline();
-
-    advanceViewportParse(view, () => disposedRef.current);
-
-    restoreCursorPosition(view, file?.cursorPos ?? 0);
-
-    const scrollContainer = resolveScrollContainer(el, getScrollContainerRef.current);
-    if (scrollContainer) {
-      restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, () => disposedRef.current);
-
-      const handleScroll = () => {
-        editorApi.updateScrollPos(filePathRef.current, scrollContainer.scrollTop);
-      };
-      scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
-      scrollCleanupRef.current = () => scrollContainer.removeEventListener("scroll", handleScroll);
-    }
-
-    if (autoFocusRef.current) view.focus();
+  const bindView = useCallback((view: EditorView, currentPath: string) => {
+    agentCleanupRef.current?.();
+    const unregister = registerEditorView(
+      currentPath,
+      view,
+      () => {
+        const latest = editorApi.getOpenFile(currentPath);
+        if (!latest) return;
+        const reload = getAgentReload(currentPath, latest.reloadVersion);
+        if (!reload) return;
+        // Seed the inverse with the exact pre-turn frontmatter, including manual
+        // property edits since the view mounted.
+        view.dispatch({
+          effects: agentFrontmatter.of(reload.frontmatter),
+          annotations: Transaction.addToHistory.of(false),
+          userEvent: "writer.metadata",
+        });
+        view.dispatch(
+          agentReloadTransaction(view.state.doc.toString(), latest.content, latest.frontmatter),
+        );
+        prevReloadVersionRef.current = latest.reloadVersion;
+      },
+      () => autoFocusRef.current,
+    );
+    const unwatch = watchAgentEditing(view, readOnlyCompartment.current);
+    agentCleanupRef.current = () => {
+      unregister();
+      unwatch();
+    };
   }, []);
+
+  // Stable ref callback — only handles mount/unmount.
+  const mountRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el) {
+        disposedRef.current = true;
+        agentCleanupRef.current?.();
+        agentCleanupRef.current = null;
+        scrollCleanupRef.current?.();
+        scrollCleanupRef.current = null;
+        const view = viewRef.current;
+        if (view) {
+          closeEditorSearch({ view });
+          view.destroy();
+        }
+        viewRef.current = null;
+        onViewChangeRef.current?.(null);
+        return;
+      }
+
+      if (viewRef.current) return;
+
+      disposedRef.current = false;
+
+      const currentPath = filePathRef.current;
+      const file = editorApi.getOpenFile(currentPath);
+      const initialContent = file?.content ?? "";
+
+      const view = new EditorView({
+        parent: el,
+        state: EditorState.create({
+          doc: initialContent,
+          extensions: [
+            agentEditingExtensions(file?.frontmatter ?? null, readOnlyCompartment.current),
+            ...createEditorExtensions(
+              () => filePathRef.current,
+              () => disposedRef.current,
+              historyCompartmentRef.current!,
+            ),
+          ],
+        }),
+      });
+
+      viewRef.current = view;
+      bindView(view, currentPath);
+      prevPathRef.current = currentPath;
+      prevReloadVersionRef.current = file?.reloadVersion ?? 0;
+      onViewChangeRef.current?.(view);
+
+      mark("editor-ready");
+      logTimeline();
+
+      advanceViewportParse(view, () => disposedRef.current);
+
+      restoreCursorPosition(view, file?.cursorPos ?? 0);
+
+      const scrollContainer = resolveScrollContainer(el, getScrollContainerRef.current);
+      if (scrollContainer) {
+        restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, () => disposedRef.current);
+
+        const handleScroll = () => {
+          editorApi.updateScrollPos(filePathRef.current, scrollContainer.scrollTop);
+        };
+        scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+        scrollCleanupRef.current = () =>
+          scrollContainer.removeEventListener("scroll", handleScroll);
+      }
+
+      if (autoFocusRef.current) view.focus();
+    },
+    [bindView],
+  );
 
   // Detect path or reload-version changes and swap the document in place.
   // Syncs the external CodeMirror EditorView to filePath/reloadVersion changes (tab switch / external reload); there is no DOM handler to host it.
@@ -157,6 +208,7 @@ export function useProsemarkEditor(
       : Math.min(view.state.selection.main.head, content.length);
 
     if (pathChanged) {
+      bindView(view, filePath);
       // Reset undo history per file. Removing the history compartment discards
       // its state field; re-adding initializes it fresh. Only history is in the
       // compartment, so the language state and every decoration field survive
@@ -167,13 +219,32 @@ export function useProsemarkEditor(
       view.dispatch({ effects: historyCompartment.reconfigure(history()) });
     }
 
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: content },
-      selection: EditorSelection.cursor(cursorPos),
-      annotations: Transaction.addToHistory.of(false),
-      userEvent: pathChanged ? "writer.swap" : "writer.reload",
-      scrollIntoView: false,
-    });
+    const agentReload = !pathChanged ? getAgentReload(filePath, reloadVersion) : null;
+    if (agentReload)
+      view.dispatch({
+        effects: agentFrontmatter.of(agentReload.frontmatter),
+        annotations: Transaction.addToHistory.of(false),
+        userEvent: "writer.metadata",
+      });
+    view.dispatch(
+      agentReload
+        ? {
+            ...agentReloadTransaction(
+              view.state.doc.toString(),
+              content,
+              file?.frontmatter ?? null,
+            ),
+            scrollIntoView: false,
+          }
+        : {
+            effects: agentFrontmatter.of(file?.frontmatter ?? null),
+            changes: { from: 0, to: view.state.doc.length, insert: content },
+            selection: EditorSelection.cursor(cursorPos),
+            annotations: Transaction.addToHistory.of(false),
+            userEvent: pathChanged ? "writer.swap" : "writer.reload",
+            scrollIntoView: false,
+          },
+    );
 
     if (pathChanged) {
       const scrollContainer = resolveScrollContainer(
@@ -200,7 +271,7 @@ export function useProsemarkEditor(
     }
 
     advanceViewportParse(view, () => disposedRef.current);
-  }, [filePath, reloadVersion]);
+  }, [filePath, reloadVersion, bindView]);
 
   return mountRef;
 }

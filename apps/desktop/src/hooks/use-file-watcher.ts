@@ -1,3 +1,4 @@
+import { agentIORevision, isAgentEditing } from "@/lib/agent-turn";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -38,10 +39,17 @@ export function useFileWatcher() {
 
       if (!file) return;
       if (kind === "deleted") return;
-      if (isSaveInFlight(path)) return;
+      if (isSaveInFlight(path) || isAgentEditing()) return;
+      const ioRevision = agentIORevision();
 
       cancelSave(path);
       void tauri.readFile(path).then((content) => {
+        if (
+          ioRevision !== agentIORevision() ||
+          isAgentEditing() ||
+          !isWorkspaceEventCurrent(workspace, currentWorkspaceIdentity())
+        )
+          return;
         const latest = editorApi.getOpenFiles().get(path);
         if (!latest || content.content === latest.diskContent) return;
         if (WATCHER_DEBUG) console.debug("[watcher] reload-from-disk", path);
