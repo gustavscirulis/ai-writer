@@ -1,3 +1,4 @@
+import { useAgentEditing } from "@/hooks/use-claude";
 import { useCallback, useRef, type FocusEvent, type KeyboardEvent } from "react";
 import { useFrontmatterEntries } from "./use-frontmatter-entries";
 import type { YamlEntry } from "@/lib/yaml-entries";
@@ -103,9 +104,10 @@ function FrontmatterRow({
 }
 
 export function FrontmatterPanel({ filePath }: FrontmatterPanelProps) {
+  const locked = useAgentEditing();
   const { entries, updateEntry, removeEntry, addEntry, blurEntry, hasFrontmatter } =
     useFrontmatterEntries(filePath);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLFieldSetElement>(null);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>, index: number, field: "key" | "value") => {
@@ -126,7 +128,7 @@ export function FrontmatterPanel({ filePath }: FrontmatterPanelProps) {
   if (!hasFrontmatter) return null;
 
   return (
-    <div ref={containerRef} data-frontmatter className="space-y-2 pb-6">
+    <fieldset disabled={locked} ref={containerRef} data-frontmatter className="space-y-2 pb-6">
       <div className="flex flex-col gap-1.5">
         {entries.map((entry, index) => (
           <FrontmatterRow
@@ -153,6 +155,6 @@ export function FrontmatterPanel({ filePath }: FrontmatterPanelProps) {
           Add property
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }

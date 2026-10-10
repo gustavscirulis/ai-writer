@@ -25,8 +25,8 @@ export function markSaved(path: string, diskContent: string) {
   useEditorStore.getState().markSaved(path, diskContent);
 }
 
-export function updateContent(path: string, content: string) {
-  useEditorStore.getState().updateContent(path, content);
+export function updateContent(path: string, content: string, frontmatter?: string | null) {
+  useEditorStore.getState().updateContent(path, content, frontmatter);
 }
 
 export function updateCursorPos(path: string, pos: number) {

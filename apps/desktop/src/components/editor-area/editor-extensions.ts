@@ -1,3 +1,4 @@
+import { agentFrontmatter, agentFrontmatterField } from "./agent-editing";
 import { EditorView, ViewPlugin, drawSelection } from "@codemirror/view";
 import { type Compartment, type Extension, Prec } from "@codemirror/state";
 import { html } from "@codemirror/lang-html";
@@ -74,8 +75,15 @@ const headingWeightHighlight = Prec.highest(
 function storeSyncExtension(getFilePath: () => string): Extension {
   return EditorView.updateListener.of((update) => {
     const isSwap = update.transactions.some((tr) => tr.isUserEvent("writer"));
-    if (update.docChanged && !isSwap) {
-      editorApi.updateContent(getFilePath(), update.state.doc.toString());
+    const metadataChanged = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(agentFrontmatter)),
+    );
+    if ((update.docChanged || metadataChanged) && !isSwap) {
+      editorApi.updateContent(
+        getFilePath(),
+        update.state.doc.toString(),
+        metadataChanged ? update.state.field(agentFrontmatterField) : undefined,
+      );
     }
     if (update.selectionSet && !isSwap) {
       editorApi.updateCursorPos(getFilePath(), update.state.selection.main.head);

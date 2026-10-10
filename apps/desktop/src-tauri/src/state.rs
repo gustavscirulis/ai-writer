@@ -16,6 +16,8 @@ use std::time::Instant;
 /// here so multiple windows can host different workspaces simultaneously
 /// without clobbering each other.
 pub struct WorkspaceState {
+    pub agent_epoch: AtomicU64,
+    pub agent: Mutex<Option<crate::commands::agent::AgentProcess>>,
     pub workspace_root: RwLock<Option<PathBuf>>,
     pub file_index: RwLock<Vec<IndexedFile>>,
     pub file_index_revision: AtomicU64,
@@ -87,6 +89,8 @@ pub type WorkspaceRuntimeDrop = (
 impl Default for WorkspaceState {
     fn default() -> Self {
         Self {
+            agent_epoch: AtomicU64::new(0),
+            agent: Mutex::new(None),
             workspace_root: RwLock::new(None),
             file_index: RwLock::new(Vec::new()),
             file_index_revision: AtomicU64::new(0),
@@ -108,7 +112,23 @@ impl Default for WorkspaceState {
 }
 
 impl WorkspaceState {
+    pub fn stop_agent(&self) {
+        let process = self.agent.lock();
+        self.agent_epoch.fetch_add(1, Ordering::SeqCst);
+        if let Some(process) = process.as_ref() {
+            process.stop();
+        }
+    }
+
+    fn close_agent(&self) {
+        let mut root = self.workspace_root.write();
+        self.workspace_epoch.fetch_add(1, Ordering::SeqCst);
+        *root = None;
+        self.stop_agent();
+    }
+
     fn reset_workspace_runtime(&self) -> WorkspaceRuntimeDrop {
+        self.stop_agent();
         self.cancel_index.read().store(true, Ordering::SeqCst);
         *self.standalone_file.write() = None;
         let file_index = std::mem::take(&mut *self.file_index.write());
@@ -373,7 +393,11 @@ impl AppState {
     /// event handler so the watcher's `Drop` runs (stopping FSEvents /
     /// inotify subscriptions) and the index memory is reclaimed.
     pub fn remove(&self, label: &str) -> Option<Arc<WorkspaceState>> {
-        self.windows.write().remove(label)
+        let state = self.windows.write().remove(label);
+        if let Some(state) = state.as_ref() {
+            state.close_agent();
+        }
+        state
     }
 
     /// Find an existing window already hosting or opening `path`. Used to

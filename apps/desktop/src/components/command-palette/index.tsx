@@ -1,3 +1,4 @@
+import { toggleChatPanel } from "@/hooks/use-claude";
 import { useEffect, useRef, useState } from "react";
 import {
   CommandDialog,
@@ -127,6 +128,16 @@ export function CommandPalette() {
   type Command = { id: string; label: string; description: string; run: () => void };
 
   const commands: Command[] = [
+    root &&
+      !isCompactFileMode && {
+        id: "toggle-chat-panel",
+        label: "Toggle Chat Panel",
+        description: "⌘⇧L",
+        run: () => {
+          toggleChatPanel();
+          close();
+        },
+      },
     root &&
       !isCompactFileMode && {
         id: "toggle-sidebar",

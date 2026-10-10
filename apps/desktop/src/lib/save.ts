@@ -37,6 +37,9 @@ interface SaveController {
   timer: ReturnType<typeof setTimeout> | null;
   inFlight: boolean;
   pending: boolean;
+  completion: Promise<void> | null;
+  complete: (() => void) | null;
+  error: string | null;
 }
 
 const saveControllers = new Map<string, SaveController>();
@@ -49,6 +52,9 @@ function getSaveController(path: string): SaveController {
       timer: null,
       inFlight: false,
       pending: false,
+      completion: null,
+      complete: null,
+      error: null,
     };
     saveControllers.set(path, controller);
   }
@@ -74,6 +80,23 @@ export function scheduleSave(path: string) {
 
 export function isSaveInFlight(path: string) {
   return saveControllers.get(path)?.inFlight === true;
+}
+
+/** Drain the latest buffer through the autosave pipeline, without throttling.
+ * Callers must prevent edits for the duration of the handoff. */
+export async function flushSave(path: string): Promise<void> {
+  const controller = getSaveController(path);
+  clearSaveTimer(controller);
+  while (true) {
+    if (controller.completion) await controller.completion;
+    clearSaveTimer(controller);
+    if (controller.error) throw new Error(controller.error);
+    const file = requireStore().getOpenFile(path);
+    if (!file) throw new Error(`File closed before it could be saved: ${path}`);
+    if (!file.isDirty) break;
+    await performSave(path, controller);
+  }
+  cleanupSaveController(path, controller);
 }
 
 export function cancelSave(path: string) {
@@ -138,6 +161,10 @@ async function performSave(path: string, controller = getSaveController(path)) {
   }
 
   controller.inFlight = true;
+  controller.error = null;
+  controller.completion = new Promise((resolve) => {
+    controller.complete = resolve;
+  });
   controller.pending = false;
   controller.lastSaveTime = Date.now();
 
@@ -155,9 +182,13 @@ async function performSave(path: string, controller = getSaveController(path)) {
   } catch (err) {
     console.error(`[save] Failed to save ${path}:`, err);
     const message = err instanceof Error ? err.message : String(err);
+    controller.error = message;
     store.setSaveError(path, message);
   } finally {
     controller.inFlight = false;
+    controller.complete?.();
+    controller.complete = null;
+    controller.completion = null;
 
     const needsFollowUpSave = controller.pending || shouldReschedule;
     if (needsFollowUpSave) {

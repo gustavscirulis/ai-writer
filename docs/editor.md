@@ -207,6 +207,12 @@ A `view.dispatch` with a new selection does not scroll unless the transaction sa
 
 A `transactionFilter` returning `[tr, { selection }]` adds a spec whose positions are read in the **start** document unless the spec has `sequential: true`. A clamped selection computed from `tr.newSelection` is in the new document, so without the flag CodeMirror maps it through the changes a second time and throws a `RangeError` as soon as the doc grew (the heading-hash selection guard, since removed, dropped every heading-shortcut transaction this way).
 
+## Agent turns and disk reload ownership
+
+The experimental Chat panel locks all open buffers synchronously via `lib/agent-turn.ts` before saving/handing them to the CLI. `readOnly` alone is insufficient: outer and embedded editor transaction filters reject explicit document/metadata dispatches, and store mutation actions use the same guard. Embedded editors with delayed writes register a pending flush that runs before locking.
+
+Watcher and initial file-load reads capture the I/O revision; a turn invalidates those reads. The turn owner reloads current open files once at completion/confirmed Stop, synchronizes every mounted view (including duplicate file tabs), and only then unlocks. Keep view registrations bound to the current path and active pane. Agent reloads are minimal isolated history transactions, with a frontmatter StateEffect and inverted effects for metadata undo/redo; ordinary external reloads keep their existing non-history behavior. See [the spike spec](../SPECs/claude-chat-panel-spike.md) for cancellation and failure recovery.
+
 ## File map
 
 - `mermaid-decorations.ts` — canonical replace-only block widget with in-widget editing. Reference for live position lookup (`findEnclosingFencedCode`) and writing the fence back from a nested editor.

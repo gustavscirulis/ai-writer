@@ -73,6 +73,9 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
         WindowEvent::CloseRequested { api, .. } if label == MAIN_WINDOW_LABEL => {
             api.prevent_close();
             let _ = this_window.hide();
+            if let Some(workspace) = handle.state::<AppState>().get(&label) {
+                workspace.stop_agent();
+            }
         }
         WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
             for path in paths {
@@ -573,6 +576,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::agent::claude::claude_start,
+            commands::agent::claude::claude_send,
+            commands::agent::claude::claude_stop,
             commands::fs::read_directory,
             commands::fs::read_recent_files,
             commands::fs::read_file_entries,

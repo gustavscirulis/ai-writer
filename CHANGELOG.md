@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-10
+
+- Show a subtle Thinking text shimmer in Chat and stream answers as chunks arrive. Preserve earlier text when a reply contains multiple blocks, keep partial replies after Stop, and follow new content only while reading at the bottom. Reduced motion uses static status text.
+
+- Approve or deny Claude Code tool requests, including MCP tools, directly in Chat. Each approval applies once; pending requests show their complete inputs and are canceled when you stop or change workspaces.
+
+- Keep CLI startup warnings in a compact CLI notices disclosure after a successful chat response, instead of showing them as temporary turn errors.
+
+- Add an experimental Chat panel (Cmd+Shift+L) that runs your installed Claude Code with its existing sign-in. Ask it to edit the open note; Writer saves pending edits, locks editing during the turn, then reloads changes as one undo step, including frontmatter. The panel supports streaming replies, tool status, Stop, New chat and resizing. Sessions resume per workspace. Requires your own CLI installation and account; other tools use your existing CLI settings and permissions.
+
 ## 2026-10-05
 
 - Fix `- - text` (a bullet whose text is another bullet, which is what typing `- ` on a new bullet produces) drawing as three bullet dots with the text pushed far right. It now shows as Markdown means it: a bullet with a nested bullet right after it, one step in, and the text in its normal place.

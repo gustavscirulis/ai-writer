@@ -1,3 +1,4 @@
+import { toggleChatPanel } from "@/hooks/use-claude";
 import { useEffect } from "react";
 import { useUIStore } from "@/stores/ui-store";
 import { useEditorStore } from "@/stores/editor-store";
@@ -78,6 +79,12 @@ export function useKeyboardShortcuts() {
         e.preventDefault();
         if (isCompactFileMode) return;
         toggleSidebar();
+        return;
+      }
+
+      if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        if (root && !isCompactFileMode) toggleChatPanel();
         return;
       }
 

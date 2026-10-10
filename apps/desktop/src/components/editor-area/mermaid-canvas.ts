@@ -5,7 +5,12 @@
 // right half. The canvas frame is mounted by the CodeMirror MermaidWidget
 // once the SVG has been rendered.
 
-import { EditorState } from "@codemirror/state";
+import {
+  isAgentEditing,
+  registerPendingEditorFlush,
+  subscribeAgentEditing,
+} from "@/lib/agent-turn";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, drawSelection, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { StreamLanguage } from "@codemirror/language";
@@ -111,7 +116,9 @@ export function mountMermaidCanvas(
     editButton.classList.toggle("is-active", editing);
   };
 
+  const readOnly = new Compartment();
   const flushSourceChange = (): void => {
+    if (sourceChangeTimer) clearTimeout(sourceChangeTimer);
     sourceChangeTimer = null;
     if (!innerView || !opts.onSourceChange) return;
     const next = innerView.state.doc.toString();
@@ -119,6 +126,13 @@ export function mountMermaidCanvas(
     currentSource = next;
     opts.onSourceChange(next);
   };
+
+  const unregisterFlush = registerPendingEditorFlush(flushSourceChange);
+  const unwatchLock = subscribeAgentEditing(() =>
+    innerView?.dispatch({
+      effects: readOnly.reconfigure(EditorState.readOnly.of(isAgentEditing())),
+    }),
+  );
 
   const scheduleSourceChange = (): void => {
     if (sourceChangeTimer) clearTimeout(sourceChangeTimer);
@@ -130,7 +144,7 @@ export function mountMermaidCanvas(
     editing = next;
     host.classList.toggle("is-editing", editing);
     if (editing && !innerView && editingEnabled) {
-      innerView = createInnerEditor(editorPanel, currentSource, scheduleSourceChange);
+      innerView = createInnerEditor(editorPanel, currentSource, scheduleSourceChange, readOnly);
     }
     updateEditButton();
     // Wait one frame so the new flex/absolute layout has settled, then refit
@@ -422,6 +436,7 @@ export function mountMermaidCanvas(
       }
       innerView.dispatch({
         changes: { from: 0, to: innerView.state.doc.length, insert: sourceText },
+        userEvent: "writer.reload",
       });
     }
     currentSource = sourceText;
@@ -446,6 +461,8 @@ export function mountMermaidCanvas(
   }
 
   function destroy(): void {
+    unregisterFlush();
+    unwatchLock();
     if (sourceChangeTimer) {
       clearTimeout(sourceChangeTimer);
       sourceChangeTimer = null;
@@ -597,12 +614,17 @@ function createInnerEditor(
   panel: HTMLElement,
   initialSource: string,
   onChange: () => void,
+  readOnly: Compartment,
 ): EditorView {
   return new EditorView({
     parent: panel,
     state: EditorState.create({
       doc: initialSource,
       extensions: [
+        readOnly.of(EditorState.readOnly.of(isAgentEditing())),
+        EditorState.transactionFilter.of((tr) =>
+          isAgentEditing() && tr.docChanged && !tr.isUserEvent("writer") ? [] : tr,
+        ),
         // Full markdown source goes in here (including the ```mermaid …```
         // fence markers), so we use the same markdown grammar the outer
         // editor uses. `codeLanguages` delegates the body's CodeText to the
@@ -629,7 +651,7 @@ function createInnerEditor(
           "&.cm-focused": { outline: "none" },
         }),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) onChange();
+          if (u.docChanged && !u.transactions.some((tr) => tr.isUserEvent("writer"))) onChange();
         }),
         // The inner editor lives inside the outer editor's widget DOM.
         // Stop pointer + keyboard events from bubbling so the outer view

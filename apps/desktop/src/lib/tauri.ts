@@ -303,3 +303,23 @@ export function saveClipboardImage(
 ): Promise<{ relative_path: string; absolute_path: string }> {
   return invoke("save_clipboard_image", { markdownFilePath, imageData, format });
 }
+
+export type AgentEvent =
+  | { type: "claude"; line: string }
+  | { type: "stderr"; message: string }
+  | { type: "exit"; code: number | null };
+
+export function claudeStart(
+  root: string,
+  epoch: number,
+  resumeSessionId: string | null,
+  onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
+): Promise<string> {
+  return invoke("claude_start", { root, epoch, resumeSessionId, onEvent });
+}
+export function claudeSend(processId: string, line: string): Promise<void> {
+  return invoke("claude_send", { processId, line });
+}
+export function claudeStop(processId: string): Promise<void> {
+  return invoke("claude_stop", { processId });
+}
