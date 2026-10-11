@@ -27,6 +27,7 @@ pub struct DirEntry {
 #[derive(Debug, Clone, Serialize)]
 pub struct FileContent {
     pub path: String,
+    pub canonical_path: String,
     pub content: String,
     pub modified_at: u64,
 }
@@ -331,8 +332,10 @@ pub fn read_file_impl(path: &str) -> Result<FileContent, AppError> {
     if !file_path.exists() {
         return Err(AppError::NotFound(path.to_string()));
     }
-    let content = fs::read_to_string(&file_path)?;
+    let canonical = fs::canonicalize(&file_path)?;
+    let content = fs::read_to_string(&canonical)?;
     Ok(FileContent {
+        canonical_path: canonical.to_string_lossy().into_owned(),
         path: path.to_string(),
         content,
         modified_at: modified_time(&file_path),
@@ -345,7 +348,22 @@ pub async fn read_file(path: String) -> Result<FileContent, AppError> {
 }
 
 pub fn write_file_impl(path: &str, content: &str) -> Result<WriteResult, AppError> {
-    let file_path = PathBuf::from(path);
+    // Resolve existing documents before atomic replacement, preserving symlink aliases.
+    let supplied = PathBuf::from(path);
+    let file_path = if supplied.exists() {
+        fs::canonicalize(&supplied)?
+    } else {
+        fs::canonicalize(
+            supplied
+                .parent()
+                .ok_or_else(|| AppError::Io("No parent directory".into()))?,
+        )?
+        .join(
+            supplied
+                .file_name()
+                .ok_or_else(|| AppError::Io("No filename".into()))?,
+        )
+    };
 
     // Atomic write: write to temp file, then rename
     let dir = file_path
@@ -484,6 +502,7 @@ pub fn create_file_impl(path: &str) -> Result<FileContent, AppError> {
     }
     crate::telemetry::track("file_created");
     Ok(FileContent {
+        canonical_path: fs::canonicalize(&file_path)?.to_string_lossy().into_owned(),
         path: path.to_string(),
         content: default_content.to_string(),
         modified_at: modified_time(&file_path),
@@ -677,9 +696,20 @@ pub fn rename_entry_impl(old_path: &str, new_path: &str) -> Result<(), AppError>
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+pub struct DocumentMove {
+    from: String,
+    to: String,
+}
 #[tauri::command]
-pub async fn rename_entry(old_path: String, new_path: String) -> Result<(), AppError> {
-    blocking(move || rename_entry_impl(&old_path, &new_path)).await
+pub async fn rename_entry(old_path: String, new_path: String) -> Result<DocumentMove, AppError> {
+    blocking(move || {
+        let from = fs::canonicalize(&old_path)?.to_string_lossy().into_owned();
+        rename_entry_impl(&old_path, &new_path)?;
+        let to = fs::canonicalize(&new_path)?.to_string_lossy().into_owned();
+        Ok(DocumentMove { from, to })
+    })
+    .await
 }
 
 pub fn delete_entry_impl(path: &str) -> Result<(), AppError> {
@@ -1130,6 +1160,24 @@ mod tests {
         assert!(!old_path.exists());
         assert!(new_path.exists());
         assert_eq!(fs::read_to_string(&new_path).unwrap(), "content");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn saving_through_alias_preserves_symlink_and_canonical_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.md");
+        let alias = dir.path().join("alias.md");
+        fs::write(&target, "old").unwrap();
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        let loaded = read_file_impl(&alias.to_string_lossy()).unwrap();
+        assert_eq!(
+            loaded.canonical_path,
+            target.canonicalize().unwrap().to_string_lossy()
+        );
+        write_file_impl(&alias.to_string_lossy(), "new").unwrap();
+        assert!(alias.is_symlink());
+        assert_eq!(fs::read_to_string(target).unwrap(), "new");
     }
 
     #[test]

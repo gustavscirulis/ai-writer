@@ -16,33 +16,28 @@ export function useFeedbackPersistence() {
     let queue = Promise.resolve();
     const windowHandle = getCurrentWebviewWindow();
     const resumed = windowHandle.listen<number>("feedback:resume-after-close", (event) => {
-      if (requestId !== event.payload) return;
-      requestId = null;
-      resumeFeedbackPersistence();
+      resumeFeedbackPersistence(`window:${event.payload}`);
+      if (requestId === event.payload) requestId = null;
     });
     const registration = windowHandle.listen<number>("feedback:flush-before-close", (event) => {
       const id = event.payload;
       requestId = id;
-      beginFeedbackClose();
+      beginFeedbackClose(`window:${id}`);
       queue = queue
         .catch(() => {})
         .then(async () => {
           if (disposed || requestId !== id) return;
-          beginFeedbackClose();
+          beginFeedbackClose(`window:${id}`);
           try {
             // Stop owns reconciliation; no lifecycle edits can arrive after our ACK.
-            await useClaudeStore.getState().stop();
+            await useClaudeStore.getState().stopAll();
             if (requestId !== id) return;
-            if (useClaudeStore.getState().status === "stopping")
-              throw new Error(
-                useClaudeStore.getState().error ?? "Could not finish AI reconciliation.",
-              );
-            await flushAllFeedbackPersistence();
+            await flushAllFeedbackPersistence(`window:${id}`);
             if (requestId === id)
               await invoke("feedback_persistence_ack", { requestId: id, success: true });
           } catch (error) {
             if (requestId !== id) return;
-            resumeFeedbackPersistence();
+            resumeFeedbackPersistence(`window:${id}`);
             window.alert(
               `Could not save feedback: ${error instanceof Error ? error.message : String(error)}. Writer has stayed open.`,
             );
@@ -62,6 +57,7 @@ export function useFeedbackPersistence() {
       });
     return () => {
       disposed = true;
+      if (requestId !== null) resumeFeedbackPersistence(`window:${requestId}`);
       requestId = null;
       void registration.then((unlisten) => unlisten());
       void resumed.then((unlisten) => unlisten());

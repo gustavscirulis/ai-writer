@@ -1,3 +1,9 @@
+import {
+  documentPath,
+  documentIdentityGeneration,
+  registerDocumentPath,
+  rewriteDocumentPaths,
+} from "@/lib/agent-turn";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -10,6 +16,8 @@ import type {
   WriteResult,
   WorkspaceInfo,
 } from "@/types/fs";
+
+const identityReads = new Map<string, symbol>();
 
 // Filesystem commands
 export function readDirectory(path: string): Promise<DirEntry[]> {
@@ -25,15 +33,31 @@ export function readFileEntries(paths: string[]): Promise<DirEntry[]> {
 }
 
 export function readFile(path: string): Promise<FileContent> {
-  return invoke("read_file", { path });
+  const generation = documentIdentityGeneration();
+  const request = Symbol(path);
+  identityReads.set(path, request);
+  return invoke<FileContent>("read_file", { path })
+    .then((file) => {
+      if (generation === documentIdentityGeneration() && identityReads.get(path) === request)
+        registerDocumentPath(path, file.canonical_path ?? path);
+      return { ...file, path };
+    })
+    .finally(() => {
+      if (identityReads.get(path) === request) identityReads.delete(path);
+    });
 }
 
 export function writeFile(path: string, content: string): Promise<WriteResult> {
-  return invoke("write_file", { path, content });
+  return invoke<WriteResult>("write_file", { path: documentPath(path), content }).then(
+    (result) => ({ ...result, path }),
+  );
 }
 
 export function createFile(path: string): Promise<FileContent> {
-  return invoke("create_file", { path });
+  return invoke<FileContent>("create_file", { path }).then((file) => {
+    if (file.canonical_path) registerDocumentPath(path, file.canonical_path);
+    return file;
+  });
 }
 
 export function createDirectory(path: string): Promise<DirEntry> {
@@ -46,8 +70,14 @@ export function createSidebarEntry(parentPath: string, kind: SidebarEntryKind): 
   return invoke("create_sidebar_entry", { parentPath, kind });
 }
 
-export function renameEntry(oldPath: string, newPath: string): Promise<void> {
-  return invoke("rename_entry", { oldPath, newPath });
+export interface DocumentMove {
+  from: string;
+  to: string;
+}
+export async function renameEntry(oldPath: string, newPath: string): Promise<DocumentMove> {
+  const identity = await invoke<DocumentMove>("rename_entry", { oldPath, newPath });
+  rewriteDocumentPaths(oldPath, newPath, true, identity.from, identity.to);
+  return identity;
 }
 
 export function deleteEntry(path: string): Promise<void> {
@@ -313,13 +343,28 @@ export function claudeStart(
   root: string,
   epoch: number,
   resumeSessionId: string | null,
+  notePath: string,
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
 ): Promise<string> {
-  return invoke("claude_start", { root, epoch, resumeSessionId, onEvent });
+  return invoke("claude_start", {
+    root,
+    epoch,
+    resumeSessionId,
+    notePath: documentPath(notePath),
+    onEvent,
+  });
 }
 export function claudeSend(processId: string, line: string): Promise<void> {
   return invoke("claude_send", { processId, line });
 }
 export function claudeStop(processId: string): Promise<void> {
   return invoke("claude_stop", { processId });
+}
+
+export function claudeDecidePermission(
+  processId: string,
+  requestId: string,
+  allow: boolean,
+): Promise<void> {
+  return invoke("claude_decide_permission", { processId, requestId, allow });
 }

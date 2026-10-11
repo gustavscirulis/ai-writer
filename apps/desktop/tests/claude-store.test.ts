@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     }
   },
 }));
-vi.mock("@/lib/theme", () => ({ applyTheme: vi.fn() }));
+vi.mock("@/lib/theme", () => ({ applyTheme: vi.fn(), applyCssVarBindings: vi.fn() }));
 vi.mock("@/lib/preferences", () => ({
   getPreference: vi.fn(async () => null),
   setPreference: vi.fn(async () => {}),
@@ -17,11 +17,12 @@ vi.mock("@/lib/preferences", () => ({
   writePreferenceStrict: vi.fn(async () => {}),
 }));
 import { invoke } from "@tauri-apps/api/core";
-import { useClaudeStore } from "../src/stores/claude-store";
+import { useClaudeStore, chatForPath } from "../src/stores/claude-store";
 import { useEditorStore } from "../src/stores/editor-store";
 import { useWorkspaceStore } from "../src/stores/workspace-store";
 import {
   useFeedbackStore,
+  beginFeedbackClose,
   flushAllFeedbackPersistence,
   resumeFeedbackPersistence,
 } from "../src/stores/feedback-store";
@@ -29,7 +30,13 @@ import { feedbackTargets } from "../src/lib/feedback-anchors";
 import { writePreferenceStrict } from "../src/lib/preferences";
 import { applyFeedback } from "../src/hooks/use-feedback";
 import { useSettingsStore } from "../src/stores/settings-store";
-import { agentIORevision, isAgentEditing, beginPathMutation } from "../src/lib/agent-turn";
+import {
+  agentIORevision,
+  isAgentEditing,
+  beginPathMutation,
+  registerPendingEditorFlush,
+  setAppClosing,
+} from "../src/lib/agent-turn";
 import { registerEditorView } from "../src/lib/editor-views";
 import { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
@@ -46,9 +53,17 @@ function deferred<T>() {
 }
 const emit = (data: unknown, channel = channels[channels.length - 1]) =>
   channel.onmessage({ type: "claude", line: JSON.stringify(data) });
+const chatState = (path = "/notes/a.md") => chatForPath(useClaudeStore.getState().chats, path);
+const send = (
+  text: string,
+  options?: Parameters<ReturnType<typeof useClaudeStore.getState>["send"]>[2],
+) =>
+  useClaudeStore
+    .getState()
+    .send(options?.turn?.path ?? useEditorStore.getState().activeFilePath ?? "", text, options);
 const chatMessages = (path: string) => useClaudeStore.getState().chats[path]?.messages ?? [];
 const tick = async () => {
-  for (let i = 0; i < 10; i++) await Promise.resolve();
+  for (let i = 0; i < 50; i++) await Promise.resolve();
 };
 function defaultInvoke(command: string, payload: unknown): Promise<unknown> {
   const args = payload as { path: string; content: string };
@@ -68,6 +83,7 @@ beforeEach(async () => {
   resumeFeedbackPersistence();
   vi.mocked(writePreferenceStrict).mockReset().mockResolvedValue(undefined);
   vi.clearAllMocks();
+  vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
   channels.length = 0;
   disk = new Map([["/notes/a.md", "Original"]]);
   mockedInvoke.mockImplementation(defaultInvoke);
@@ -101,7 +117,7 @@ test("sending clears the composer immediately, before startup/delivery, and pres
         : defaultInvoke(command, args),
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "  Edit this\n");
-  const sending = useClaudeStore.getState().send("  Edit this\n");
+  const sending = send("  Edit this\n");
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
   await tick();
   start.resolve("process");
@@ -124,7 +140,7 @@ test.each(["write_file", "claude_start", "claude_send"])(
     );
     useEditorStore.getState().updateContent("/notes/a.md", "Dirty buffer");
     useClaudeStore.getState().setDraft("/notes/a.md", "  Retry this\n");
-    expect(await useClaudeStore.getState().send("  Retry this\n")).toBe(false);
+    expect(await send("  Retry this\n")).toBe(false);
     expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("  Retry this\n");
   },
 );
@@ -135,7 +151,7 @@ test("a failed send keeps a newer draft", async () => {
     command === "claude_start" ? start.promise : defaultInvoke(command, args),
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "First");
-  const sending = useClaudeStore.getState().send("First");
+  const sending = send("First");
   await tick();
   useClaudeStore.getState().setDraft("/notes/a.md", "New draft");
   start.reject(new Error("Startup failed"));
@@ -143,53 +159,25 @@ test("a failed send keeps a newer draft", async () => {
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("New draft");
 });
 
-test("an older failed acknowledgement cannot restore a draft during a newer send", async () => {
-  const firstDelivery = deferred<unknown>();
-  const secondDelivery = deferred<unknown>();
-  let deliveries = 0;
+test("a result retains ownership until its delivery acknowledgement settles", async () => {
+  const delivery = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
-      ? ++deliveries === 1
-        ? firstDelivery.promise
-        : secondDelivery.promise
-      : defaultInvoke(command, args),
+    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
   );
-  useClaudeStore.getState().setDraft("/notes/a.md", "First");
-  const first = useClaudeStore.getState().send("First");
+  const first = send("First");
   await tick();
   emit({ type: "result", is_error: false });
-  await tick();
   useClaudeStore.getState().setDraft("/notes/a.md", "Second");
-  const second = useClaudeStore.getState().send("Second");
-  await tick();
-  expect(deliveries).toBe(2);
-  firstDelivery.reject(new Error("Late failure"));
+  expect(await send("Second")).toBe(false);
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  delivery.reject(new Error("Late failure"));
   expect(await first).toBe(false);
-  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
-  secondDelivery.resolve(null);
-  expect(await second).toBe(true);
+  await tick();
+  expect(chatState().draft).toBe("Second");
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  mockedInvoke.mockImplementation(defaultInvoke);
+  expect(await send("Second")).toBe(true);
 });
-
-test.each(["stop", "new-chat"])(
-  "%s during startup prevents stale draft recovery",
-  async (action) => {
-    const start = deferred<string>();
-    mockedInvoke.mockImplementation((command, args) =>
-      command === "claude_start" ? start.promise : defaultInvoke(command, args),
-    );
-    useClaudeStore.getState().setDraft("/notes/a.md", "Cancelled");
-    const sending = useClaudeStore.getState().send("Cancelled");
-    await tick();
-    const cancel =
-      action === "stop"
-        ? useClaudeStore.getState().stop()
-        : useClaudeStore.getState().newChat("/notes/a.md");
-    start.resolve("cancelled-process");
-    expect(await sending).toBe(false);
-    await cancel;
-    expect(useClaudeStore.getState().chats["/notes/a.md"]?.draft ?? "").toBe("");
-  },
-);
 
 test("failed delivery restores only the originating note's draft after tab switching", async () => {
   const delivery = deferred<unknown>();
@@ -197,7 +185,7 @@ test("failed delivery restores only the originating note's draft after tab switc
     command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "For A");
-  const sending = useClaudeStore.getState().send("For A");
+  const sending = send("For A");
   await tick();
   disk.set("/notes/b.md", "B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
@@ -214,7 +202,7 @@ test("an abandoned workspace send never restores a draft into the new workspace"
     command === "claude_start" ? start.promise : defaultInvoke(command, args),
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "Old workspace");
-  const sending = useClaudeStore.getState().send("Old workspace");
+  const sending = send("Old workspace");
   await tick();
   useWorkspaceStore.setState((state) => ({
     workspaceGeneration: state.workspaceGeneration + 1,
@@ -226,11 +214,11 @@ test("an abandoned workspace send never restores a draft into the new workspace"
 
 test("suggestion and feedback sends keep unrelated composer drafts", async () => {
   useClaudeStore.getState().setDraft("/notes/a.md", "Unsent draft");
-  expect(await useClaudeStore.getState().send("Suggestion")).toBe(true);
+  expect(await send("Suggestion")).toBe(true);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Unsent draft");
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(
-    await useClaudeStore.getState().send("Unsent draft", {
+    await send("Unsent draft", {
       turn: { path: "/notes/a.md", prepare: () => "Feedback prompt", complete: vi.fn() },
     }),
   ).toBe(true);
@@ -239,17 +227,17 @@ test("suggestion and feedback sends keep unrelated composer drafts", async () =>
 
 test("empty and busy sends leave the composer draft intact", async () => {
   useClaudeStore.getState().setDraft("/notes/a.md", "Draft");
-  expect(await useClaudeStore.getState().send(" ")).toBe(false);
+  expect(await send(" ")).toBe(false);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
-  await useClaudeStore.getState().send("First");
-  expect(await useClaudeStore.getState().send("Draft")).toBe(false);
+  await send("First");
+  expect(await send("Draft")).toBe(false);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
 });
 
-test("saves and locks before starting, reloads all newly opened files, rejects store edits", async () => {
+test("saves and locks the target before starting, leaving other notes editable", async () => {
   useEditorStore.getState().updateContent("/notes/a.md", "Latest draft");
   const revision = agentIORevision();
-  const sending = useClaudeStore.getState().send("Tighten this");
+  const sending = send("Tighten this");
   expect(isAgentEditing()).toBe(true);
   useEditorStore.getState().updateContent("/notes/a.md", "Forbidden");
   expect(await sending).toBe(true);
@@ -257,11 +245,13 @@ test("saves and locks before starting, reloads all newly opened files, rejects s
   disk.set("/notes/b.md", "Before B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
   disk.set("/notes/a.md", "Revised A");
-  disk.set("/notes/b.md", "Revised B");
+  useEditorStore.getState().updateContent("/notes/b.md", "User edit B");
+  await tick();
+  expect(disk.get("/notes/b.md")).toBe("User edit B");
   emit({ type: "result", is_error: false });
   await tick();
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
-  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("Revised B");
+  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("User edit B");
   expect(isAgentEditing()).toBe(false);
   expect(agentIORevision()).toBeGreaterThan(revision);
 });
@@ -273,7 +263,7 @@ test("attachments reach Claude as saved-file lines and stay on the user message"
   const unregister = registerEditorView("/notes/a.md", view, () => {});
   const [, paragraph] = feedbackTargets(body);
   const attachments = [{ anchor: paragraph!, quote: "two" }];
-  expect(await useClaudeStore.getState().send("Cut this", { attachments })).toBe(true);
+  expect(await send("Cut this", { attachments })).toBe(true);
   unregister();
   const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
     line: string;
@@ -290,22 +280,22 @@ test("save failure does not start Claude or discard the dirty buffer", async () 
       : defaultInvoke(command, args),
   );
   useEditorStore.getState().updateContent("/notes/a.md", "Unsaved");
-  expect(await useClaudeStore.getState().send("Edit")).toBe(false);
+  expect(await send("Edit")).toBe(false);
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_start")).toBe(false);
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Unsaved");
   expect(isAgentEditing()).toBe(false);
 });
 test("failed Stop keeps process ownership and lock until termination retry succeeds", async () => {
-  await useClaudeStore.getState().send("Edit");
+  await send("Edit");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_stop" && failures-- > 0
       ? Promise.reject(new Error("IPC failure"))
       : defaultInvoke(command, args),
   );
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing()).toBe(true);
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing()).toBe(false);
   const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
   expect(stops).toHaveLength(2);
@@ -313,7 +303,7 @@ test("failed Stop keeps process ownership and lock until termination retry succe
 });
 test("Stop waits for deferred startup despite a duplicate Send and retries failed teardown", async () => {
   const start = deferred<string>();
-  let failures = 2;
+  let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_start"
       ? start.promise
@@ -321,42 +311,42 @@ test("Stop waits for deferred startup despite a duplicate Send and retries faile
         ? Promise.reject(new Error("IPC failure"))
         : defaultInvoke(command, args),
   );
-  const send = useClaudeStore.getState().send("Edit");
+  const sending = send("Edit");
   await tick();
-  expect(await useClaudeStore.getState().send("Duplicate")).toBe(false);
-  const stop = useClaudeStore.getState().stop();
+  expect(await send("Duplicate")).toBe(false);
+  const stop = useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing()).toBe(true);
   start.resolve("late-process");
-  await send;
+  await sending;
   await stop;
   expect(isAgentEditing()).toBe(true);
   expect(mockedInvoke.mock.calls.some(([c]) => c === "claude_send")).toBe(false);
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing()).toBe(false);
 });
 test("old process callbacks cannot finish a newer turn", async () => {
-  await useClaudeStore.getState().send("First");
+  await send("First");
   const old = channels[0];
-  await useClaudeStore.getState().stop();
-  await useClaudeStore.getState().send("Second");
+  await useClaudeStore.getState().stop("/notes/a.md");
+  await send("Second");
   old.onmessage({ type: "exit", code: 0 });
   emit({ type: "result", is_error: false }, old);
   await tick();
-  expect(useClaudeStore.getState().status).toBe("running");
+  expect(chatState().status).toBe("running");
   expect(isAgentEditing()).toBe(true);
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
 });
 test("deleting an open file reports deletion without leaving all notes locked", async () => {
-  await useClaudeStore.getState().send("Delete this note");
+  await send("Delete this note");
   disk.delete("/notes/a.md");
   emit({ type: "result", is_error: false });
   await tick();
   expect(isAgentEditing()).toBe(false);
-  expect(useClaudeStore.getState().error).toContain("deleted on disk");
+  expect(chatState().error).toContain("deleted on disk");
   expect(useEditorStore.getState().openFiles.has("/notes/a.md")).toBe(false);
 });
-test("a delayed navigation read cannot overwrite the final reload", async () => {
-  await useClaudeStore.getState().send("Edit both");
+test("a delayed navigation read for another note is independent of the target reload", async () => {
+  await send("Edit A");
   disk.set("/notes/b.md", "Old B");
   const stale = deferred<unknown>();
   let reads = 0;
@@ -371,14 +361,12 @@ test("a delayed navigation read cannot overwrite the final reload", async () => 
   await tick();
   stale.resolve({ path: "/notes/b.md", content: "Old B", modified_at: 1 });
   await loading;
-  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("New B");
+  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("Old B");
   expect(isAgentEditing()).toBe(false);
 });
 
 test("New chat stop failure rejects sends until termination is confirmed", async () => {
-  await useClaudeStore.getState().send("First");
-  emit({ type: "result", is_error: false });
-  await tick();
+  await send("First");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_stop" && failures-- > 0
@@ -386,83 +374,80 @@ test("New chat stop failure rejects sends until termination is confirmed", async
       : defaultInvoke(command, args),
   );
   await useClaudeStore.getState().newChat("/notes/a.md");
-  expect(useClaudeStore.getState().status).toBe("stopping");
-  expect(await useClaudeStore.getState().send("Unsafe reuse")).toBe(false);
-  await useClaudeStore.getState().stop();
-  expect(useClaudeStore.getState().status).toBe("idle");
-  await useClaudeStore.getState().send("Fresh");
+  expect(chatState().status).toBe("stopping");
+  expect(await send("Unsafe reuse")).toBe(false);
+  await useClaudeStore.getState().stop("/notes/a.md");
+  expect(chatState().status).toBe("idle");
+  await send("Fresh");
   expect(channels).toHaveLength(2);
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
 });
-test("a rejected stale navigation read preserves the final reload and its tab", async () => {
-  await useClaudeStore.getState().send("Edit both");
-  disk.set("/notes/b.md", "Old B");
-  const stale = deferred<unknown>();
-  let reads = 0;
+test("a rejected navigation read for another note cannot affect the running note", async () => {
+  await send("Edit A");
   mockedInvoke.mockImplementation((command, args) =>
-    command === "read_file" && (args as { path: string }).path === "/notes/b.md" && reads++ === 0
-      ? stale.promise
+    command === "read_file" && (args as { path: string }).path === "/notes/b.md"
+      ? Promise.reject(new Error("Cannot read B"))
       : defaultInvoke(command, args),
   );
-  const loading = useEditorStore.getState().openFileInNewTab("/notes/b.md");
-  disk.set("/notes/b.md", "New B");
+  await expect(useEditorStore.getState().openFileInNewTab("/notes/b.md")).rejects.toThrow(
+    "Failed to open",
+  );
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(chatState().status).toBe("running");
+  disk.set("/notes/a.md", "Revised A");
   emit({ type: "result", is_error: false });
   await tick();
-  useEditorStore.getState().updateContent("/notes/b.md", "New user edit");
-  stale.reject(new Error("Delayed I/O failure"));
-  await loading;
-  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("New user edit");
-  expect(useEditorStore.getState().activeFilePath).toBe("/notes/b.md");
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
 });
 
 test("malformed protocol data stops the process and preserves the visible error", async () => {
-  await useClaudeStore.getState().send("Edit");
+  await send("Edit");
   channels[channels.length - 1].onmessage({ type: "claude", line: "invalid JSON" });
   await tick();
   expect(isAgentEditing()).toBe(false);
-  expect(useClaudeStore.getState().error).toContain("Invalid Claude stream:");
+  expect(chatState().error).toContain("Invalid Claude stream:");
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_stop")).toBe(true);
 });
 
 test("CLI warnings remain inspectable after success without becoming turn errors", async () => {
-  await useClaudeStore.getState().send("Hello");
+  await send("Hello");
   const channel = channels[channels.length - 1];
   const warning = "Warning: claude.ai MCP servers blocked by enterprise policy: example";
   channel.onmessage({ type: "stderr", message: warning });
   channel.onmessage({ type: "stderr", message: warning });
-  expect(useClaudeStore.getState().error).toBeNull();
-  expect(useClaudeStore.getState().status).toBe("running");
+  expect(chatState().error).toBeNull();
+  expect(chatState().status).toBe("running");
   emit({ type: "result", is_error: false });
   await tick();
-  expect(useClaudeStore.getState().notices).toEqual([warning]);
-  expect(useClaudeStore.getState().error).toBeNull();
+  expect(chatState().notices).toEqual([warning]);
+  expect(chatState().error).toBeNull();
   expect(isAgentEditing()).toBe(false);
-  await useClaudeStore.getState().send("Second");
-  expect(useClaudeStore.getState().notices).toEqual([warning]);
+  await send("Second");
+  expect(chatState().notices).toEqual([]);
   emit({ type: "result", is_error: true, errors: ["Actual turn failure"] });
   await tick();
-  expect(useClaudeStore.getState().error).toBe("Actual turn failure");
-  expect(useClaudeStore.getState().notices).toEqual([warning]);
+  expect(chatState().error).toBe("Actual turn failure");
+  expect(chatState().notices).toEqual([]);
   await useClaudeStore.getState().newChat("/notes/a.md");
-  expect(useClaudeStore.getState().notices).toEqual([]);
+  expect(chatState().notices).toEqual([]);
   channel.onmessage({ type: "stderr", message: "Stale notice" });
-  expect(useClaudeStore.getState().notices).toEqual([]);
+  expect(chatState().notices).toEqual([]);
 });
 test("CLI notice buffer is bounded and cleared on process restart or workspace change", async () => {
-  await useClaudeStore.getState().send("First");
+  await send("First");
   const channel = channels[channels.length - 1];
   for (let i = 0; i < 60; i++) channel.onmessage({ type: "stderr", message: `Notice ${i}` });
-  expect(useClaudeStore.getState().notices).toHaveLength(50);
-  expect(useClaudeStore.getState().notices[0]).toBe("Notice 10");
-  await useClaudeStore.getState().stop();
-  await useClaudeStore.getState().send("Restart");
-  expect(useClaudeStore.getState().notices).toEqual([]);
+  expect(chatState().notices).toHaveLength(50);
+  expect(chatState().notices[0]).toBe("Notice 10");
+  await useClaudeStore.getState().stop("/notes/a.md");
+  await send("Restart");
+  expect(chatState().notices).toEqual([]);
   channels[channels.length - 1].onmessage({ type: "stderr", message: "Current notice" });
   useWorkspaceStore.setState((s) => ({ workspaceGeneration: s.workspaceGeneration + 1 }));
-  expect(useClaudeStore.getState().notices).toEqual([]);
+  expect(chatState().notices).toEqual([]);
 });
 
-function requestPermission(id: string, tool = "mcp__plugin__search") {
+function requestPermission(id: string, tool = "Read") {
   emit({
     type: "control_request",
     request_id: id,
@@ -475,113 +460,86 @@ function requestPermission(id: string, tool = "mcp__plugin__search") {
 }
 function sentDecisions() {
   return mockedInvoke.mock.calls
-    .filter(
-      ([command, payload]) =>
-        command === "claude_send" &&
-        JSON.parse((payload as { line: string }).line).type === "control_response",
-    )
-    .map(([, payload]) => JSON.parse((payload as { line: string }).line));
+    .filter(([command]) => command === "claude_decide_permission")
+    .map(([, payload]) => payload);
 }
 test("queues distinct approvals, opens the panel and sends allow/deny once without persisting rules", async () => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("first");
-  requestPermission("second", "Bash");
+  requestPermission("second", "Grep");
   requestPermission("first");
-  expect(useClaudeStore.getState().permissions.map((entry) => entry.id)).toEqual([
-    "first",
-    "second",
-  ]);
+  expect(chatState().permissions.map((entry) => entry.id)).toEqual(["first", "second"]);
   expect(useSettingsStore.getState().settings["appearance.agent-panel-visible"]).toBe(true);
   expect(isAgentEditing()).toBe(true);
-  const approving = useClaudeStore.getState().decidePermission("first", true);
-  await useClaudeStore.getState().decidePermission("first", false);
+  const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "first", false);
   await approving;
-  await useClaudeStore.getState().decidePermission("second", false);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false);
   expect(sentDecisions()).toEqual([
-    {
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: "first",
-        response: {
-          behavior: "allow",
-          updatedInput: { query: "A writer's notes", limit: 3 },
-        },
-      },
-    },
-    {
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: "second",
-        response: {
-          behavior: "deny",
-          message: "Denied by the user in Writer.",
-        },
-      },
-    },
+    { processId: "process-1", requestId: "first", allow: true },
+    { processId: "process-1", requestId: "second", allow: false },
   ]);
-  expect(useClaudeStore.getState().permissions).toEqual([]);
-  expect(useClaudeStore.getState().status).toBe("running");
+  expect(chatState().permissions).toEqual([]);
+  expect(chatState().status).toBe("running");
   emit({ type: "result", is_error: false });
   await tick();
 });
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("first");
   requestPermission("second");
   const delivery = deferred<null>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
+    command === "claude_decide_permission" ? delivery.promise : defaultInvoke(command, args),
   );
-  const approving = useClaudeStore.getState().decidePermission("first", true);
+  const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
   emit({ type: "control_cancel_request", request_id: "first" });
-  expect(useClaudeStore.getState().permissions.map((entry) => entry.id)).toEqual(["second"]);
+  expect(chatState().permissions.map((entry) => entry.id)).toEqual(["second"]);
   delivery.reject(new Error("Canceled write"));
   await approving;
-  expect(useClaudeStore.getState().permissions[0].error).toBeUndefined();
-  await useClaudeStore.getState().decidePermission("first", true);
+  expect(chatState().permissions[0].error).toBeUndefined();
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
   expect(sentDecisions()).toHaveLength(1);
   emit({ type: "result", is_error: false });
   await tick();
 });
 test("decision transport errors retain a retryable request and the editor lock", async () => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("request");
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
+    command === "claude_decide_permission"
       ? Promise.reject(new Error("Pipe unavailable"))
       : defaultInvoke(command, args),
   );
-  await useClaudeStore.getState().decidePermission("request", true);
-  expect(useClaudeStore.getState().permissions[0]).toMatchObject({
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "request", true);
+  expect(chatState().permissions[0]).toMatchObject({
     pending: false,
     error: expect.stringContaining("Pipe unavailable"),
   });
   expect(isAgentEditing()).toBe(true);
   mockedInvoke.mockImplementation(defaultInvoke);
-  await useClaudeStore.getState().decidePermission("request", false);
-  expect(useClaudeStore.getState().permissions).toEqual([]);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "request", false);
+  expect(chatState().permissions).toEqual([]);
   emit({ type: "result", is_error: false });
   await tick();
 });
 test("Stop removes approvals immediately and ignores late decisions and old requests", async () => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("request");
   const delivery = deferred<null>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
+    command === "claude_decide_permission" ? delivery.promise : defaultInvoke(command, args),
   );
-  const approving = useClaudeStore.getState().decidePermission("request", true);
+  const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "request", true);
   const oldChannel = channels.at(-1)!;
-  const stopping = useClaudeStore.getState().stop();
-  expect(useClaudeStore.getState().permissions).toEqual([]);
+  const stopping = useClaudeStore.getState().stop("/notes/a.md");
+  expect(chatState().permissions).toEqual([]);
   delivery.reject(new Error("Stopped"));
   await approving;
   await stopping;
-  expect(useClaudeStore.getState().error).toBeNull();
+  expect(chatState().error).toBeNull();
   mockedInvoke.mockImplementation(defaultInvoke);
-  await useClaudeStore.getState().send("New turn");
+  await send("New turn");
   emit(
     {
       type: "control_request",
@@ -590,102 +548,70 @@ test("Stop removes approvals immediately and ignores late decisions and old requ
     },
     oldChannel,
   );
-  expect(useClaudeStore.getState().permissions).toEqual([]);
+  expect(chatState().permissions).toEqual([]);
   emit({ type: "result", is_error: false });
   await tick();
 });
 test.each(["result", "exit", "workspace"])("%s clears pending approvals", async (boundary) => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("request");
   if (boundary === "result") emit({ type: "result", is_error: false });
   else if (boundary === "exit") channels.at(-1)!.onmessage({ type: "exit", code: 0 });
   else
     useWorkspaceStore.setState((state) => ({ workspaceGeneration: state.workspaceGeneration + 1 }));
   await tick();
-  expect(useClaudeStore.getState().permissions).toEqual([]);
-  await useClaudeStore.getState().decidePermission("request", true);
+  expect(chatState().permissions).toEqual([]);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "request", true);
   expect(sentDecisions()).toEqual([]);
 });
-test("unsupported interactive requests receive an explicit error response and diagnostic", async () => {
-  await useClaudeStore.getState().send("Search");
-  emit({ type: "control_request", request_id: "elicitation", request: { subtype: "unsupported" } });
+test("unexpected interactive requests terminate with a visible protocol error", async () => {
+  await send("Search");
+  emit({ type: "control_request", request_id: "unsupported", request: { subtype: "elicitation" } });
   await tick();
-  expect(sentDecisions()[0].response).toMatchObject({
-    subtype: "error",
-    request_id: "elicitation",
-    error: expect.stringContaining("unsupported"),
-  });
-  expect(useClaudeStore.getState().notices).toContain(
-    "Writer does not support this interactive request: unsupported",
-  );
-  emit({ type: "result", is_error: false });
-  await tick();
+  expect(chatState().error).toContain("Unsupported interactive request");
+  expect(isAgentEditing()).toBe(false);
+  expect(sentDecisions()).toEqual([]);
 });
 
 test("terminal reconciliation rejects late approvals and completed IDs cannot be answered twice", async () => {
-  await useClaudeStore.getState().send("Search");
+  await send("Search");
   requestPermission("done");
-  await useClaudeStore.getState().decidePermission("done", true);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "done", true);
   requestPermission("done");
-  expect(useClaudeStore.getState().permissions).toEqual([]);
+  expect(chatState().permissions).toEqual([]);
   const reload = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
     command === "read_file" ? reload.promise : defaultInvoke(command, args),
   );
   emit({ type: "result", is_error: false });
   requestPermission("late");
-  expect(useClaudeStore.getState().status).toBe("stopping");
-  expect(useClaudeStore.getState().permissions).toEqual([]);
+  expect(chatState().status).toBe("stopping");
+  expect(chatState().permissions).toEqual([]);
   await tick();
-  expect(sentDecisions().at(-1).response.response).toMatchObject({
-    behavior: "deny",
-    message: "No active Writer turn.",
-  });
+  expect(sentDecisions()).toHaveLength(1);
   reload.resolve({ path: "/notes/a.md", content: "Original", modified_at: 1 });
   await tick();
 });
-test("unsupported control transport failure remains visible after confirmed Stop", async () => {
-  await useClaudeStore.getState().send("Search");
+test("protocol failures keep recovery locked when native Stop fails", async () => {
+  await send("Search");
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
-      ? Promise.reject(new Error("Broken pipe"))
+    command === "claude_stop"
+      ? Promise.reject(new Error("IPC unavailable"))
       : defaultInvoke(command, args),
   );
-  emit({ type: "control_request", request_id: "unsupported", request: { subtype: "elicitation" } });
+  emit({ type: "control_request", request_id: "bad", request: { subtype: "elicitation" } });
   await tick();
-  expect(useClaudeStore.getState().status).toBe("error");
-  expect(useClaudeStore.getState().error).toContain("Could not answer Claude Code: Broken pipe");
+  expect(isAgentEditing()).toBe(true);
+  expect(chatState().error).toContain("IPC unavailable");
+  mockedInvoke.mockImplementation(defaultInvoke);
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing()).toBe(false);
-});
-
-test("a delayed control transport failure survives terminal reconciliation", async () => {
-  await useClaudeStore.getState().send("Search");
-  const response = deferred<null>();
-  const reload = deferred<unknown>();
-  mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
-      ? response.promise
-      : command === "read_file"
-        ? reload.promise
-        : defaultInvoke(command, args),
-  );
-  emit({ type: "control_request", request_id: "unsupported", request: { subtype: "elicitation" } });
-  emit({ type: "result", is_error: false });
-  expect(useClaudeStore.getState().status).toBe("stopping");
-  response.reject(new Error("Late broken pipe"));
-  await tick();
-  reload.resolve({ path: "/notes/a.md", content: "Original", modified_at: 1 });
-  await tick();
-  expect(useClaudeStore.getState().status).toBe("error");
-  expect(useClaudeStore.getState().error).toContain(
-    "Could not answer Claude Code: Late broken pipe",
-  );
-  expect(isAgentEditing()).toBe(false);
+  expect(chatState().error).toContain("Unsupported interactive request");
 });
 
 test("exposes thinking immediately, streams answers before result and preserves multiple text blocks", async () => {
-  const sending = useClaudeStore.getState().send("Explain");
-  expect(useClaudeStore.getState().activity).toBe("thinking");
+  const sending = send("Explain");
+  expect(chatState().activity).toBe("thinking");
   await sending;
   emit({ type: "stream_event", event: { type: "message_start", message: { id: "reply" } } });
   expect(chatMessages("/notes/a.md").filter((message) => message.role === "assistant")).toEqual([]);
@@ -701,7 +627,7 @@ test("exposes thinking immediately, streams answers before result and preserves 
       delta: { type: "thinking_delta", thinking: "Private reasoning" },
     },
   });
-  expect(useClaudeStore.getState().activity).toBe("thinking");
+  expect(chatState().activity).toBe("thinking");
   emit({
     type: "stream_event",
     event: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
@@ -714,9 +640,9 @@ test("exposes thinking immediately, streams answers before result and preserves 
       delta: { type: "text_delta", text: "First answer." },
     },
   });
-  expect(useClaudeStore.getState().activity).toBe("responding");
+  expect(chatState().activity).toBe("responding");
   expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("First answer.");
-  expect(useClaudeStore.getState().status).toBe("running");
+  expect(chatState().status).toBe("running");
   emit({
     type: "assistant",
     uuid: "first",
@@ -742,11 +668,11 @@ test("exposes thinking immediately, streams answers before result and preserves 
   expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("First answer.\n\nSecond answer.");
   emit({ type: "result", is_error: false });
   await tick();
-  expect(useClaudeStore.getState().activity).toBeNull();
+  expect(chatState().activity).toBeNull();
 });
 
 test("tool progress returns to thinking and approval does not erase activity", async () => {
-  await useClaudeStore.getState().send("Read");
+  await send("Read");
   emit({ type: "stream_event", event: { type: "message_start", message: { id: "tool" } } });
   emit({
     type: "stream_event",
@@ -756,20 +682,20 @@ test("tool progress returns to thinking and approval does not erase activity", a
       content_block: { type: "tool_use", id: "read", name: "Read" },
     },
   });
-  expect(useClaudeStore.getState().activity).toBe("working");
+  expect(chatState().activity).toBe("working");
   requestPermission("read");
-  expect(useClaudeStore.getState().permissions).toHaveLength(1);
-  await useClaudeStore.getState().decidePermission("read", true);
+  expect(chatState().permissions).toHaveLength(1);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "read", true);
   emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "read" }] } });
-  expect(useClaudeStore.getState().activity).toBe("thinking");
-  await useClaudeStore.getState().stop();
-  expect(useClaudeStore.getState().activity).toBeNull();
+  expect(chatState().activity).toBe("thinking");
+  await useClaudeStore.getState().stop("/notes/a.md");
+  expect(chatState().activity).toBeNull();
 });
 
 test.each(["stop", "error", "workspace"])(
   "%s ends thinking while preserving partial answers where applicable",
   async (boundary) => {
-    await useClaudeStore.getState().send("Explain");
+    await send("Explain");
     emit({ type: "stream_event", event: { type: "message_start", message: { id: "reply" } } });
     emit({
       type: "stream_event",
@@ -779,7 +705,7 @@ test.each(["stop", "error", "workspace"])(
         delta: { type: "text_delta", text: "A partial answer" },
       },
     });
-    if (boundary === "stop") await useClaudeStore.getState().stop();
+    if (boundary === "stop") await useClaudeStore.getState().stop("/notes/a.md");
     else if (boundary === "error")
       emit({ type: "result", is_error: true, errors: ["Disconnected"] });
     else
@@ -787,14 +713,14 @@ test.each(["stop", "error", "workspace"])(
         workspaceGeneration: state.workspaceGeneration + 1,
       }));
     await tick();
-    expect(useClaudeStore.getState().activity).toBeNull();
+    expect(chatState().activity).toBeNull();
     if (boundary !== "workspace")
       expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("A partial answer");
   },
 );
 
 test("abandoned tools from a stopped turn do not suppress thinking after later tools finish", async () => {
-  await useClaudeStore.getState().send("First");
+  await send("First");
   emit({ type: "stream_event", event: { type: "message_start", message: { id: "old" } } });
   emit({
     type: "stream_event",
@@ -804,8 +730,8 @@ test("abandoned tools from a stopped turn do not suppress thinking after later t
       content_block: { type: "tool_use", id: "old-tool", name: "Read" },
     },
   });
-  await useClaudeStore.getState().stop();
-  await useClaudeStore.getState().send("Second");
+  await useClaudeStore.getState().stop("/notes/a.md");
+  await send("Second");
   emit({ type: "stream_event", event: { type: "message_start", message: { id: "new" } } });
   emit({
     type: "stream_event",
@@ -816,7 +742,7 @@ test("abandoned tools from a stopped turn do not suppress thinking after later t
     },
   });
   emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "new-tool" }] } });
-  expect(useClaudeStore.getState().activity).toBe("thinking");
+  expect(chatState().activity).toBe("thinking");
   emit({ type: "result", is_error: false });
   await tick();
 });
@@ -830,14 +756,14 @@ test.each(["new-chat", "exit", "malformed", "send-failure"])(
           ? Promise.reject(new Error("Delivery failed"))
           : defaultInvoke(command, args),
       );
-    await useClaudeStore.getState().send("Explain");
+    await send("Explain");
     if (boundary === "new-chat") await useClaudeStore.getState().newChat("/notes/a.md");
     else if (boundary === "exit") channels.at(-1)!.onmessage({ type: "exit", code: 1 });
     else if (boundary === "malformed")
       channels.at(-1)!.onmessage({ type: "claude", line: "not JSON" });
     await tick();
-    expect(useClaudeStore.getState().activity).toBeNull();
-    expect(useClaudeStore.getState().status).not.toBe("running");
+    expect(chatState().activity).toBeNull();
+    expect(chatState().status).not.toBe("running");
   },
 );
 
@@ -846,20 +772,20 @@ test("each note keeps its own conversation and resumes its own session", async (
     mockedInvoke.mock.calls
       .filter(([command]) => command === "claude_start")
       .map(([, payload]) => (payload as { resumeSessionId: string | null }).resumeSessionId);
-  await useClaudeStore.getState().send("About A");
+  await send("About A");
   emit({ type: "system", subtype: "init", session_id: "session-a" });
   emit({ type: "result", is_error: false });
   await tick();
   disk.set("/notes/b.md", "Before B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
-  await useClaudeStore.getState().send("About B");
+  await send("About B");
   emit({ type: "system", subtype: "init", session_id: "session-b" });
   emit({ type: "result", is_error: false });
   await tick();
   expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["About A"]);
   expect(chatMessages("/notes/b.md").map((message) => message.text)).toEqual(["About B"]);
   useEditorStore.getState().setActiveFile("/notes/a.md");
-  await useClaudeStore.getState().send("Back to A");
+  await send("Back to A");
   expect(starts()).toEqual([null, null, "session-a"]);
   emit({ type: "result", is_error: false });
   await tick();
@@ -879,7 +805,7 @@ test("captured feedback path is independent of the active tab and survives tab c
   expect(
     await useClaudeStore
       .getState()
-      .send("Feedback", { turn: { path: "/notes/a.md", prepare, complete } }),
+      .send("/notes/a.md", "Feedback", { turn: { path: "/notes/a.md", prepare, complete } }),
   ).toBe(true);
   const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
     line: string;
@@ -901,12 +827,12 @@ test("captured feedback path is independent of the active tab and survives tab c
   expect(complete).toHaveBeenCalledTimes(1);
 });
 
-test("successive feedback turns on one process settle their own request; unrelated changes are no-op", async () => {
+test("successive feedback turns settle their own request; unrelated changes are no-op", async () => {
   const first = vi.fn(),
     second = vi.fn();
-  await useClaudeStore
-    .getState()
-    .send("First", { turn: { path: "/notes/a.md", prepare: () => "First", complete: first } });
+  await useClaudeStore.getState().send("/notes/a.md", "First", {
+    turn: { path: "/notes/a.md", prepare: () => "First", complete: first },
+  });
   emit({ type: "result", is_error: false });
   await tick();
   expect(first).toHaveBeenCalledExactlyOnceWith({
@@ -914,9 +840,9 @@ test("successive feedback turns on one process settle their own request; unrelat
     changed: false,
     error: null,
   });
-  await useClaudeStore
-    .getState()
-    .send("Second", { turn: { path: "/notes/a.md", prepare: () => "Second", complete: second } });
+  await useClaudeStore.getState().send("/notes/a.md", "Second", {
+    turn: { path: "/notes/a.md", prepare: () => "Second", complete: second },
+  });
   disk.set("/notes/a.md", "Revised");
   emit({ type: "result", is_error: false });
   await tick();
@@ -931,11 +857,11 @@ test("successive feedback turns on one process settle their own request; unrelat
 test("Stop during feedback preparation settles cancellation exactly once without sending", async () => {
   const prepare = deferred<string>(),
     complete = vi.fn();
-  const send = useClaudeStore
-    .getState()
-    .send("Feedback", { turn: { path: "/notes/a.md", prepare: () => prepare.promise, complete } });
+  const send = useClaudeStore.getState().send("/notes/a.md", "Feedback", {
+    turn: { path: "/notes/a.md", prepare: () => prepare.promise, complete },
+  });
   await tick();
-  const stop = useClaudeStore.getState().stop();
+  const stop = useClaudeStore.getState().stop("/notes/a.md");
   prepare.resolve("Prepared");
   await Promise.all([send, stop]);
   expect(complete).toHaveBeenCalledExactlyOnceWith({
@@ -948,9 +874,9 @@ test("Stop during feedback preparation settles cancellation exactly once without
 
 test("partial changes survive failed Stop and require cancelled completion after termination retry", async () => {
   const complete = vi.fn();
-  await useClaudeStore
-    .getState()
-    .send("Feedback", { turn: { path: "/notes/a.md", prepare: () => "Prepared", complete } });
+  await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
+    turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
+  });
   disk.set("/notes/a.md", "Partly revised");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
@@ -958,9 +884,9 @@ test("partial changes survive failed Stop and require cancelled completion after
       ? Promise.reject(new Error("IPC failure"))
       : defaultInvoke(command, args),
   );
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(complete).not.toHaveBeenCalled();
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(complete).toHaveBeenCalledExactlyOnceWith({
     status: "cancelled",
     changed: true,
@@ -970,9 +896,9 @@ test("partial changes survive failed Stop and require cancelled completion after
 
 test("reconciliation failure cannot resolve feedback; retry settles only after reload", async () => {
   const complete = vi.fn();
-  await useClaudeStore
-    .getState()
-    .send("Feedback", { turn: { path: "/notes/a.md", prepare: () => "Prepared", complete } });
+  await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
+    turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
+  });
   disk.set("/notes/a.md", "Revised");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
@@ -984,7 +910,7 @@ test("reconciliation failure cannot resolve feedback; retry settles only after r
   await tick();
   expect(complete).not.toHaveBeenCalled();
   expect(isAgentEditing()).toBe(true);
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(complete).toHaveBeenCalledTimes(1);
   expect(complete.mock.calls[0]![0]).toMatchObject({ status: "cancelled", changed: true });
 });
@@ -1001,7 +927,7 @@ test("post-save preparation validates normalized disk content and rejects stale 
   expect(
     await useClaudeStore
       .getState()
-      .send("Feedback", { turn: { path: "/notes/a.md", prepare, complete } }),
+      .send("/notes/a.md", "Feedback", { turn: { path: "/notes/a.md", prepare, complete } }),
   ).toBe(false);
   expect(prepare).toHaveBeenCalledWith("Draft\n");
   expect(complete).toHaveBeenCalledExactlyOnceWith({
@@ -1015,20 +941,20 @@ test("post-save preparation validates normalized disk content and rejects stale 
 test("an in-flight relocation rejects an agent handoff and a handoff rejects new moves", async () => {
   const release = beginPathMutation();
   try {
-    expect(await useClaudeStore.getState().send("Feedback")).toBe(false);
+    expect(await send("Feedback")).toBe(false);
   } finally {
     release();
   }
-  await useClaudeStore.getState().send("Feedback");
+  await send("Feedback");
   expect(() => beginPathMutation()).toThrow("AI editing");
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
 });
 
-test("deleted captured feedback file is a terminal failure and releases the global lock", async () => {
+test("deleted captured feedback file is a terminal failure and releases its note lock", async () => {
   const complete = vi.fn();
-  await useClaudeStore
-    .getState()
-    .send("Feedback", { turn: { path: "/notes/a.md", prepare: () => "Prepared", complete } });
+  await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
+    turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
+  });
   disk.delete("/notes/a.md");
   emit({ type: "result", is_error: false });
   await tick();
@@ -1074,17 +1000,17 @@ test("real batch does not resolve when the feedback reconciliation read fails", 
   disk.set("/notes/a.md", "Revised");
   let reads = 0;
   mockedInvoke.mockImplementation((command, args) =>
-    command === "read_file" && ++reads === 3
+    command === "read_file" && ++reads === 2
       ? Promise.reject(new Error("Feedback reconciliation failed"))
       : defaultInvoke(command, args),
   );
   emit({ type: "result", is_error: false });
   await tick();
-  expect(reads).toBe(3);
+  expect(reads).toBe(2);
   expect(feedbackItems()[0]!.status).toBe("running");
   expect(isAgentEditing()).toBe(true);
-  expect(useClaudeStore.getState().error).toContain("Feedback reconciliation failed");
-  await useClaudeStore.getState().stop();
+  expect(chatState().error).toContain("Feedback reconciliation failed");
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(feedbackItems()[0]).toMatchObject({ status: "pending", reviewRequired: true });
   expect(isAgentEditing()).toBe(false);
 });
@@ -1095,17 +1021,17 @@ test("real batch success clears request errors; a no-op and Stop stay pending", 
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems()[0]!.status).toBe("pending");
-  expect(useFeedbackStore.getState().error).toContain("No document changes");
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"]).toContain("No document changes");
   await applyFeedback("/notes/a.md", [id]);
-  expect(useFeedbackStore.getState().error).toBeNull();
-  await useClaudeStore.getState().stop();
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"] ?? null).toBeNull();
+  await useClaudeStore.getState().stop("/notes/a.md");
   expect(feedbackItems()[0]!.status).toBe("pending");
   await applyFeedback("/notes/a.md", [id]);
   disk.set("/notes/a.md", "Revised");
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems()).toEqual([]);
-  expect(useFeedbackStore.getState().error).toBeNull();
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"] ?? null).toBeNull();
 });
 
 test("cancelled shutdown retains a real completion and permits retry without workspace reload", async () => {
@@ -1129,11 +1055,261 @@ test("cancelled shutdown retains a real completion and permits retry without wor
   save.reject(new Error("Disk full"));
   await rejected;
   resumeFeedbackPersistence();
-  expect(useClaudeStore.getState().status).toBe("idle");
+  expect(chatState().status).toBe("idle");
   expect(feedbackItems().map((x) => x.id)).toEqual([second]);
   vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
   await useFeedbackStore.getState().retryPersistence();
   await applyFeedback("/notes/a.md", [second]);
   expect(feedbackItems()[0]!.status).toBe("running");
-  await useClaudeStore.getState().stop();
+  await useClaudeStore.getState().stop("/notes/a.md");
+});
+
+test("two notes interleave starts, streams and delivery acknowledgements independently", async () => {
+  disk.set("/notes/b.md", "B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  const a = deferred<unknown>(),
+    b = deferred<unknown>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_send"
+      ? (args as { processId: string }).processId === "process-1"
+        ? a.promise
+        : b.promise
+      : defaultInvoke(command, args),
+  );
+  const first = useClaudeStore.getState().send("/notes/a.md", "A prompt");
+  await tick();
+  const second = useClaudeStore.getState().send("/notes/b.md", "B prompt");
+  await tick();
+  expect(channels).toHaveLength(2);
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(isAgentEditing("/notes/b.md")).toBe(true);
+  expect(await useClaudeStore.getState().send("/notes/a.md", "duplicate")).toBe(false);
+  emit(
+    { type: "stream_event", event: { type: "message_start", message: { id: "a" } } },
+    channels[0],
+  );
+  emit(
+    { type: "stream_event", event: { type: "message_start", message: { id: "b" } } },
+    channels[1],
+  );
+  for (const [index, text] of [
+    [0, "A answer"],
+    [1, "B answer"],
+  ] as const)
+    emit(
+      {
+        type: "stream_event",
+        event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
+      },
+      channels[index],
+    );
+  expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("A answer");
+  expect(chatMessages("/notes/b.md").at(-1)?.text).toBe("B answer");
+  disk.set("/notes/a.md", "Revised A");
+  emit({ type: "result", is_error: false }, channels[0]);
+  b.resolve(null);
+  expect(await second).toBe(true);
+  expect(chatState("/notes/a.md").status).toBe("stopping");
+  expect(chatState("/notes/b.md").status).toBe("running");
+  a.resolve(null);
+  expect(await first).toBe(true);
+  await tick();
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(isAgentEditing("/notes/b.md")).toBe(true);
+  useEditorStore.getState().updateContent("/notes/a.md", "A manual edit");
+  await tick();
+  expect(disk.get("/notes/a.md")).toBe("A manual edit");
+  await useClaudeStore.getState().stop("/notes/b.md");
+});
+
+test("background approvals do not open the panel or change notes and decisions stay scoped", async () => {
+  await send("A");
+  const channel = channels[0];
+  disk.set("/notes/b.md", "B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  useSettingsStore.setState({ settings: { "appearance.agent-panel-visible": false } });
+  emit(
+    {
+      type: "control_request",
+      request_id: "read-a",
+      request: { subtype: "can_use_tool", tool_name: "Read", input: { file_path: "/notes/b.md" } },
+    },
+    channel,
+  );
+  expect(chatState().permissions).toHaveLength(1);
+  expect(chatState("/notes/b.md").permissions).toHaveLength(0);
+  expect(useEditorStore.getState().activeFilePath).toBe("/notes/b.md");
+  expect(useSettingsStore.getState().settings["appearance.agent-panel-visible"]).toBe(false);
+  await useClaudeStore.getState().decidePermission("/notes/b.md", "read-a", true);
+  expect(sentDecisions()).toHaveLength(0);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "read-a", true);
+  expect(sentDecisions()).toEqual([{ processId: "process-1", requestId: "read-a", allow: true }]);
+  await useClaudeStore.getState().stopAll();
+});
+
+test("New chat reserves sends and moves throughout its asynchronous session reset", async () => {
+  const reset = deferred<void>();
+  vi.mocked(writePreferenceStrict).mockImplementation(() => reset.promise);
+  const resetting = useClaudeStore.getState().newChat("/notes/a.md");
+  expect(await send("Race")).toBe(false);
+  expect(() => beginPathMutation()).toThrow("AI editing");
+  await tick();
+  expect(chatState().status).toBe("stopping");
+  reset.resolve();
+  await resetting;
+  expect(await send("Fresh")).toBe(true);
+  await useClaudeStore.getState().stopAll();
+});
+
+test("session persistence failure recovers on retry without leaving the note locked forever", async () => {
+  await send("A");
+  vi.mocked(writePreferenceStrict).mockRejectedValue(new Error("Disk full"));
+  emit({ type: "system", subtype: "init", session_id: "session-a" });
+  await tick();
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
+  await useClaudeStore.getState().stop("/notes/a.md");
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(chatState().error).toContain("Could not save chat session");
+  expect(await send("Resume")).toBe(true);
+  expect(
+    mockedInvoke.mock.calls.filter(([command]) => command === "claude_start").at(-1)?.[1],
+  ).toMatchObject({ resumeSessionId: "session-a" });
+  await useClaudeStore.getState().stopAll();
+});
+
+test("stopAll retains only failed-note recovery and blocks new actions while draining", async () => {
+  await send("A");
+  disk.set("/notes/b.md", "B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  await send("B");
+  const stop = deferred<unknown>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_stop" && (args as { processId: string }).processId === "process-1"
+      ? stop.promise
+      : defaultInvoke(command, args),
+  );
+  const draining = useClaudeStore.getState().stopAll();
+  const rejected = expect(draining).rejects.toThrow("Stop failed");
+  expect(await send("Race")).toBe(false);
+  await useClaudeStore.getState().newChat("/notes/b.md");
+  stop.reject(new Error("Stop failed"));
+  await rejected;
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(isAgentEditing("/notes/b.md")).toBe(false);
+  mockedInvoke.mockImplementation(defaultInvoke);
+  await useClaudeStore.getState().stopAll();
+  expect(isAgentEditing()).toBe(false);
+});
+
+test("close admission blocks New chat and Send through persistence", async () => {
+  useClaudeStore.getState().setDraft("/notes/a.md", "Keep draft");
+  setAppClosing(true);
+  try {
+    await useClaudeStore.getState().newChat("/notes/a.md");
+    expect(chatState().draft).toBe("Keep draft");
+    expect(await send("Keep draft")).toBe(false);
+    expect(vi.mocked(writePreferenceStrict)).not.toHaveBeenCalled();
+  } finally {
+    setAppClosing(false);
+  }
+});
+
+test("closing and reopening during preparation retains the flushed target buffer", async () => {
+  const preparation = deferred<string>();
+  const complete = vi.fn();
+  useEditorStore.getState().updateContent("/notes/a.md", "Latest");
+  const sending = send("Feedback", {
+    turn: { path: "/notes/a.md", prepare: () => preparation.promise, complete },
+  });
+  await tick();
+  useEditorStore.getState().closeFile("/notes/a.md");
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Latest");
+  await useEditorStore.getState().openFile("/notes/a.md");
+  preparation.resolve("Prepared");
+  expect(await sending).toBe(true);
+  expect(await send("Duplicate")).toBe(false);
+  disk.set("/notes/a.md", "Revised");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised");
+  expect(complete).toHaveBeenCalledExactlyOnceWith({
+    status: "completed",
+    changed: true,
+    error: null,
+  });
+});
+
+test("aliases share ownership and pending widget writes are drained before startup", async () => {
+  const alias = "/notes/alias.md";
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "read_file" && (args as { path: string }).path === alias
+      ? Promise.resolve({
+          path: alias,
+          canonical_path: "/notes/a.md",
+          content: disk.get("/notes/a.md"),
+          modified_at: 1,
+        })
+      : defaultInvoke(command, args),
+  );
+  await useEditorStore.getState().openFileInNewTab(alias);
+  const write = deferred<unknown>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "write_file" ? write.promise : defaultInvoke(command, args),
+  );
+  const unregister = registerPendingEditorFlush(
+    () => alias,
+    () => useEditorStore.getState().updateContent(alias, "Embedded edit"),
+  );
+  const sending = useClaudeStore.getState().send("/notes/a.md", "A");
+  await tick();
+  expect(isAgentEditing(alias)).toBe(true);
+  expect(await useClaudeStore.getState().send(alias, "Duplicate")).toBe(false);
+  expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_start")).toBe(false);
+  disk.set("/notes/a.md", "Embedded edit");
+  write.resolve({ path: "/notes/a.md", modified_at: 2 });
+  expect(await sending).toBe(true);
+  unregister();
+  disk.set("/notes/a.md", "Agent revision");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(useEditorStore.getState().openFiles.get(alias)?.content).toBe("Agent revision");
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Agent revision");
+});
+
+test("overlapping lifecycle owners cannot release each other's close admission", async () => {
+  const workspaceClose = Symbol("workspace"),
+    windowClose = "window:round";
+  beginFeedbackClose(workspaceClose);
+  beginFeedbackClose(windowClose);
+  resumeFeedbackPersistence(workspaceClose);
+  expect(await send("Race")).toBe(false);
+  await useClaudeStore.getState().newChat("/notes/a.md");
+  expect(vi.mocked(writePreferenceStrict)).not.toHaveBeenCalled();
+  resumeFeedbackPersistence(windowClose);
+  expect(await send("Allowed")).toBe(true);
+  await useClaudeStore.getState().stopAll();
+});
+
+test("feedback outcomes remain independent across simultaneous notes", async () => {
+  const first = createFeedback("Original");
+  disk.set("/notes/b.md", "Original B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  const feedback = useFeedbackStore.getState();
+  feedback.reconcile("/notes/b.md", null, "Original B");
+  feedback.attach("/notes/b.md", feedbackTargets("Original B")[0]!);
+  feedback.saveNotes("/notes/b.md", "Revise B");
+  const second = useFeedbackStore.getState().byPath["/notes/b.md"][0]!.id;
+  await applyFeedback("/notes/a.md", [first]);
+  await applyFeedback("/notes/b.md", [second]);
+  expect(channels).toHaveLength(2);
+  disk.set("/notes/b.md", "Revised B");
+  emit({ type: "result", is_error: false }, channels[0]);
+  emit({ type: "result", is_error: false }, channels[1]);
+  await tick();
+  expect(feedbackItems()[0]!.status).toBe("pending");
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"]).toContain("No document changes");
+  expect(useFeedbackStore.getState().byPath["/notes/b.md"]).toEqual([]);
+  expect(useFeedbackStore.getState().turnErrors["/notes/b.md"]).toBeNull();
+  expect(useFeedbackStore.getState().error).toBeNull();
 });

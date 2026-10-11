@@ -1192,7 +1192,9 @@ describe("workspace-store closeWorkspace", () => {
     );
     const closing = useWorkspaceStore.getState().closeWorkspace();
 
-    expect(mockedInvoke).toHaveBeenCalledWith("close_workspace", { root: "/test" });
+    await vi.waitFor(() =>
+      expect(mockedInvoke).toHaveBeenCalledWith("close_workspace", { root: "/test" }),
+    );
     expect(useWorkspaceStore.getState().root).toBe("/test");
 
     close.resolve(null);

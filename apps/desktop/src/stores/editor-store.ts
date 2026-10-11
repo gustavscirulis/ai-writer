@@ -1,4 +1,4 @@
-import { agentIORevision, isAgentEditing } from "@/lib/agent-turn";
+import { agentIORevision, registerDocumentPath, isAgentEditing } from "@/lib/agent-turn";
 import { create } from "zustand";
 import type { FileContent } from "@/types/fs";
 import * as tauri from "@/lib/tauri";
@@ -53,6 +53,7 @@ export interface SessionTab {
 
 interface EditorState {
   openFiles: Map<string, OpenFile>;
+  pruneUnreferencedFiles: () => void;
   tabs: Tab[];
   activeTabId: string | null;
   activeFilePath: string | null;
@@ -230,7 +231,7 @@ function maybePruneFiles(
   for (const path of candidatePaths) {
     if (referenced.has(path)) continue;
     const file = (files ?? state.openFiles).get(path);
-    if (!file || file.isDirty) continue;
+    if (!file || file.isDirty || isAgentEditing(path)) continue;
     cancelSave(path);
     if (!files) files = new Map(state.openFiles);
     files.delete(path);
@@ -292,12 +293,12 @@ async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () =>
     });
   }
 
-  let ioRevision = agentIORevision();
+  let ioRevision = agentIORevision(path);
   const loadPromise = tauri
     .readFile(path)
     .then(async (raw) => {
-      while (ioRevision !== agentIORevision()) {
-        ioRevision = agentIORevision();
+      while (ioRevision !== agentIORevision(path)) {
+        ioRevision = agentIORevision(path);
         raw = await tauri.readFile(path);
       }
       const parsed = parseDocument(raw.content);
@@ -343,6 +344,12 @@ async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () =>
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
+  pruneUnreferencedFiles: () => {
+    set((state) => {
+      const files = maybePruneFiles(state, state.tabs, [...state.openFiles.keys()]);
+      return files ? { openFiles: files } : state;
+    });
+  },
   openFiles: new Map(),
   tabs: [],
   activeTabId: null,
@@ -395,6 +402,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     // in the startup IPC) so the editor mounts loaded; `ensureFileLoaded`
     // then short-circuits on the non-loading entry.
     if (prefetched && prefetched.path === path) {
+      if (prefetched.canonical_path) registerDocumentPath(path, prefetched.canonical_path);
       const parsed = parseDocument(prefetched.content);
       set((state) => {
         const files = new Map(state.openFiles);
@@ -1038,6 +1046,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const seededActive =
       prefetchedActiveFile && activePath && prefetchedActiveFile.path === activePath
         ? (() => {
+            if (prefetchedActiveFile.canonical_path)
+              registerDocumentPath(activePath, prefetchedActiveFile.canonical_path);
             const parsed = parseDocument(prefetchedActiveFile.content);
             return withDerived({
               ...createLoadingFile(activePath),
@@ -1115,7 +1125,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   updateContent: (path: string, content: string, frontmatter?: string | null) => {
-    if (isAgentEditing()) return;
+    if (isAgentEditing(path)) return;
     const file = get().openFiles.get(path);
     if (!file) return;
 
@@ -1145,7 +1155,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   updateFrontmatter: (path: string, frontmatter: string | null) => {
-    if (isAgentEditing()) return;
+    if (isAgentEditing(path)) return;
     set((state) => {
       const file = state.openFiles.get(path);
       if (!file || file.frontmatter === frontmatter) return state;

@@ -209,9 +209,13 @@ A `transactionFilter` returning `[tr, { selection }]` adds a spec whose position
 
 ## Agent turns and disk reload ownership
 
-The experimental Chat panel locks all open buffers synchronously via `lib/agent-turn.ts` before saving/handing them to the CLI. `readOnly` alone is insufficient: outer and embedded editor transaction filters reject explicit document/metadata dispatches, and store mutation actions use the same guard. Embedded editors with delayed writes register a pending flush that runs before locking.
+Chat turns own one canonical document per workspace window. `lib/agent-turn.ts` flushes that document's pending embedded-editor writes before taking its lock. The turn drains only its save controllers; unrelated notes keep editing and autosaving. Display paths remain in tabs, while aliases share native canonical identity for I/O, locks and revisions. File moves are blocked while any turn, recovery lock or New chat reset owns a note.
 
-Watcher and initial file-load reads capture the I/O revision; a turn invalidates those reads. The turn owner reloads current open files once at completion/confirmed Stop, synchronizes every mounted view (including duplicate file tabs), and only then unlocks. Keep view registrations bound to the current path and active pane. Agent reloads are minimal isolated history transactions, with a frontmatter StateEffect and inverted effects for metadata undo/redo; ordinary external reloads keep their existing non-history behavior. See [the spike spec](../SPECs/claude-chat-panel-spike.md) for cancellation and failure recovery.
+`readOnly` alone is insufficient: outer and embedded editor transaction filters reject explicit body/metadata dispatches, and store mutation actions use the same note guard. Keep each view's path bound to the document it currently renders. Before reusing a pane for another document, flush pending widgets under the old binding, then rebind and immediately reconfigure readonly. Retained Mermaid widgets subscribe to binding changes; their delayed writers resolve the live path. Their Undo/Redo flushes pending text and uses the outer document history.
+
+Watcher and initial file-load reads capture the target document's I/O revision; only a turn on that document invalidates them. Watcher events reload matching display aliases and defer to the turn owner while locked. Closing a tab retains its owned buffer until reconciliation completes, then unreferenced buffers are pruned.
+
+After confirmed process termination, the turn reads only its canonical target and synchronizes every mounted alias/duplicate view before unlocking. A failed read retains that note's recovery lock and exposes Retry reload. Agent reloads are minimal isolated history transactions, with a frontmatter StateEffect and inverted effects so body and metadata undo/redo together in one step. Ordinary external reloads keep their existing non-history behavior. See [parallel note agents](../SPECs/parallel-note-agents.md).
 
 ## File map
 

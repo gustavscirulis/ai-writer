@@ -91,7 +91,7 @@ describe("filesystem IPC wrappers", () => {
   });
 
   test("renameEntry calls correct command", async () => {
-    mockedInvoke.mockResolvedValue(undefined);
+    mockedInvoke.mockResolvedValue({ from: "/old.md", to: "/new.md" });
     await ipc.renameEntry("/old.md", "/new.md");
     expect(mockedInvoke).toHaveBeenCalledWith("rename_entry", {
       oldPath: "/old.md",

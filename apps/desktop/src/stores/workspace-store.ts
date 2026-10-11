@@ -163,29 +163,41 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   closeWorkspace: async () => {
     const root = get().root;
     if (!root) return;
-    const snapshot = getEditorSessionSnapshot(useEditorStore.getState());
-    void saveSession(root, snapshot.tabs, snapshot.activeIndex);
-    await tauri.closeWorkspace(root);
-    if (get().root !== root) return;
-    useEditorStore.setState({
-      openFiles: new Map(),
-      tabs: [],
-      activeTabId: null,
-      activeFilePath: null,
-    });
-    set((state) =>
-      withNextWorkspaceGeneration(state, {
-        root: null,
-        workspaceEpoch: null,
-        chromeMode: "workspace",
-        fileCount: 0,
-        directoryCache: new Map(),
-        expandedDirs: new Set(),
-        pinnedFiles: [],
-        sidebarMetadataVersion: 0,
-        isIndexing: false,
-      }),
-    );
+    const { beginFeedbackClose, flushAllFeedbackPersistence, resumeFeedbackPersistence } =
+      await import("@/stores/feedback-store");
+    const { useClaudeStore } = await import("@/stores/claude-store");
+    const closeOwner = Symbol("workspace-close");
+    beginFeedbackClose(closeOwner);
+    try {
+      await useClaudeStore.getState().stopAll();
+      await flushAllFeedbackPersistence(closeOwner);
+      if (get().root !== root) return;
+      const snapshot = getEditorSessionSnapshot(useEditorStore.getState());
+      await saveSession(root, snapshot.tabs, snapshot.activeIndex);
+      await tauri.closeWorkspace(root);
+      if (get().root !== root) return;
+      useEditorStore.setState({
+        openFiles: new Map(),
+        tabs: [],
+        activeTabId: null,
+        activeFilePath: null,
+      });
+      set((state) =>
+        withNextWorkspaceGeneration(state, {
+          root: null,
+          workspaceEpoch: null,
+          chromeMode: "workspace",
+          fileCount: 0,
+          directoryCache: new Map(),
+          expandedDirs: new Set(),
+          pinnedFiles: [],
+          sidebarMetadataVersion: 0,
+          isIndexing: false,
+        }),
+      );
+    } finally {
+      resumeFeedbackPersistence(closeOwner);
+    }
   },
 
   restoreFromBundle: async (bundle) => {

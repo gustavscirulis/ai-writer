@@ -12,7 +12,7 @@ test("duplicate file tabs select the active view and each receives an undoable r
   const makeView = () => {
     let state = EditorState.create({
       doc: "Original",
-      extensions: [history(), agentEditingExtensions(null, new Compartment())],
+      extensions: [history(), agentEditingExtensions(null, new Compartment(), () => "/note.md")],
     });
     return {
       get state() {

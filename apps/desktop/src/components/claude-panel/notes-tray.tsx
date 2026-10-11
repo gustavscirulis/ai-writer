@@ -1,3 +1,4 @@
+import { useActiveFilePath } from "@/hooks/use-tabs";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import {
@@ -22,7 +23,8 @@ import { attachmentLabel } from "@/lib/feedback-anchors";
 const LINK = "text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40";
 
 export function FeedbackError() {
-  const error = useFeedbackError();
+  const path = useActiveFilePath();
+  const error = useFeedbackError(path);
   if (!error) return null;
   const persistence = error.startsWith("Could not ") && error.includes("feedback");
   return (
@@ -42,7 +44,7 @@ export function FeedbackError() {
         <button
           type="button"
           aria-label="Dismiss"
-          onClick={dismissFeedbackError}
+          onClick={() => path && dismissFeedbackError(path)}
           className="grid size-5 shrink-0 place-items-center rounded-full text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
         >
           <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
@@ -66,7 +68,7 @@ export function NotesTray({
   onToggle: () => void;
   onTakeBack: (text: string) => void;
 }) {
-  const status = useChatStatus();
+  const status = useChatStatus(path);
   const busy = status === "running" || status === "stopping";
   const ready = notes.filter(canApplyFeedback);
   if (!notes.length) return null;

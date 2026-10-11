@@ -13,13 +13,20 @@ pub enum AgentEvent {
     Exit { code: Option<i32> },
 }
 
-pub struct Input {
-    pub line: String,
-    pub ack: oneshot::Sender<Result<(), String>>,
+pub enum Input {
+    User {
+        line: String,
+        ack: oneshot::Sender<Result<(), String>>,
+    },
+    Permission {
+        request_id: String,
+        allow: bool,
+        ack: oneshot::Sender<Result<(), String>>,
+    },
 }
 
 pub struct AgentProcess {
-    pub id: String,
+    pub note: std::path::PathBuf,
     pub input: mpsc::Sender<Input>,
     pub cancel: watch::Sender<bool>,
     pub finished: watch::Receiver<bool>,

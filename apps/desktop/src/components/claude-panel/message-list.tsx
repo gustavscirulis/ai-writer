@@ -5,7 +5,6 @@ import {
   useChatMessages,
   useChatNotices,
   useChatStatus,
-  useOwnsChatTurn,
 } from "@/hooks/use-claude";
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import type { ChatMessage } from "@/lib/claude-stream";
@@ -36,10 +35,9 @@ const SUGGESTIONS = [
 export function MessageList() {
   const path = useActiveFilePath();
   const messages = useChatMessages(path);
-  const owns = useOwnsChatTurn(path);
-  const error = useChatError();
-  const notices = useChatNotices();
-  const status = useChatStatus();
+  const error = useChatError(path);
+  const notices = useChatNotices(path);
+  const status = useChatStatus(path);
   const scrollRef = useConversationScroll();
   const turns = groupTurns(messages);
   const lastId = messages[messages.length - 1]?.id;
@@ -68,7 +66,7 @@ export function MessageList() {
                   key={suggestion}
                   type="button"
                   disabled={!path || status === "running" || status === "stopping"}
-                  onClick={() => void sendChat(suggestion)}
+                  onClick={() => path && void sendChat(path, suggestion)}
                   className="rounded-full border border-[var(--line-subtle)] px-[11px] py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors duration-150 hover:border-transparent hover:bg-[var(--surface-subtle)] active:scale-[0.97] disabled:opacity-50"
                 >
                   {suggestion}
@@ -76,8 +74,8 @@ export function MessageList() {
               ))}
             </div>
             <p className="mt-7 text-[11px] leading-relaxed text-[var(--text-muted)]">
-              Uses your installed Claude Code and its terminal sign-in. It can edit workspace files
-              and run tools allowed by your Claude Code settings.
+              Uses your installed Claude Code and its terminal sign-in. It reads workspace context
+              and edits only this note. You can run another agent on a different note.
             </p>
           </div>
         )}
@@ -89,17 +87,13 @@ export function MessageList() {
               <AssistantTurn
                 key={turn.messages[0].id}
                 messages={turn.messages}
-                live={
-                  owns &&
-                  status === "running" &&
-                  turn.messages[turn.messages.length - 1].id === lastId
-                }
+                live={status === "running" && turn.messages[turn.messages.length - 1].id === lastId}
               />
             ),
           )}
         </div>
-        {owns && <ChatActivity path={path} />}
-        {owns && notices.length > 0 && (
+        {<ChatActivity path={path} />}
+        {notices.length > 0 && (
           <div className="mt-4 flex">
             <Disclosure
               label={<span>CLI notices</span>}
@@ -112,7 +106,7 @@ export function MessageList() {
             </Disclosure>
           </div>
         )}
-        {owns && error && (
+        {error && (
           <p
             role="alert"
             className="mt-4 whitespace-pre-wrap break-words rounded-xl bg-[var(--surface-subtle)] p-3 text-[12px] leading-relaxed"

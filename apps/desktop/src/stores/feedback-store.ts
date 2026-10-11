@@ -11,7 +11,7 @@ import {
   recoverFeedbackAnchor,
   type FeedbackAnchor,
 } from "@/lib/feedback-anchors";
-import { waitForPathMutations, setAppClosing } from "@/lib/agent-turn";
+import { waitForPathMutations, setAppClosing, documentPath } from "@/lib/agent-turn";
 import type { AgentTurnOutcome } from "@/lib/agent-request";
 
 /** `attached` items sit in the chat composer; `pending` ones are notes saved for the next pass. */
@@ -42,11 +42,12 @@ interface FeedbackState {
   generation: number;
   loaded: boolean;
   error: string | null;
+  turnErrors: Record<string, string | null>;
   highlighted: FeedbackHighlight | null;
   byPath: Record<string, FeedbackItem[]>;
   load: (root: string | null, generation: number) => Promise<void>;
   retryPersistence: () => Promise<void>;
-  dismissError: () => void;
+  dismissError: (path: string) => void;
   attach: (path: string, target: FeedbackAnchor, quote?: string | null) => boolean;
   highlight: (highlighted: FeedbackHighlight | null) => void;
   remove: (path: string, id: string) => void;
@@ -65,13 +66,13 @@ interface FeedbackState {
 }
 let hydrationToken = 0;
 let closing = false;
-export function resumeFeedbackPersistence() {
-  closing = false;
-  setAppClosing(false);
+type CloseOwner = string | symbol;
+const closeOwners = new Set<CloseOwner>();
+export function resumeFeedbackPersistence(owner: CloseOwner = "legacy") {
+  closeOwners.delete(owner);
+  closing = closeOwners.size > 0;
+  setAppClosing(closing);
 }
-const isPersistenceError = (error: string | null) =>
-  !!error?.startsWith("Could not ") &&
-  (error.includes("save feedback") || error.includes("load feedback"));
 const checkpoints = new Map<string, string>();
 const writes = new Map<string, Promise<void>>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -107,13 +108,14 @@ function persist(root: string, byPath: FeedbackState["byPath"], immediate = fals
   return Promise.resolve();
 }
 
-export function beginFeedbackClose() {
+export function beginFeedbackClose(owner: CloseOwner = "legacy") {
+  closeOwners.add(owner);
   closing = true;
   setAppClosing(true);
 }
 
-export async function flushAllFeedbackPersistence() {
-  beginFeedbackClose();
+export async function flushAllFeedbackPersistence(owner: CloseOwner = "legacy") {
+  beginFeedbackClose(owner);
   try {
     await waitForPathMutations();
     for (;;) {
@@ -233,6 +235,7 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   generation: 0,
   loaded: false,
   error: null,
+  turnErrors: {},
   highlighted: null,
   byPath: {},
   load: async (root, generation) => {
@@ -243,6 +246,7 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
       generation,
       loaded: false,
       error: null,
+      turnErrors: {},
       highlighted: null,
       byPath: {},
     });
@@ -285,8 +289,8 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
       /* persistence already exposes the error */
     }
   },
-  dismissError: () => {
-    if (!isPersistenceError(get().error)) set({ error: null });
+  dismissError: (path) => {
+    set((state) => ({ turnErrors: { ...state.turnErrors, [path]: null } }));
   },
   highlight: (highlighted) => {
     const current = get().highlighted;
@@ -420,19 +424,32 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
         checkpoints.delete(path);
       }
     }
+    const turnErrors: FeedbackState["turnErrors"] = {};
+    for (const [path, error] of Object.entries(state.turnErrors)) {
+      const next =
+        path === oldPath
+          ? newPath
+          : directory && path.startsWith(`${oldPath}/`)
+            ? newPath + path.slice(oldPath.length)
+            : path;
+      turnErrors[next] = error;
+      changed ||= next !== path;
+    }
     if (!changed) return;
-    set({ byPath });
+    set({ byPath, turnErrors });
     void persist(state.root, byPath, true).catch(() => {});
   },
   begin: (path, ids) => {
     const state = get();
     if (closing) throw new Error("Writer is saving feedback before closing.");
     if (!state.root || !state.loaded) throw new Error("Wait for saved feedback to load.");
-    if (!isPersistenceError(state.error)) set({ error: null });
+    set((state) => ({ turnErrors: { ...state.turnErrors, [path]: null } }));
     if (
-      Object.values(state.byPath)
-        .flat()
-        .some((item) => item.status === "running")
+      Object.entries(state.byPath).some(
+        ([entry, items]) =>
+          documentPath(entry) === documentPath(path) &&
+          items.some((item) => item.status === "running"),
+      )
     )
       throw new Error("Feedback is already being applied.");
     const items = (state.byPath[path] ?? []).filter((item) => ids.includes(item.id));
@@ -511,16 +528,19 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
       true,
       true,
     );
-    if (applied && !isPersistenceError(get().error)) set({ error: null });
-    if (!applied)
-      set({
-        error: outcome.changed
-          ? "This pass changed the document before it stopped. Review the changes before retrying."
-          : (outcome.error ??
-            (outcome.status === "cancelled"
-              ? "Stopped. Your notes are still saved."
-              : "No document changes were made. Your notes are still saved.")),
-      });
+    set((state) => ({
+      turnErrors: {
+        ...state.turnErrors,
+        [batch.path]: applied
+          ? null
+          : outcome.changed
+            ? "This pass changed the document before it stopped. Review the changes before retrying."
+            : (outcome.error ??
+              (outcome.status === "cancelled"
+                ? "Stopped. Your notes are still saved."
+                : "No document changes were made. Your notes are still saved.")),
+      },
+    }));
   },
 }));
 
@@ -555,10 +575,12 @@ export function captureFeedbackPathRewrite() {
 }
 
 /** Called by the turn owner before unlocking; includes documents without views. */
-export async function reconcileFeedbackAfterTurn() {
+export async function reconcileFeedbackAfterTurn(target: string) {
   const { root, generation, byPath } = useFeedbackStore.getState();
   const failures = new Map<string, unknown>();
-  for (const path of Object.keys(byPath)) {
+  for (const path of Object.keys(byPath).filter(
+    (path) => documentPath(path) === documentPath(target),
+  )) {
     const current = useFeedbackStore.getState();
     if (current.root !== root || current.generation !== generation) return failures;
     try {
@@ -582,7 +604,12 @@ export async function reconcileFeedbackAfterTurn() {
         true,
         true,
       );
-      useFeedbackStore.setState({ error: `Feedback target unavailable: ${message(error)}` });
+      useFeedbackStore.setState((state) => ({
+        turnErrors: {
+          ...state.turnErrors,
+          [path]: `Feedback target unavailable: ${message(error)}`,
+        },
+      }));
     }
   }
   return failures;

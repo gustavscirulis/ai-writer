@@ -17,7 +17,7 @@ use std::time::Instant;
 /// without clobbering each other.
 pub struct WorkspaceState {
     pub agent_epoch: AtomicU64,
-    pub agent: Mutex<Option<crate::commands::agent::AgentProcess>>,
+    pub agents: Mutex<HashMap<String, crate::commands::agent::AgentProcess>>,
     pub workspace_root: RwLock<Option<PathBuf>>,
     pub file_index: RwLock<Vec<IndexedFile>>,
     pub file_index_revision: AtomicU64,
@@ -90,7 +90,7 @@ impl Default for WorkspaceState {
     fn default() -> Self {
         Self {
             agent_epoch: AtomicU64::new(0),
-            agent: Mutex::new(None),
+            agents: Mutex::new(HashMap::new()),
             workspace_root: RwLock::new(None),
             file_index: RwLock::new(Vec::new()),
             file_index_revision: AtomicU64::new(0),
@@ -113,9 +113,9 @@ impl Default for WorkspaceState {
 
 impl WorkspaceState {
     pub fn stop_agent(&self) {
-        let process = self.agent.lock();
+        let processes = self.agents.lock();
         self.agent_epoch.fetch_add(1, Ordering::SeqCst);
-        if let Some(process) = process.as_ref() {
+        for process in processes.values() {
             process.stop();
         }
     }

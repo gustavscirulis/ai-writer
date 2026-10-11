@@ -1,3 +1,5 @@
+import { editorDocumentPath, subscribeEditorDocument } from "@/lib/editor-views";
+import { undo, redo } from "@codemirror/commands";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNodeRef } from "@lezer/common";
@@ -64,6 +66,10 @@ class MermaidWidget extends WidgetType {
       ariaLabel,
       source: this.fenceText,
       onSourceChange,
+      documentPath: () => editorDocumentPath(view),
+      subscribeDocument: (listener) => subscribeEditorDocument(view, listener),
+      onUndo: () => undo(view),
+      onRedo: () => redo(view),
       onExpand,
     });
     if (result.error) handle.updateSource("", this.fenceText, result.error);

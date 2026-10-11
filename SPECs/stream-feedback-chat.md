@@ -43,7 +43,8 @@ Anchors:
   - the selection pill, a tooltip StateField;
   - the gutter overlay and marks, a ViewPlugin appended to `view.dom`, because the scroller clips at the text column;
   - the ⌘L keymap.
-- `claude-store.send(text, { turn, attachments })` turns attachments into `{fromLine, toLine, text}` context and keeps them on the user message. `applyFeedback` uses the same path, with a turn that prepares and completes the batch.
+- `claude-store.send(path, text, { turn, attachments })` turns attachments into `{fromLine, toLine, text}` context and keeps them on the user message. `applyFeedback` uses the same path, with a turn that prepares and completes the batch.
+- Batches and outcome errors belong to their canonical note. Applying A does not block B; a no-op/failure on A cannot clear B's notes or errors. Reconciliation reads only the turn's target. Persistence errors remain workspace-wide.
 - `components/claude-panel/notes-tray.tsx` and `composer.tsx` are the UI. The Feedback panel, its button and its layout rules are removed.
 
 ## QA

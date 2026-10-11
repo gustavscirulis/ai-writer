@@ -5,13 +5,18 @@ import {
   agentEditingExtensions,
   agentFrontmatterField,
   agentReloadTransaction,
+  watchAgentEditing,
 } from "../src/components/editor-area/agent-editing";
-import { setAgentEditing } from "../src/lib/agent-turn";
-afterEach(() => setAgentEditing(false));
+import { acquireAgentEditing, clearAgentEditing } from "../src/lib/agent-turn";
+import type { EditorView } from "@codemirror/view";
+afterEach(clearAgentEditing);
 function harness(body: string, frontmatter: string | null) {
   let state = EditorState.create({
     doc: body,
-    extensions: [history(), agentEditingExtensions(frontmatter, new Compartment())],
+    extensions: [
+      history(),
+      agentEditingExtensions(frontmatter, new Compartment(), () => "/note.md"),
+    ],
   });
   return {
     get state() {
@@ -28,10 +33,10 @@ function harness(body: string, frontmatter: string | null) {
 for (const after of ["Revised paragraph", "Original paragraph"]) {
   test(`agent reload undoes/redoes frontmatter and ${after === "Original paragraph" ? "unchanged" : "changed"} body in one step`, () => {
     const editor = harness("Original paragraph", "title: Before");
-    setAgentEditing(true);
+    const release = acquireAgentEditing("/note.md");
     editor.change(agentReloadTransaction(editor.state.doc.toString(), after, "title: After"));
     expect(undoDepth(editor.state)).toBe(1);
-    setAgentEditing(false);
+    release();
     expect(undo(editor)).toBe(true);
     expect(editor.state.doc.toString()).toBe("Original paragraph");
     expect(editor.state.field(agentFrontmatterField)).toBe("title: Before");
@@ -42,9 +47,41 @@ for (const after of ["Revised paragraph", "Original paragraph"]) {
 }
 test("explicit widget/formatting document dispatches are rejected while locked", () => {
   const editor = harness("Draft", null);
-  setAgentEditing(true);
+  acquireAgentEditing("/note.md");
   editor.change({ changes: { from: 0, insert: "Unexpected" } });
   expect(editor.state.doc.toString()).toBe("Draft");
   editor.change(agentReloadTransaction("Draft", "Approved reload", null));
   expect(editor.state.doc.toString()).toBe("Approved reload");
+});
+
+test("a reused pane reconfigures readonly and dispatch guards for its current note", () => {
+  let path = "/a.md";
+  const compartment = new Compartment();
+  let state = EditorState.create({
+    doc: "Draft",
+    extensions: [agentEditingExtensions(null, compartment, () => path)],
+  });
+  const view = {
+    dispatch(spec: TransactionSpec) {
+      state = state.update(spec).state;
+    },
+  } as unknown as EditorView;
+  const release = acquireAgentEditing("/a.md");
+  let unwatch = watchAgentEditing(view, compartment, () => path);
+  expect(state.readOnly).toBe(true);
+  view.dispatch({ changes: { from: 0, insert: "Blocked" } });
+  expect(state.doc.toString()).toBe("Draft");
+  unwatch();
+  path = "/b.md";
+  unwatch = watchAgentEditing(view, compartment, () => path);
+  expect(state.readOnly).toBe(false);
+  view.dispatch({ changes: { from: 0, insert: "B: " } });
+  expect(state.doc.toString()).toBe("B: Draft");
+  unwatch();
+  path = "/a.md";
+  unwatch = watchAgentEditing(view, compartment, () => path);
+  expect(state.readOnly).toBe(true);
+  release();
+  expect(state.readOnly).toBe(false);
+  unwatch();
 });
