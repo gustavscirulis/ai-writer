@@ -1,6 +1,31 @@
 # Changelog
 
+## 2026-10-11
+
+- Clear the Chat message field immediately when sending. If saving, startup or delivery fails, restore the message for retry without replacing a newer draft.
+
+- Render Claude replies as Markdown, including headings, lists, links, code blocks and tables while streaming. Wide code and tables scroll inside Chat, and web/email links open in your default app.
+
+- Align the Chat title and header actions with the note tabs. The Chat header's empty space drags the window, while its buttons stay clickable.
+
+- Match the Chat composer's focus state to other app inputs: a subtle rounded border replaces the orange rectangle inside the message field.
+
 ## 2026-10-10
+
+- Selected text now offers “Add to chat” in its right-click menu and above the selection, matching the paragraph button. Write a note in the composer and press ⌘Enter to save it for later.
+
+- Give feedback in Chat instead of a separate Feedback panel. Select text and press ⌘L (or click "Comment" above the selection) to point Chat at it. To point at a whole paragraph, ⌥-click it or use the button to the right of it. Pointed-at text appears as chips in the composer.
+  - Enter asks Claude to make the change now. ⌘Enter saves it as a note for later, without calling Claude.
+  - Saved notes are underlined in the note and collect above the composer. Apply all sends them in one pass.
+  - Click a saved note to edit it in the composer again.
+  - Hovering a chip, note or earlier message highlights the text it points at.
+  - There's no longer a feedback mode, so clicking in the note always just edits it.
+
+- Each note now has its own Chat. Switching notes switches the conversation, drafts are kept per note, and New chat only clears the note you're on. The composer no longer repeats the note's name, and the "Claude Code · experimental" label is gone.
+
+- Redesign the Feedback panel to match Chat. Each piece of feedback is a plain bubble with just your words; click it to edit, remove, save it for later, or apply it now. Hovering a bubble or its block links the two with a single line, and nothing is drawn beside blocks otherwise. "Apply all" sends every saved piece of feedback in one pass. Clicking a block and then leaving without typing anything no longer leaves an empty bubble behind.
+
+- Redesign the Chat panel. Your messages appear as bubbles with the selected text they were sent with, all of a reply's tool use folds into one expandable line (even when Claude splits it across several steps), approvals show as a card with the request summarized (the full input is one click away), and the composer is a rounded field that grows as you type and shows which note and how much selected text the message will include. CLI notices use the same expandable line as tools. New chat and Close are icon buttons, and an empty chat offers a few starting prompts.
 
 - Show a subtle Thinking text shimmer in Chat and stream answers as chunks arrive. Preserve earlier text when a reply contains multiple blocks, keep partial replies after Stop, and follow new content only while reading at the bottom. Reduced motion uses static status text.
 

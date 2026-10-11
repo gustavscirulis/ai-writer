@@ -52,6 +52,23 @@ function makeTitleHandlers(): TitleMenuHandlers & { calls: string[] } {
 }
 
 describe("buildEditorBodyMenuItemsSpec", () => {
+  test("offers Add to chat only when supplied and forwards its action", () => {
+    const handlers = makeBodyHandlers();
+    expect(
+      buildEditorBodyMenuItemsSpec(handlers, false).some(
+        (e) => e.kind === "item" && e.id === "add-to-chat",
+      ),
+    ).toBe(false);
+    handlers.onAddToChat = () => handlers.calls.push("add-to-chat");
+    const item = buildEditorBodyMenuItemsSpec(handlers, false).find(
+      (e) => e.kind === "item" && e.id === "add-to-chat",
+    );
+    expect(item).toMatchObject({ text: "Add to chat", accelerator: "CmdOrCtrl+L" });
+    if (item?.kind !== "item") throw new Error("expected Add to chat");
+    item.action();
+    expect(handlers.calls).toEqual(["add-to-chat"]);
+  });
+
   test("emits base items without link actions when hasLink is false", () => {
     const spec = buildEditorBodyMenuItemsSpec(makeBodyHandlers(), false);
     const summary = spec.map((e) =>

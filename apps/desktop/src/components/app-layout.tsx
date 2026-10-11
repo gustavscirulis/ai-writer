@@ -4,6 +4,7 @@ import {
   useChatPanelVisible,
   useChatPanelWidth,
   useViewportWidth,
+  useToolPermissions,
 } from "@/hooks/use-claude";
 import { useCallback, useRef, useState } from "react";
 import { Sidebar } from "./sidebar";
@@ -33,7 +34,8 @@ export function AppLayout() {
 
 function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   const { isSidebarCollapsed, sidebarWidth, setSidebarWidth } = useSidebar();
-  const chatVisible = useChatPanelVisible() && !showWelcome;
+  const chatPreferred = useChatPanelVisible();
+  const permissions = useToolPermissions();
   const chatWidth = useChatPanelWidth();
   const viewportWidth = useViewportWidth();
   const maxSidebarWidth = Math.max(280, Math.min(420, Math.floor(viewportWidth * 0.35)));
@@ -43,6 +45,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
     clampSidebarWidth(sidebarWidth, maxSidebarWidth),
   );
   const draftSidebarWidthRef = useRef(draftSidebarWidth);
+  const chatVisible = !showWelcome && (chatPreferred || permissions.length > 0);
   const maxChatWidth = Math.max(
     260,
     Math.min(560, viewportWidth - (isSidebarCollapsed ? 0 : draftSidebarWidth) - 320),
@@ -142,6 +145,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
         style={{
           height: "var(--chrome-drag-height)",
           left: isSidebarCollapsed ? 0 : draftSidebarWidth,
+          right: "var(--agent-panel-width)",
         }}
       />
       <div

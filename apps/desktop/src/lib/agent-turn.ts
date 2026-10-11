@@ -1,5 +1,39 @@
 /** Synchronous handoff guard shared by save/store/editor/watcher boundaries. */
 let locked = false;
+let appClosing = false;
+export function isAppClosing() {
+  return appClosing;
+}
+export function setAppClosing(value: boolean) {
+  appClosing = value;
+}
+let pathMutations = 0;
+const mutationWaiters = new Set<() => void>();
+export function waitForPathMutations() {
+  return pathMutations === 0
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => mutationWaiters.add(resolve));
+}
+export function isPathMutating() {
+  return pathMutations > 0;
+}
+/** Relocation and an agent handoff acquire mutually exclusive synchronous ownership. */
+export function beginPathMutation() {
+  if (appClosing) throw new Error("Writer is saving feedback before closing.");
+  if (locked) throw new Error("Wait for AI editing to finish before moving files.");
+  pathMutations++;
+  let released = false;
+  return () => {
+    if (!released) {
+      released = true;
+      pathMutations--;
+      if (pathMutations === 0) {
+        for (const resolve of mutationWaiters) resolve();
+        mutationWaiters.clear();
+      }
+    }
+  };
+}
 let revision = 0;
 const flushers = new Set<() => void>();
 export function registerPendingEditorFlush(flush: () => void) {

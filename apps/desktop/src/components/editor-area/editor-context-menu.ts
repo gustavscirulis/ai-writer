@@ -21,6 +21,7 @@ export type EditorBodyMenuActionId =
   | "cut"
   | "copy"
   | "paste"
+  | "add-to-chat"
   | "select-all"
   | "open-link"
   | "copy-link";
@@ -30,6 +31,7 @@ export interface EditorBodyMenuHandlers {
   onCopy: () => void;
   onPaste: () => void;
   onSelectAll: () => void;
+  onAddToChat?: () => void;
   onOpenLink?: () => void;
   onCopyLink?: () => void;
   onRunCommand?: (id: EditorCommandId) => void;
@@ -111,6 +113,17 @@ export function buildEditorBodyMenuItemsSpec(
     { kind: "item", id: "copy", text: "Copy", action: handlers.onCopy },
     { kind: "item", id: "paste", text: "Paste", action: handlers.onPaste },
   ];
+
+  if (handlers.onAddToChat) {
+    items.push({ kind: "separator" });
+    items.push({
+      kind: "item",
+      id: "add-to-chat",
+      text: "Add to chat",
+      accelerator: "CmdOrCtrl+L",
+      action: handlers.onAddToChat,
+    });
+  }
 
   if (handlers.onRunCommand) {
     const run = handlers.onRunCommand;

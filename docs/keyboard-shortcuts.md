@@ -60,6 +60,17 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 | Cmd+Alt+1 ... Cmd+Alt+6 | Heading 1-6               |
 | Cmd+Alt+0               | Paragraph (strip heading) |
 
+## Chat
+
+| Shortcut             | Action                                                                  |
+| -------------------- | ----------------------------------------------------------------------- |
+| Cmd+L                | Add the selection to the Chat composer (the block at the caret if none) |
+| Alt+click            | Add the clicked block to the Chat composer                              |
+| Enter (composer)     | Send: Claude makes the change now                                       |
+| Cmd+Enter (composer) | Save the draft as notes for the next pass                               |
+| Backspace (composer) | Remove the last attachment when the draft is empty                      |
+| Escape (composer)    | Clear attachments                                                       |
+
 ## Editor (inherited from CodeMirror)
 
 Standard editing shortcuts provided by CodeMirror's basic setup.

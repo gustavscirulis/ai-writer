@@ -2,9 +2,27 @@
 
 ## In Progress
 
+- Stream feedback in Chat: [`SPECs/stream-feedback-chat.md`](SPECs/stream-feedback-chat.md). Chosen from the unified feedback/chat prototype ([`SPECs/unified-feedback-chat-prototype.md`](SPECs/unified-feedback-chat-prototype.md)); replaces the separate Feedback column from [`SPECs/paragraph-feedback.md`](SPECs/paragraph-feedback.md).
+  - How it works:
+    - Select text and press ⌘L (or the "Add to chat" pill / selection context menu), or ⌥-click / use the right-hand button on a block, to attach it to the composer.
+    - Enter edits now; ⌘Enter saves notes to a tray above the composer, applied together.
+  - Status: verified in the playground and the seeded desktop dev server. Native Tauri QA (a real apply turn, reload recovery) is still pending.
+
 - Reveal-in-sidebar + residual external-watcher misses: [`SPECs/reveal-in-sidebar-and-external-watcher-spec.md`](SPECs/reveal-in-sidebar-and-external-watcher-spec.md) — keep the explicit tab-context-menu "Reveal in sidebar" action working, leave ordinary file opens from expanding the Everything tree, and characterize the remaining external-file-watcher miss cases through a logging + manual-repro pass before patching further.
 
 ## Done
+
+- Clear Chat composer immediately on send: [`SPECs/chat-composer-send.md`](SPECs/chat-composer-send.md) — store-owned clearing and safe failure recovery; checks, 861 tests and desktop build pass. Native QA remains pending.
+
+- Markdown in Claude replies: [`SPECs/chat-markdown-replies.md`](SPECs/chat-markdown-replies.md) — CommonMark/GFM rendering while streaming, bounded code/tables, safe system links and isolated footnotes. Checks, 849 tests and desktop build pass; rendered/native QA remains pending.
+
+- Align Chat header with the tab row: [`SPECs/chat-header-alignment.md`](SPECs/chat-header-alignment.md) — share the tabs' height/padding, remove the extra top spacer, and let Chat own its header drag region. Checks, 834 tests and desktop build pass; native alignment/drag QA remains pending.
+
+- Match Chat composer focus to the other app inputs: remove the orange inner textarea outline and retain the rounded neutral focus border. Frontend checks, 834 tests and desktop build pass.
+
+- Make selected-text notes discoverable: [`SPECs/selection-add-to-chat.md`](SPECs/selection-add-to-chat.md) — “Add to chat” on the selection pill and native selection context menu; existing quote/composer/⌘Enter note workflow retained. Frontend checks, 834 tests and desktop build pass; rendered/native QA is pending browser permission.
+
+- Chat panel redesign ("Thread"): chosen from a three-way prototype (Thread / Margin / Float) in the playground. User bubbles quote the sent selection (`ChatMessage.selection`, set in `claude-store` send), consecutive assistant messages grouped into one turn with a single collapsible tool summary (`AssistantTurn`; the stream emits one message per tool step), CLI notices on the same `Disclosure` row, a live "Selection · N words" composer chip fed by `subscribeEditorSelection` in `editor-views.ts` (notified from `storeSyncExtension`), inline approval card with input preview, auto-growing composer (JS height since WKWebView lacks `field-sizing`), suggestion chips. Verified rendered in the browser against the real stores in light/dark, empty/thinking/approval states; native window QA still pending.
 
 - Chat thinking and answer streaming: [`SPECs/chat-thinking-streaming.md`](SPECs/chat-thinking-streaming.md) — reduced-motion-aware text shimmer, incremental block-safe replies, partial-answer preservation and reader-follow scrolling. Rendered browser QA remains blocked by localhost permission.
 
@@ -95,6 +113,8 @@
 - Mermaid drag-selection edit-mode flip: [`SPECs/mermaid-drag-selection-edit-mode-flip-spec.md`](SPECs/mermaid-drag-selection-edit-mode-flip-spec.md) — freeze `editMode` for the duration of a pointer drag-selection so the widget doesn't flip into source view mid-drag.
 
 ## Up Next
+
+- Protect newer Chat turns from an older failed delivery acknowledgement: a streamed result can finish before its input acknowledgement settles, allowing a subsequent send in the same generation. The existing delivery catch can then stop the newer process. Serialize pending acknowledgements or give recovery explicit attempt ownership; reproduce with deferred claude_send acknowledgements (draft restoration already guards attempt identity).
 
 - Backspace on an empty nested item at depth 2 or deeper leaves a whitespace-only line (`····- ` → `··`), per the literal "marker plus one indent level" rule in [`SPECs/list-prefix-interaction-zones-spec.md`](SPECs/list-prefix-interaction-zones-spec.md). Consider outdenting to the parent's indent instead, matching Enter on an empty nested item.
 - Nested ordered items (now reachable with Tab) render with the fixed 3ch ordered hanging indent, so their leading source spaces stay visible; give ordered lines the same depth-aware indent as bullets.

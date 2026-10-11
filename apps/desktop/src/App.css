@@ -159,6 +159,7 @@
 .cm-editor:focus-visible,
 /* Remove focus-visible on editor inputs that manage their own styles */
 [data-document-header] textarea:focus-visible,
+[data-chat-composer] textarea:focus-visible,
 [data-frontmatter] input:focus-visible,
 [data-settings-panel] input:focus-visible,
 [data-settings-panel] select:focus-visible,

@@ -30,3 +30,14 @@ export async function setPreference<T>(key: string, value: T): Promise<void> {
     // Silently fail in non-Tauri environments (tests)
   }
 }
+
+/** Durable boundaries for user-authored data: callers own error recovery. */
+export async function readPreferenceStrict<T>(key: string): Promise<T | undefined> {
+  return (await getStore()).get<T>(key);
+}
+
+export async function writePreferenceStrict<T>(key: string, value: T): Promise<void> {
+  const store = await getStore();
+  await store.set(key, value);
+  await store.save();
+}

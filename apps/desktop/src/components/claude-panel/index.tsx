@@ -1,4 +1,6 @@
 import { useRef, type PointerEvent } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import {
   newChat,
   setChatPanelWidth,
@@ -6,9 +8,13 @@ import {
   useChatPanelWidth,
   useChatStatus,
 } from "@/hooks/use-claude";
+import { useActiveFilePath } from "@/hooks/use-tabs";
 import { PermissionRequest } from "./permission-request";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
+
+const HEADER_BUTTON =
+  "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40";
 
 export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5) {
   return Math.max(260, Math.min(560, maxWidth, Math.round(width)));
@@ -17,6 +23,7 @@ export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5
 export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
   const status = useChatStatus();
+  const path = useActiveFilePath();
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
   const setDraft = (next: number) =>
@@ -35,7 +42,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
     <aside
       ref={rootRef}
       aria-label="Chat panel"
-      className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtle)] bg-[var(--bg)] pt-[var(--chrome-drag-height)]"
+      className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] text-[13px] text-[var(--text-primary)]"
       style={{ width: "var(--agent-panel-width)" }}
     >
       <div
@@ -76,29 +83,36 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
         onPointerUp={(event) => finishResize(event, true)}
         onPointerCancel={(event) => finishResize(event, false)}
       />
-      <header className="flex items-center justify-between gap-3 border-b border-[var(--line-subtle)] px-5 py-3">
-        <div>
-          <h2 className="text-[13px] font-medium">Chat</h2>
-          <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">
-            Using Claude Code · experimental
-          </p>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-[var(--text-muted)]">
+      <header
+        data-tauri-drag-region
+        className="flex shrink-0 items-center justify-between gap-3 pl-[18px] pr-2.5"
+        style={{
+          height: "calc(var(--chrome-control-height) + var(--chrome-control-padding) * 2)",
+          paddingBlock: "var(--chrome-control-padding)",
+        }}
+      >
+        <h2 data-tauri-drag-region className="text-[13px] font-semibold text-[var(--text-primary)]">
+          Chat
+        </h2>
+        <div data-tauri-drag-region className="flex items-center gap-0.5">
           <button
             type="button"
-            disabled={status === "stopping"}
-            onClick={() => void newChat()}
-            className="hover:text-[var(--text-primary)] disabled:opacity-50"
+            title="New chat"
+            aria-label="New chat"
+            disabled={!path || status === "stopping"}
+            onClick={() => path && void newChat(path)}
+            className={HEADER_BUTTON}
           >
-            New chat
+            <HugeiconsIcon icon={PencilEdit02Icon} size={16} strokeWidth={1.8} />
           </button>
           <button
             type="button"
-            onClick={toggleChatPanel}
+            title="Close"
             aria-label="Close chat panel"
-            className="rounded px-1 text-[16px] hover:text-[var(--text-primary)]"
+            onClick={toggleChatPanel}
+            className={HEADER_BUTTON}
           >
-            ×
+            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} />
           </button>
         </div>
       </header>
