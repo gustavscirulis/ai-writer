@@ -101,7 +101,7 @@ export const MarkdownReply = memo(function MarkdownReply({
   text: string;
 }) {
   return (
-    <div className="chat-markdown">
+    <div data-chat-selectable className="chat-markdown">
       <FootnotePrefix value={`chat-${id}-`}>
         <Markdown
           remarkPlugins={plugins}

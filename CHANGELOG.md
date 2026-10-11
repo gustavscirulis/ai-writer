@@ -2,6 +2,8 @@
 
 ## 2026-10-11
 
+- Select and copy text in your Chat messages and Claude replies, including formatted text, code blocks and tables.
+
 - Clear the Chat message field immediately when sending. If saving, startup or delivery fails, restore the message for retry without replacing a newer draft.
 
 - Render Claude replies as Markdown, including headings, lists, links, code blocks and tables while streaming. Wide code and tables scroll inside Chat, and web/email links open in your default app.

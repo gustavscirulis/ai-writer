@@ -12,6 +12,8 @@
 
 ## Done
 
+- Enable Chat text selection and copying: [`SPECs/Agent/worksheet-chat-text-selection.md`](SPECs/Agent/worksheet-chat-text-selection.md) — sent messages and nested Markdown are selectable; browser drag/double-click and Cmd+C paste verified. Checks, 861 tests and desktop build pass; native Tauri QA remains pending.
+
 - Clear Chat composer immediately on send: [`SPECs/chat-composer-send.md`](SPECs/chat-composer-send.md) — store-owned clearing and safe failure recovery; checks, 861 tests and desktop build pass. Native QA remains pending.
 
 - Markdown in Claude replies: [`SPECs/chat-markdown-replies.md`](SPECs/chat-markdown-replies.md) — CommonMark/GFM rendering while streaming, bounded code/tables, safe system links and isolated footnotes. Checks, 849 tests and desktop build pass; rendered/native QA remains pending.
