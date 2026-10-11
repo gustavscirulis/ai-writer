@@ -194,7 +194,10 @@ export const UserMessage = memo(function UserMessage({
           ))}
         </div>
       )}
-      <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-[16px_16px_5px_16px] bg-[var(--surface-subtle)] px-[13px] py-[9px] text-[13px] leading-[1.55] text-[var(--text-primary)] [[data-theme=dark]_&]:bg-[var(--surface-subtle-strong)]">
+      <p
+        data-chat-selectable
+        className="max-w-[85%] whitespace-pre-wrap break-words rounded-[16px_16px_5px_16px] bg-[var(--surface-subtle)] px-[13px] py-[9px] text-[13px] leading-[1.55] text-[var(--text-primary)] [[data-theme=dark]_&]:bg-[var(--surface-subtle-strong)]"
+      >
         {message.text}
       </p>
     </article>

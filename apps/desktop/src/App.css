@@ -180,8 +180,10 @@ body,
   background: transparent;
 }
 
-/* Prevent text selection everywhere except editor and form inputs */
-*:not(.cm-editor):not(.cm-content):not(.cm-line):not(textarea):not(input) {
+/* Prevent text selection outside the editor, form inputs and chat message bodies. */
+*:not(.cm-editor):not(.cm-content):not(.cm-line):not(textarea):not(input):not(
+    :where([data-chat-selectable], [data-chat-selectable] *)
+  ) {
   -webkit-user-select: none;
   user-select: none;
 }
@@ -189,7 +191,9 @@ body,
 .cm-editor,
 .cm-editor *,
 textarea,
-input {
+input,
+[data-chat-selectable],
+[data-chat-selectable] * {
   -webkit-user-select: text;
   user-select: text;
 }
