@@ -1,3 +1,4 @@
+import { useChatIndicator, showChatPanel } from "@/hooks/use-claude";
 import { useCallback, useTransition, type MouseEvent } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
@@ -42,6 +43,7 @@ function EditorTabButton({
   const kind = pageKind(tab.location);
   const filePath = kind.primaryPath(tab.location);
   const isLoading = useIsFileLoading(filePath ?? "");
+  const agent = useChatIndicator(filePath);
   const saveError = useFileSaveError(filePath);
   const documentTitle = useResolvedDocumentTitle(filePath);
   const title = documentTitle || kind.title(tab.location);
@@ -54,6 +56,7 @@ function EditorTabButton({
       tabIndex={0}
       onClick={() => onSelect(tab.id)}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         onSelect(tab.id);
@@ -69,6 +72,34 @@ function EditorTabButton({
           : "bg-transparent text-[var(--text-muted)] hover:bg-[var(--tab-active-bg)] hover:text-[var(--text-secondary)] hover:backdrop-blur-2xl"
       }`}
     >
+      {agent && (
+        <button
+          type="button"
+          aria-label={`${title}: ${agent === "approval" ? "Agent needs approval" : agent === "error" ? "Agent needs attention" : "Agent running"}. Open chat`}
+          title={
+            agent === "approval"
+              ? "Agent needs approval"
+              : agent === "error"
+                ? "Agent needs attention"
+                : "Agent running"
+          }
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(tab.id);
+            showChatPanel();
+          }}
+          className="mr-1.5 grid size-4 shrink-0 place-items-center rounded text-[var(--accent)] focus-visible:outline focus-visible:outline-2"
+        >
+          {agent === "running" ? (
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-current motion-safe:animate-pulse"
+            />
+          ) : (
+            <span aria-hidden="true">{agent === "approval" ? "?" : "!"}</span>
+          )}
+        </button>
+      )}
       {saveError ? (
         <span
           aria-label={`Save failed: ${saveError}`}

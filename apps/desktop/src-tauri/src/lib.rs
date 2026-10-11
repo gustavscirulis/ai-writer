@@ -72,9 +72,11 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
         #[cfg(target_os = "macos")]
         WindowEvent::CloseRequested { api, .. } if label == MAIN_WINDOW_LABEL => {
             api.prevent_close();
-            let _ = this_window.hide();
-            if let Some(workspace) = handle.state::<AppState>().get(&label) {
-                workspace.stop_agent();
+            if !feedback_persistence::request_close(&handle, &label) {
+                let _ = this_window.hide();
+                if let Some(workspace) = handle.state::<AppState>().get(&label) {
+                    workspace.stop_agent();
+                }
             }
         }
         WindowEvent::CloseRequested { api, .. } => {
@@ -585,6 +587,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::agent::claude::claude_start,
             commands::agent::claude::claude_send,
+            commands::agent::claude::claude_decide_permission,
             commands::agent::claude::claude_stop,
             commands::fs::read_directory,
             commands::fs::read_recent_files,

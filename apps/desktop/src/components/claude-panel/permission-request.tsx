@@ -1,3 +1,4 @@
+import { useActiveFilePath } from "@/hooks/use-tabs";
 import { useCallback, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Shield01Icon } from "@hugeicons/core-free-icons";
@@ -10,13 +11,29 @@ function inputPreview(input: Record<string, unknown>) {
 }
 
 export function PermissionRequest() {
-  const permissions = useToolPermissions();
+  const path = useActiveFilePath();
+  const permissions = useToolPermissions(path);
   const request = permissions[0];
-  if (!request) return null;
-  return <PermissionCard key={request.id} request={request} queued={permissions.length} />;
+  if (!request || !path) return null;
+  return (
+    <PermissionCard
+      key={`${path}:${request.id}`}
+      path={path}
+      request={request}
+      queued={permissions.length}
+    />
+  );
 }
 
-function PermissionCard({ request, queued }: { request: ToolPermission; queued: number }) {
+function PermissionCard({
+  path,
+  request,
+  queued,
+}: {
+  path: string;
+  request: ToolPermission;
+  queued: number;
+}) {
   const [showInput, setShowInput] = useState(false);
   const approvalRef = useCallback((node: HTMLButtonElement | null) => {
     node?.focus({ preventScroll: true });
@@ -80,7 +97,7 @@ function PermissionCard({ request, queued }: { request: ToolPermission; queued: 
           type="button"
           ref={approvalRef}
           disabled={request.pending}
-          onClick={() => void decideToolPermission(request.id, false)}
+          onClick={() => void decideToolPermission(path, request.id, false)}
           className="h-7 rounded-lg border border-[var(--line-subtle)] px-3 text-[12px] font-medium hover:bg-[var(--surface-subtle)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.97] disabled:opacity-50"
         >
           Deny
@@ -88,7 +105,7 @@ function PermissionCard({ request, queued }: { request: ToolPermission; queued: 
         <button
           type="button"
           disabled={request.pending}
-          onClick={() => void decideToolPermission(request.id, true)}
+          onClick={() => void decideToolPermission(path, request.id, true)}
           className="h-7 rounded-lg bg-[var(--text-primary)] px-3 text-[12px] font-medium text-[var(--bg-base)] hover:opacity-85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.97] disabled:opacity-50"
         >
           {request.pending ? "Sending…" : "Allow once"}

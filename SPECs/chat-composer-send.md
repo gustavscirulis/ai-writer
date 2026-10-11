@@ -5,4 +5,4 @@
 - New text entered during startup or a reply remains intact. Another note's draft and feedback-apply/suggestion sends that do not match the composer are unaffected.
 - The Chat store owns this lifecycle; the composer consumes attachments on successful delivery and no longer clears the draft after awaiting it.
 
-Validation: deferred startup/delivery, failure restoration, newer drafts, workspace transitions and rejected/unrelated sends in the existing Chat store suite. Frontend checks/tests/build; native QA remains pending.
+Validation: deferred startup/delivery, failure restoration, newer drafts, workspace transitions and rejected/unrelated sends in the Chat store suite. Parallel note tests cover delivery ownership through result/ack interleaving and lifecycle admission. Browser QA verifies simultaneous sends and independent controls; the native two-note actor/CLI probe passes.

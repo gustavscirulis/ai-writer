@@ -1,3 +1,4 @@
+import { useActiveFilePath } from "@/hooks/use-tabs";
 import { ClaudePanel, clampChatWidth } from "./claude-panel";
 import {
   toggleChatPanel,
@@ -35,7 +36,8 @@ export function AppLayout() {
 function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   const { isSidebarCollapsed, sidebarWidth, setSidebarWidth } = useSidebar();
   const chatPreferred = useChatPanelVisible();
-  const permissions = useToolPermissions();
+  const activeFilePath = useActiveFilePath();
+  const permissions = useToolPermissions(activeFilePath);
   const chatWidth = useChatPanelWidth();
   const viewportWidth = useViewportWidth();
   const maxSidebarWidth = Math.max(280, Math.min(420, Math.floor(viewportWidth * 0.35)));

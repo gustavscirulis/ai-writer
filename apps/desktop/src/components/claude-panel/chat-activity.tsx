@@ -6,10 +6,10 @@ import {
 } from "@/hooks/use-claude";
 
 export function ChatActivity({ path }: { path: string | null }) {
-  const status = useChatStatus();
+  const status = useChatStatus(path);
   const hasMessages = useHasChatMessages(path);
-  const activity = useChatActivity();
-  const permissions = useToolPermissions();
+  const activity = useChatActivity(path);
+  const permissions = useToolPermissions(path);
   const shown =
     status === "stopping" ||
     (status === "running" && permissions.length === 0 && activity !== "working");

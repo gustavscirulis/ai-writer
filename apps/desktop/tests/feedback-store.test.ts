@@ -158,7 +158,7 @@ test("partial writes require explicit review before retry; persisted running pas
 test("closed documents are reconciled after normal chat passes and folder moves retain drafts", async () => {
   create();
   vi.mocked(invoke).mockResolvedValue({ content: "Above\n\nParagraph" });
-  await reconcileFeedbackAfterTurn();
+  await reconcileFeedbackAfterTurn(path);
   expect(items()[0]?.anchor.from).toBe(7);
   store().rewritePaths(root, "/moved", true);
   expect(store().byPath["/moved/note.md"]?.[0]).toMatchObject({

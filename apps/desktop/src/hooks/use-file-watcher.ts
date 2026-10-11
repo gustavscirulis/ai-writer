@@ -1,4 +1,4 @@
-import { agentIORevision, isAgentEditing } from "@/lib/agent-turn";
+import { agentIORevision, documentPath, isAgentEditing } from "@/lib/agent-turn";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { useWorkspaceStore } from "@/stores/workspace-store";
@@ -35,25 +35,27 @@ export function useFileWatcher() {
       if (WATCHER_DEBUG) console.debug("[watcher] fs:file-changed", kind, path);
       useWorkspaceStore.getState().bumpSidebarMetadataVersion();
       const openFiles = editorApi.getOpenFiles();
-      const file = openFiles.get(path);
-
-      if (!file) return;
+      const target = documentPath(path);
+      const aliases = [...openFiles.keys()].filter((display) => documentPath(display) === target);
+      if (!aliases.length) return;
       if (kind === "deleted") return;
-      if (isSaveInFlight(path) || isAgentEditing()) return;
-      const ioRevision = agentIORevision();
+      if (aliases.some(isSaveInFlight) || isAgentEditing(target)) return;
+      const ioRevision = agentIORevision(target);
 
-      cancelSave(path);
-      void tauri.readFile(path).then((content) => {
+      for (const alias of aliases) cancelSave(alias);
+      void tauri.readFile(target).then((content) => {
         if (
-          ioRevision !== agentIORevision() ||
-          isAgentEditing() ||
+          ioRevision !== agentIORevision(target) ||
+          isAgentEditing(target) ||
           !isWorkspaceEventCurrent(workspace, currentWorkspaceIdentity())
         )
           return;
-        const latest = editorApi.getOpenFiles().get(path);
-        if (!latest || content.content === latest.diskContent) return;
-        if (WATCHER_DEBUG) console.debug("[watcher] reload-from-disk", path);
-        editorApi.reloadFromDisk(path, content.content);
+        for (const [alias, latest] of editorApi.getOpenFiles()) {
+          if (documentPath(alias) !== target || content.content === latest.diskContent) continue;
+          if (isSaveInFlight(alias)) continue;
+          if (WATCHER_DEBUG) console.debug("[watcher] reload-from-disk", alias);
+          editorApi.reloadFromDisk(alias, content.content);
+        }
       });
     });
 

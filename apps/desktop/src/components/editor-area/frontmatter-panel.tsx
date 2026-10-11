@@ -104,7 +104,7 @@ function FrontmatterRow({
 }
 
 export function FrontmatterPanel({ filePath }: FrontmatterPanelProps) {
-  const locked = useAgentEditing();
+  const locked = useAgentEditing(filePath);
   const { entries, updateEntry, removeEntry, addEntry, blurEntry, hasFrontmatter } =
     useFrontmatterEntries(filePath);
   const containerRef = useRef<HTMLFieldSetElement>(null);

@@ -1,5 +1,5 @@
 import { registerEditorView } from "@/lib/editor-views";
-import { getAgentReload } from "@/lib/agent-turn";
+import { getAgentReload, flushPendingEditors } from "@/lib/agent-turn";
 import {
   agentEditingExtensions,
   watchAgentEditing,
@@ -77,13 +77,13 @@ export function useProsemarkEditor(
   const reloadVersion = useReloadVersion(filePath);
 
   // Keep refs in sync for use by closures and the swap effect.
-  filePathRef.current = filePath;
   getScrollContainerRef.current = getScrollContainer;
   autoFocusRef.current = autoFocus;
   onViewChangeRef.current = onViewChange;
 
   const bindView = useCallback((view: EditorView, currentPath: string) => {
     agentCleanupRef.current?.();
+    filePathRef.current = currentPath;
     const unregister = registerEditorView(
       currentPath,
       view,
@@ -106,7 +106,7 @@ export function useProsemarkEditor(
       },
       () => autoFocusRef.current,
     );
-    const unwatch = watchAgentEditing(view, readOnlyCompartment.current);
+    const unwatch = watchAgentEditing(view, readOnlyCompartment.current, () => filePathRef.current);
     agentCleanupRef.current = () => {
       unregister();
       unwatch();
@@ -145,7 +145,11 @@ export function useProsemarkEditor(
         state: EditorState.create({
           doc: initialContent,
           extensions: [
-            agentEditingExtensions(file?.frontmatter ?? null, readOnlyCompartment.current),
+            agentEditingExtensions(
+              file?.frontmatter ?? null,
+              readOnlyCompartment.current,
+              () => filePathRef.current,
+            ),
             ...createEditorExtensions(
               () => filePathRef.current,
               () => disposedRef.current,
@@ -208,6 +212,7 @@ export function useProsemarkEditor(
       : Math.min(view.state.selection.main.head, content.length);
 
     if (pathChanged) {
+      flushPendingEditors(filePathRef.current);
       bindView(view, filePath);
       // Reset undo history per file. Removing the history compartment discards
       // its state field; re-adding initializes it fresh. Only history is in the

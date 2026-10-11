@@ -39,9 +39,10 @@ export function useMoveEntry() {
       const origin = workspaceIdentity();
       const rewriteFeedback = captureFeedbackPathRewrite();
       try {
-        await tauri.renameEntry(entry.path, newPath);
+        const identity = await tauri.renameEntry(entry.path, newPath);
         await rewriteFeedback(entry.path, newPath, entry.is_dir);
-        if (origin.root) await rewriteChatPaths(origin.root, entry.path, newPath, entry.is_dir);
+        if (origin.root)
+          await rewriteChatPaths(origin.root, identity.from, identity.to, entry.is_dir);
         const current = workspaceIdentity();
         if (current.root !== origin.root || current.generation !== origin.generation) return;
         if (entry.is_dir) {

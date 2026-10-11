@@ -4,6 +4,8 @@
 
 - Select and copy text in your Chat messages and Claude replies, including formatted text, code blocks and tables.
 
+- Run agents on different notes at the same time. Each note keeps its own Chat, approvals, Stop and recovery; other notes stay editable. Tab indicators open the relevant chat, and closing a tab lets its run finish. Agents can read workspace context and edit only their assigned note.
+
 - Clear the Chat message field immediately when sending. If saving, startup or delivery fails, restore the message for retry without replacing a newer draft.
 
 - Render Claude replies as Markdown, including headings, lists, links, code blocks and tables while streaming. Wide code and tables scroll inside Chat, and web/email links open in your default app.

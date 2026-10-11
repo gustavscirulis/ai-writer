@@ -1,9 +1,10 @@
 import { useFeedbackStore, EMPTY_FEEDBACK_ITEMS, type FeedbackItem } from "@/stores/feedback-store";
-import { useClaudeStore } from "@/stores/claude-store";
+import { useClaudeStore, chatForPath } from "@/stores/claude-store";
 
 export type { FeedbackItem };
 export const useFeedbackLoaded = () => useFeedbackStore((state) => state.loaded);
-export const useFeedbackError = () => useFeedbackStore((state) => state.error);
+export const useFeedbackError = (path: string | null) =>
+  useFeedbackStore((state) => state.error ?? (path ? (state.turnErrors[path] ?? null) : null));
 export const useDocumentFeedback = (path: string | null) =>
   useFeedbackStore((state) =>
     path ? (state.byPath[path] ?? EMPTY_FEEDBACK_ITEMS) : EMPTY_FEEDBACK_ITEMS,
@@ -16,14 +17,15 @@ export const saveFeedbackNotes = (path: string, text: string) => store().saveNot
 export const takeBackFeedback = (path: string, id: string) => store().takeBack(path, id);
 export const acknowledgeFeedback = (path: string, id: string) => store().acknowledge(path, id);
 export const retryFeedbackPersistence = () => store().retryPersistence();
-export const dismissFeedbackError = () => store().dismissError();
+export const dismissFeedbackError = (path: string) => store().dismissError(path);
 
 export const canApplyFeedback = (item: FeedbackItem) =>
   item.status === "pending" && item.anchor.attached && !item.reviewRequired;
 
 export async function applyFeedback(path: string, ids: string[]) {
   const claude = useClaudeStore.getState();
-  if (claude.status === "running" || claude.status === "stopping") return;
+  const chat = chatForPath(claude.chats, path);
+  if (chat.status === "running" || chat.status === "stopping") return;
   try {
     const batch = store().begin(path, ids);
     let settled = false;
@@ -33,6 +35,7 @@ export async function applyFeedback(path: string, ids: string[]) {
       store().complete(batch, outcome);
     };
     const sent = await claude.send(
+      path,
       batch.items.length === 1 ? "Apply this note" : `Apply my ${batch.items.length} notes`,
       {
         turn: { path, prepare: (disk) => store().prepare(batch, disk), complete },
@@ -43,13 +46,23 @@ export async function applyFeedback(path: string, ids: string[]) {
         })),
       },
     );
-    if (!sent && !settled && useClaudeStore.getState().status !== "stopping")
+    if (
+      !sent &&
+      !settled &&
+      chatForPath(useClaudeStore.getState().chats, path).status !== "stopping"
+    )
       complete({
         status: "failed",
         changed: false,
-        error: useClaudeStore.getState().error ?? "Could not send your notes.",
+        error:
+          chatForPath(useClaudeStore.getState().chats, path).error ?? "Could not send your notes.",
       });
   } catch (error) {
-    useFeedbackStore.setState({ error: error instanceof Error ? error.message : String(error) });
+    useFeedbackStore.setState((state) => ({
+      turnErrors: {
+        ...state.turnErrors,
+        [path]: error instanceof Error ? error.message : String(error),
+      },
+    }));
   }
 }

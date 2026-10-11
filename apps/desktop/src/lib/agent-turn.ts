@@ -1,5 +1,48 @@
 /** Synchronous handoff guard shared by save/store/editor/watcher boundaries. */
-let locked = false;
+const identities = new Map<string, string>();
+let identityGeneration = 0;
+export function documentIdentityGeneration() {
+  return identityGeneration;
+}
+export function clearDocumentPaths() {
+  identityGeneration++;
+  identities.clear();
+}
+/** Display paths remain stable; every I/O boundary uses the native resolved path. */
+export function documentPath(path: string) {
+  return identities.get(path) ?? path;
+}
+export function registerDocumentPath(path: string, canonical: string) {
+  identities.set(path, canonical);
+}
+export function rewriteDocumentPaths(
+  from: string,
+  to: string,
+  directory: boolean,
+  source: string,
+  destination: string,
+) {
+  const move = (path: string, old: string, next: string) =>
+    path === old
+      ? next
+      : directory && path.startsWith(`${old}/`)
+        ? next + path.slice(old.length)
+        : path;
+  const entries = Array.from(identities);
+  identities.clear();
+  for (const [path, canonical] of entries)
+    identities.set(move(path, from, to), move(canonical, source, destination));
+  registerDocumentPath(to, destination);
+}
+let resets = 0;
+export function reserveAgentReset() {
+  resets++;
+  return () => {
+    resets--;
+  };
+}
+const locks = new Map<string, symbol>();
+const revisions = new Map<string, number>();
 let appClosing = false;
 export function isAppClosing() {
   return appClosing;
@@ -20,7 +63,7 @@ export function isPathMutating() {
 /** Relocation and an agent handoff acquire mutually exclusive synchronous ownership. */
 export function beginPathMutation() {
   if (appClosing) throw new Error("Writer is saving feedback before closing.");
-  if (locked) throw new Error("Wait for AI editing to finish before moving files.");
+  if (isAgentEditing()) throw new Error("Wait for AI editing to finish before moving files.");
   pathMutations++;
   let released = false;
   return () => {
@@ -35,31 +78,49 @@ export function beginPathMutation() {
   };
 }
 let revision = 0;
-const flushers = new Set<() => void>();
-export function registerPendingEditorFlush(flush: () => void) {
-  flushers.add(flush);
+const flushers = new Map<() => void, () => string>();
+export function registerPendingEditorFlush(path: () => string, flush: () => void) {
+  flushers.set(flush, path);
   return () => {
     flushers.delete(flush);
   };
 }
 const listeners = new Set<() => void>();
 const reloads = new Map<string, { version: number; frontmatter: string | null }>();
-
-export function isAgentEditing() {
-  return locked;
+export function isAgentEditing(path?: string) {
+  return path === undefined ? locks.size > 0 || resets > 0 : locks.has(documentPath(path));
 }
-export function agentIORevision() {
-  return revision;
+export function agentIORevision(path?: string) {
+  return path === undefined ? revision : (revisions.get(documentPath(path)) ?? 0);
 }
-export function setAgentEditing(value: boolean) {
-  if (locked === value) return;
-  if (value) {
-    const pending = Array.from(flushers);
-    for (const flush of pending) flush();
-  }
-  locked = value;
+function changed(path: string) {
   revision++;
+  revisions.set(path, (revisions.get(path) ?? 0) + 1);
   for (const listener of listeners) listener();
+}
+export function flushPendingEditors(path: string) {
+  const key = documentPath(path);
+  for (const [flush, binding] of Array.from(flushers)) if (documentPath(binding()) === key) flush();
+}
+/** Flush embedded edits before acquiring synchronous, token-owned handoff. */
+export function acquireAgentEditing(path: string) {
+  const key = documentPath(path);
+  if (locks.has(key)) throw new Error("An agent is already editing this note.");
+  flushPendingEditors(path);
+  const owner = Symbol(key);
+  locks.set(key, owner);
+  changed(key);
+  return () => {
+    if (locks.get(key) !== owner) return;
+    locks.delete(key);
+    changed(key);
+  };
+}
+export function clearAgentEditing() {
+  for (const path of locks.keys()) {
+    locks.delete(path);
+    changed(path);
+  }
 }
 export function subscribeAgentEditing(listener: () => void) {
   listeners.add(listener);

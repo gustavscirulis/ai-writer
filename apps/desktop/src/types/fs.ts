@@ -11,6 +11,7 @@ export interface DirEntry {
 
 export interface FileContent {
   path: string;
+  canonical_path?: string;
   content: string;
   modified_at: number;
 }

@@ -22,6 +22,8 @@ import {
 import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-api";
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import { attachmentLabel } from "@/lib/feedback-anchors";
+import { documentPath } from "@/lib/agent-turn";
+import { useEditorStore } from "@/stores/editor-store";
 import { FeedbackError, NotesTray } from "./notes-tray";
 
 const MAX_INPUT_HEIGHT = 180;
@@ -65,17 +67,20 @@ function AttachmentChip({ item }: { item: FeedbackItem }) {
 export function Composer() {
   const path = useActiveFilePath();
   const text = useChatDraft(path);
-  const status = useChatStatus();
-  const error = useChatError();
+  const status = useChatStatus(path);
+  const error = useChatError(path);
   const items = useDocumentFeedback(path);
   const attached = useMemo(() => items.filter((item) => item.status === "attached"), [items]);
   const notes = useMemo(() => items.filter((item) => item.status !== "attached"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const setInput = useCallback((input: HTMLTextAreaElement | null) => {
-    inputRef.current = input;
-    registerChatComposer(input);
-  }, []);
+  const setInput = useCallback(
+    (input: HTMLTextAreaElement | null) => {
+      inputRef.current = input;
+      registerChatComposer(path, input);
+    },
+    [path],
+  );
   const busy = status === "running" || status === "stopping";
   const retryLabel =
     status === "stopping" && error
@@ -95,6 +100,7 @@ export function Composer() {
     const draft = text;
     const sent = attached;
     const ok = await sendChat(
+      path,
       draft,
       sent.map((item) => ({ anchor: item.anchor, quote: item.quote })),
     );
@@ -103,7 +109,8 @@ export function Composer() {
       path,
       sent.map((item) => item.id),
     );
-    clearAttachmentHighlight();
+    const selected = useEditorStore.getState().activeFilePath;
+    if (selected && documentPath(selected) === documentPath(path)) clearAttachmentHighlight();
   };
   const saveNotes = () => {
     if (!path || !saveFeedbackNotes(path, text)) return;
@@ -202,7 +209,7 @@ export function Composer() {
             {retryLabel ? (
               <button
                 type="button"
-                onClick={() => void stopChat()}
+                onClick={() => path && void stopChat(path)}
                 className="h-7 rounded-full bg-[var(--surface-subtle)] px-3 text-[12px] text-[var(--text-primary)]"
               >
                 {retryLabel}
@@ -213,7 +220,7 @@ export function Composer() {
                 aria-label={status === "stopping" ? "Stopping…" : "Stop"}
                 title={status === "stopping" ? "Stopping…" : "Stop"}
                 disabled={status === "stopping"}
-                onClick={() => void stopChat()}
+                onClick={() => path && void stopChat(path)}
                 className="grid size-7 place-items-center rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] transition-[opacity,transform] duration-150 active:scale-[0.94] disabled:opacity-40"
               >
                 <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" />

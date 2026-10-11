@@ -22,8 +22,8 @@ export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5
 
 export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
-  const status = useChatStatus();
   const path = useActiveFilePath();
+  const status = useChatStatus(path);
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
   const setDraft = (next: number) =>
@@ -116,9 +116,9 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
           </button>
         </div>
       </header>
-      <MessageList />
-      <PermissionRequest />
-      <Composer />
+      <MessageList key={`messages:${path}`} />
+      <PermissionRequest key={`permissions:${path}`} />
+      <Composer key={`composer:${path}`} />
     </aside>
   );
 }

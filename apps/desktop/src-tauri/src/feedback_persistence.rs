@@ -161,6 +161,12 @@ pub fn feedback_persistence_ack(
         }
         Completion::Exit => app.exit(0),
         Completion::Close => {
+            #[cfg(target_os = "macos")]
+            if window.label() == crate::MAIN_WINDOW_LABEL {
+                let _ = window.hide();
+                let _ = window.emit("feedback:resume-after-close", request_id);
+                return;
+            }
             let _ = window.destroy();
         }
         Completion::Ignore | Completion::Wait => {}

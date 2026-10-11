@@ -46,6 +46,10 @@ export type MermaidCanvasOptions = {
   // and the inline source editor. Omit both in fullscreen mode (read-only).
   source?: string;
   onSourceChange?: (next: string) => void;
+  documentPath?: () => string;
+  subscribeDocument?: (listener: () => void) => () => void;
+  onUndo?: () => boolean;
+  onRedo?: () => boolean;
   // Mount the expand button (opens fullscreen dialog) in the bottom-right cluster.
   onExpand?: () => void;
   // Mount the close button (✕) in the top-right cluster — used inside the fullscreen dialog.
@@ -127,12 +131,18 @@ export function mountMermaidCanvas(
     opts.onSourceChange(next);
   };
 
-  const unregisterFlush = registerPendingEditorFlush(flushSourceChange);
-  const unwatchLock = subscribeAgentEditing(() =>
-    innerView?.dispatch({
-      effects: readOnly.reconfigure(EditorState.readOnly.of(isAgentEditing())),
-    }),
+  const unregisterFlush = registerPendingEditorFlush(
+    opts.documentPath ?? (() => ""),
+    flushSourceChange,
   );
+  const refreshLock = () =>
+    innerView?.dispatch({
+      effects: readOnly.reconfigure(
+        EditorState.readOnly.of(isAgentEditing(opts.documentPath?.() ?? "")),
+      ),
+    });
+  const unwatchLock = subscribeAgentEditing(refreshLock);
+  const unwatchDocument = opts.subscribeDocument?.(refreshLock);
 
   const scheduleSourceChange = (): void => {
     if (sourceChangeTimer) clearTimeout(sourceChangeTimer);
@@ -144,7 +154,17 @@ export function mountMermaidCanvas(
     editing = next;
     host.classList.toggle("is-editing", editing);
     if (editing && !innerView && editingEnabled) {
-      innerView = createInnerEditor(editorPanel, currentSource, scheduleSourceChange, readOnly);
+      innerView = createInnerEditor(editorPanel, currentSource, scheduleSourceChange, readOnly, {
+        ...opts,
+        onUndo: () => {
+          flushSourceChange();
+          return opts.onUndo?.() ?? false;
+        },
+        onRedo: () => {
+          flushSourceChange();
+          return opts.onRedo?.() ?? false;
+        },
+      });
     }
     updateEditButton();
     // Wait one frame so the new flex/absolute layout has settled, then refit
@@ -463,6 +483,7 @@ export function mountMermaidCanvas(
   function destroy(): void {
     unregisterFlush();
     unwatchLock();
+    unwatchDocument?.();
     if (sourceChangeTimer) {
       clearTimeout(sourceChangeTimer);
       sourceChangeTimer = null;
@@ -615,15 +636,22 @@ function createInnerEditor(
   initialSource: string,
   onChange: () => void,
   readOnly: Compartment,
+  opts: MermaidCanvasOptions,
 ): EditorView {
   return new EditorView({
     parent: panel,
     state: EditorState.create({
       doc: initialSource,
       extensions: [
-        readOnly.of(EditorState.readOnly.of(isAgentEditing())),
+        readOnly.of(EditorState.readOnly.of(isAgentEditing(opts.documentPath?.() ?? ""))),
+        keymap.of([
+          { key: "Mod-z", run: () => opts.onUndo?.() ?? false },
+          { key: "Mod-Shift-z", run: () => opts.onRedo?.() ?? false },
+        ]),
         EditorState.transactionFilter.of((tr) =>
-          isAgentEditing() && tr.docChanged && !tr.isUserEvent("writer") ? [] : tr,
+          isAgentEditing(opts.documentPath?.() ?? "") && tr.docChanged && !tr.isUserEvent("writer")
+            ? []
+            : tr,
         ),
         // Full markdown source goes in here (including the ```mermaid …```
         // fence markers), so we use the same markdown grammar the outer

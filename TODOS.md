@@ -14,6 +14,8 @@
 
 - Enable Chat text selection and copying: [`SPECs/Agent/worksheet-chat-text-selection.md`](SPECs/Agent/worksheet-chat-text-selection.md) — sent messages and nested Markdown are selectable; browser drag/double-click and Cmd+C paste verified. Checks, 861 tests and desktop build pass; native Tauri QA remains pending.
 
+- Parallel agents per note: [`SPECs/parallel-note-agents.md`](SPECs/parallel-note-agents.md) — implementation complete: independent runs and controls, enforced canonical-note edits, targeted save/lock/reload, tab indicators and recoverable lifecycle drains. Also fixes result-before-delivery-ack ownership. Browser QA and concurrent native CLI edits pass; live macOS hide/reopen remains an environment-blocked manual check. Commit pending because the sandbox cannot write the external worktree Git metadata.
+
 - Clear Chat composer immediately on send: [`SPECs/chat-composer-send.md`](SPECs/chat-composer-send.md) — store-owned clearing and safe failure recovery; checks, 861 tests and desktop build pass. Native QA remains pending.
 
 - Markdown in Claude replies: [`SPECs/chat-markdown-replies.md`](SPECs/chat-markdown-replies.md) — CommonMark/GFM rendering while streaming, bounded code/tables, safe system links and isolated footnotes. Checks, 849 tests and desktop build pass; rendered/native QA remains pending.
@@ -115,8 +117,6 @@
 - Mermaid drag-selection edit-mode flip: [`SPECs/mermaid-drag-selection-edit-mode-flip-spec.md`](SPECs/mermaid-drag-selection-edit-mode-flip-spec.md) — freeze `editMode` for the duration of a pointer drag-selection so the widget doesn't flip into source view mid-drag.
 
 ## Up Next
-
-- Protect newer Chat turns from an older failed delivery acknowledgement: a streamed result can finish before its input acknowledgement settles, allowing a subsequent send in the same generation. The existing delivery catch can then stop the newer process. Serialize pending acknowledgements or give recovery explicit attempt ownership; reproduce with deferred claude_send acknowledgements (draft restoration already guards attempt identity).
 
 - Backspace on an empty nested item at depth 2 or deeper leaves a whitespace-only line (`····- ` → `··`), per the literal "marker plus one indent level" rule in [`SPECs/list-prefix-interaction-zones-spec.md`](SPECs/list-prefix-interaction-zones-spec.md). Consider outdenting to the parent's indent instead, matching Enter on an empty nested item.
 - Nested ordered items (now reachable with Tab) render with the fixed 3ch ordered hanging indent, so their leading source spaces stay visible; give ordered lines the same depth-aware indent as bullets.

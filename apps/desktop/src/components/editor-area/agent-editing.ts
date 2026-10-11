@@ -23,6 +23,7 @@ export const agentFrontmatterField = StateField.define<string | null>({
 export function agentEditingExtensions(
   frontmatter: string | null,
   compartment: Compartment,
+  path: () => string,
 ): Extension {
   return [
     agentFrontmatterField.init(() => frontmatter),
@@ -31,10 +32,10 @@ export function agentEditingExtensions(
         ? [agentFrontmatter.of(tr.startState.field(agentFrontmatterField))]
         : [],
     ),
-    compartment.of(EditorState.readOnly.of(isAgentEditing())),
+    compartment.of(EditorState.readOnly.of(isAgentEditing(path()))),
     // readOnly alone does not reject explicit dispatches by widgets or menus.
     EditorState.transactionFilter.of((tr) =>
-      isAgentEditing() &&
+      isAgentEditing(path()) &&
       (tr.docChanged || tr.effects.some((e) => e.is(agentFrontmatter))) &&
       !tr.isUserEvent("writer")
         ? []
@@ -42,9 +43,14 @@ export function agentEditingExtensions(
     ),
   ];
 }
-export function watchAgentEditing(view: EditorView, compartment: Compartment) {
+export function watchAgentEditing(view: EditorView, compartment: Compartment, path: () => string) {
+  view.dispatch({
+    effects: compartment.reconfigure(EditorState.readOnly.of(isAgentEditing(path()))),
+  });
   return subscribeAgentEditing(() =>
-    view.dispatch({ effects: compartment.reconfigure(EditorState.readOnly.of(isAgentEditing())) }),
+    view.dispatch({
+      effects: compartment.reconfigure(EditorState.readOnly.of(isAgentEditing(path()))),
+    }),
   );
 }
 export function agentReloadTransaction(before: string, after: string, frontmatter: string | null) {
