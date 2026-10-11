@@ -42,7 +42,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
     <aside
       ref={rootRef}
       aria-label="Chat panel"
-      className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] pt-[var(--chrome-drag-height)] text-[13px] text-[var(--text-primary)]"
+      className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] text-[13px] text-[var(--text-primary)]"
       style={{ width: "var(--agent-panel-width)" }}
     >
       <div
@@ -83,9 +83,18 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
         onPointerUp={(event) => finishResize(event, true)}
         onPointerCancel={(event) => finishResize(event, false)}
       />
-      <header className="flex h-[42px] shrink-0 items-center justify-between gap-3 pl-[18px] pr-2.5">
-        <h2 className="text-[13px] font-semibold text-[var(--text-primary)]">Chat</h2>
-        <div className="flex items-center gap-0.5">
+      <header
+        data-tauri-drag-region
+        className="flex shrink-0 items-center justify-between gap-3 pl-[18px] pr-2.5"
+        style={{
+          height: "calc(var(--chrome-control-height) + var(--chrome-control-padding) * 2)",
+          paddingBlock: "var(--chrome-control-padding)",
+        }}
+      >
+        <h2 data-tauri-drag-region className="text-[13px] font-semibold text-[var(--text-primary)]">
+          Chat
+        </h2>
+        <div data-tauri-drag-region className="flex items-center gap-0.5">
           <button
             type="button"
             title="New chat"

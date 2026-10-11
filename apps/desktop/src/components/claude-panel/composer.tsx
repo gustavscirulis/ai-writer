@@ -8,7 +8,6 @@ import {
   useChatError,
   useChatDraft,
   setChatDraft,
-  clearChatDraftIfUnchanged,
   registerChatComposer,
   focusChatComposer,
 } from "@/hooks/use-claude";
@@ -100,7 +99,6 @@ export function Composer() {
       sent.map((item) => ({ anchor: item.anchor, quote: item.quote })),
     );
     if (!ok) return;
-    clearChatDraftIfUnchanged(path, draft);
     consumeFeedback(
       path,
       sent.map((item) => item.id),
@@ -134,7 +132,10 @@ export function Composer() {
           }}
         />
       )}
-      <div className="rounded-[18px] border border-[var(--line-subtle)] bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]">
+      <div
+        data-chat-composer
+        className="rounded-[18px] border border-[var(--line-subtle)] bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]"
+      >
         {attached.length > 0 && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (

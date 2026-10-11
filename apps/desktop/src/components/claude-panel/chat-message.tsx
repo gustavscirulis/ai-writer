@@ -14,6 +14,7 @@ import {
 import type { ChatAttachment, ChatMessage, ChatTool } from "@/lib/claude-stream";
 import { getFileName } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
+import { MarkdownReply } from "./markdown-reply";
 import {
   clearAttachmentHighlight,
   highlightAttachment,
@@ -209,12 +210,7 @@ export const AssistantTurn = memo(
       <article aria-label="Assistant" className="chat-enter flex min-w-0 flex-col gap-2.5">
         {tools.length > 0 && <ToolSummary tools={tools} live={live} />}
         {texts.map((message) => (
-          <p
-            key={message.id}
-            className="whitespace-pre-wrap break-words text-[13.5px] leading-[1.7] text-[var(--text-primary)]"
-          >
-            {message.text}
-          </p>
+          <MarkdownReply key={message.id} id={message.id} text={message.text} />
         ))}
       </article>
     );

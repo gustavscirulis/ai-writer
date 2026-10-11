@@ -1,6 +1,18 @@
 # Changelog
 
+## 2026-10-11
+
+- Clear the Chat message field immediately when sending. If saving, startup or delivery fails, restore the message for retry without replacing a newer draft.
+
+- Render Claude replies as Markdown, including headings, lists, links, code blocks and tables while streaming. Wide code and tables scroll inside Chat, and web/email links open in your default app.
+
+- Align the Chat title and header actions with the note tabs. The Chat header's empty space drags the window, while its buttons stay clickable.
+
+- Match the Chat composer's focus state to other app inputs: a subtle rounded border replaces the orange rectangle inside the message field.
+
 ## 2026-10-10
+
+- Selected text now offers “Add to chat” in its right-click menu and above the selection, matching the paragraph button. Write a note in the composer and press ⌘Enter to save it for later.
 
 - Give feedback in Chat instead of a separate Feedback panel. Select text and press ⌘L (or click "Comment" above the selection) to point Chat at it. To point at a whole paragraph, ⌥-click it or use the button to the right of it. Pointed-at text appears as chips in the composer.
   - Enter asks Claude to make the change now. ⌘Enter saves it as a note for later, without calling Claude.

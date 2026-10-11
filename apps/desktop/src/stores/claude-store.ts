@@ -293,6 +293,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   send: (text, { turn: options, attachments } = {}) => {
     if (!text.trim() || get().status === "running" || get().status === "stopping")
       return Promise.resolve(false);
+    let draftToRestore: { path: string; draft: string; token: number } | null = null;
     const task = (async () => {
       if (!text.trim() || get().status === "running" || get().status === "stopping") return false;
       const workspace = useWorkspaceStore.getState();
@@ -321,7 +322,17 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       setAgentEditing(true);
       streamingId = null;
       streamingBlockIndex = 0;
-      set({ chatPath: activePath, status: "running", activity: "thinking", error: null });
+      const draft = get().chats[activePath]?.draft;
+      if (!options && draft === text) draftToRestore = { path: activePath, draft, token };
+      set((state) => ({
+        chatPath: activePath,
+        status: "running",
+        activity: "thinking",
+        error: null,
+        ...(draftToRestore
+          ? { chats: withChat(state.chats, activePath, (chat) => ({ ...chat, draft: "" })) }
+          : {}),
+      }));
       try {
         for (const path of paths) {
           await flushSave(path);
@@ -534,9 +545,26 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       }
     })();
     pendingSend = task;
-    return task.finally(() => {
-      if (pendingSend === task) pendingSend = null;
-    });
+    return task
+      .then((ok) => {
+        const restore = draftToRestore;
+        if (!ok && restore && pendingSend === task && current(restore.token)) {
+          set((state) =>
+            state.chats[restore.path]?.draft === ""
+              ? {
+                  chats: withChat(state.chats, restore.path, (chat) => ({
+                    ...chat,
+                    draft: restore.draft,
+                  })),
+                }
+              : state,
+          );
+        }
+        return ok;
+      })
+      .finally(() => {
+        if (pendingSend === task) pendingSend = null;
+      });
   },
   stop: async () => {
     if (get().status !== "running" && get().status !== "stopping") return;

@@ -90,6 +90,162 @@ beforeEach(async () => {
     .getState()
     .load("/notes", useWorkspaceStore.getState().workspaceGeneration);
 });
+test("sending clears the composer immediately, before startup/delivery, and preserves the next draft", async () => {
+  const start = deferred<string>();
+  const delivery = deferred<unknown>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start"
+      ? start.promise
+      : command === "claude_send"
+        ? delivery.promise
+        : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "  Edit this\n");
+  const sending = useClaudeStore.getState().send("  Edit this\n");
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
+  await tick();
+  start.resolve("process");
+  await tick();
+  expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("Edit this");
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
+  useClaudeStore.getState().setDraft("/notes/a.md", "Next message");
+  delivery.resolve(null);
+  expect(await sending).toBe(true);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Next message");
+});
+
+test.each(["write_file", "claude_start", "claude_send"])(
+  "%s failure restores the original composer draft",
+  async (failedCommand) => {
+    mockedInvoke.mockImplementation((command, args) =>
+      command === failedCommand
+        ? Promise.reject(new Error("Unavailable"))
+        : defaultInvoke(command, args),
+    );
+    useEditorStore.getState().updateContent("/notes/a.md", "Dirty buffer");
+    useClaudeStore.getState().setDraft("/notes/a.md", "  Retry this\n");
+    expect(await useClaudeStore.getState().send("  Retry this\n")).toBe(false);
+    expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("  Retry this\n");
+  },
+);
+
+test("a failed send keeps a newer draft", async () => {
+  const start = deferred<string>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start" ? start.promise : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "First");
+  const sending = useClaudeStore.getState().send("First");
+  await tick();
+  useClaudeStore.getState().setDraft("/notes/a.md", "New draft");
+  start.reject(new Error("Startup failed"));
+  expect(await sending).toBe(false);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("New draft");
+});
+
+test("an older failed acknowledgement cannot restore a draft during a newer send", async () => {
+  const firstDelivery = deferred<unknown>();
+  const secondDelivery = deferred<unknown>();
+  let deliveries = 0;
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_send"
+      ? ++deliveries === 1
+        ? firstDelivery.promise
+        : secondDelivery.promise
+      : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "First");
+  const first = useClaudeStore.getState().send("First");
+  await tick();
+  emit({ type: "result", is_error: false });
+  await tick();
+  useClaudeStore.getState().setDraft("/notes/a.md", "Second");
+  const second = useClaudeStore.getState().send("Second");
+  await tick();
+  expect(deliveries).toBe(2);
+  firstDelivery.reject(new Error("Late failure"));
+  expect(await first).toBe(false);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
+  secondDelivery.resolve(null);
+  expect(await second).toBe(true);
+});
+
+test.each(["stop", "new-chat"])(
+  "%s during startup prevents stale draft recovery",
+  async (action) => {
+    const start = deferred<string>();
+    mockedInvoke.mockImplementation((command, args) =>
+      command === "claude_start" ? start.promise : defaultInvoke(command, args),
+    );
+    useClaudeStore.getState().setDraft("/notes/a.md", "Cancelled");
+    const sending = useClaudeStore.getState().send("Cancelled");
+    await tick();
+    const cancel =
+      action === "stop"
+        ? useClaudeStore.getState().stop()
+        : useClaudeStore.getState().newChat("/notes/a.md");
+    start.resolve("cancelled-process");
+    expect(await sending).toBe(false);
+    await cancel;
+    expect(useClaudeStore.getState().chats["/notes/a.md"]?.draft ?? "").toBe("");
+  },
+);
+
+test("failed delivery restores only the originating note's draft after tab switching", async () => {
+  const delivery = deferred<unknown>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "For A");
+  const sending = useClaudeStore.getState().send("For A");
+  await tick();
+  disk.set("/notes/b.md", "B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  useClaudeStore.getState().setDraft("/notes/b.md", "For B");
+  delivery.reject(new Error("Delivery failed"));
+  expect(await sending).toBe(false);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("For A");
+  expect(useClaudeStore.getState().chats["/notes/b.md"].draft).toBe("For B");
+});
+
+test("an abandoned workspace send never restores a draft into the new workspace", async () => {
+  const start = deferred<string>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start" ? start.promise : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "Old workspace");
+  const sending = useClaudeStore.getState().send("Old workspace");
+  await tick();
+  useWorkspaceStore.setState((state) => ({
+    workspaceGeneration: state.workspaceGeneration + 1,
+  }));
+  start.reject(new Error("Old startup failed"));
+  expect(await sending).toBe(false);
+  expect(useClaudeStore.getState().chats).toEqual({});
+});
+
+test("suggestion and feedback sends keep unrelated composer drafts", async () => {
+  useClaudeStore.getState().setDraft("/notes/a.md", "Unsent draft");
+  expect(await useClaudeStore.getState().send("Suggestion")).toBe(true);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Unsent draft");
+  await useClaudeStore.getState().stop();
+  expect(
+    await useClaudeStore.getState().send("Unsent draft", {
+      turn: { path: "/notes/a.md", prepare: () => "Feedback prompt", complete: vi.fn() },
+    }),
+  ).toBe(true);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Unsent draft");
+});
+
+test("empty and busy sends leave the composer draft intact", async () => {
+  useClaudeStore.getState().setDraft("/notes/a.md", "Draft");
+  expect(await useClaudeStore.getState().send(" ")).toBe(false);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
+  await useClaudeStore.getState().send("First");
+  expect(await useClaudeStore.getState().send("Draft")).toBe(false);
+  expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
+});
+
 test("saves and locks before starting, reloads all newly opened files, rejects store edits", async () => {
   useEditorStore.getState().updateContent("/notes/a.md", "Latest draft");
   const revision = agentIORevision();

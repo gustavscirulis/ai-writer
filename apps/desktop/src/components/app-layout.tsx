@@ -145,6 +145,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
         style={{
           height: "var(--chrome-drag-height)",
           left: isSidebarCollapsed ? 0 : draftSidebarWidth,
+          right: "var(--agent-panel-width)",
         }}
       />
       <div

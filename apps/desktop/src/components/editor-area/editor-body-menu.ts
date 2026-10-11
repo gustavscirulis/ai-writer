@@ -4,6 +4,7 @@ import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { buildEditorBodyMenuItemsSpec, showNativeContextMenu } from "./editor-context-menu";
 import { followLink, linkHrefAtPos } from "./link-navigation";
 import { runEditorCommand } from "./markdown-formatting";
+import { attachFromEditor } from "@/hooks/feedback-api";
 
 /** Right-click menu over the editor body: clipboard, the command submenus,
  *  and link actions when the click landed on a link. */
@@ -23,6 +24,12 @@ export function editorBodyContextMenuExtension(
       void showNativeContextMenu(
         buildEditorBodyMenuItemsSpec(
           {
+            onAddToChat: view.state.selection.main.empty
+              ? undefined
+              : () => {
+                  if (isDisposed() || getFilePath() !== filePath) return;
+                  attachFromEditor(filePath, view);
+                },
             onCut: () => {
               const { from, to } = view.state.selection.main;
               if (from === to) return;

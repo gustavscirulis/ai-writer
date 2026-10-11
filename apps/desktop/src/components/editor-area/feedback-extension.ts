@@ -75,7 +75,7 @@ const marks = {
   focus: Decoration.mark({ class: "writer-mark-focus" }),
 };
 
-/** "Comment ⌘L" above a selection while the editor has focus. */
+/** "Add to chat ⌘L" above a selection while the editor has focus. */
 function selectionPill(getPath: () => string): Extension {
   const tooltip = (state: EditorState, previous: Tooltip | null): Tooltip | null => {
     const range = state.selection.main;
@@ -91,7 +91,7 @@ function selectionPill(getPath: () => string): Extension {
         button.type = "button";
         const kbd = document.createElement("kbd");
         kbd.textContent = "⌘L";
-        button.append(icon(CommentAdd01Icon, 14), "Comment", kbd);
+        button.append(icon(CommentAdd01Icon, 14), "Add to chat", kbd);
         button.addEventListener("mousedown", (event) => event.preventDefault());
         button.addEventListener("click", () => attachFromEditor(getPath(), view));
         dom.append(button);

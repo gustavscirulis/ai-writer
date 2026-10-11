@@ -97,9 +97,6 @@ export function useChatDraft(path: string | null) {
 export function setChatDraft(path: string, draft: string) {
   useClaudeStore.getState().setDraft(path, draft);
 }
-export function clearChatDraftIfUnchanged(path: string, draft: string) {
-  if (chatFor(useClaudeStore.getState().chats, path).draft === draft) setChatDraft(path, "");
-}
 const subscribeWidth = (listener: () => void) => {
   window.addEventListener("resize", listener);
   return () => window.removeEventListener("resize", listener);
