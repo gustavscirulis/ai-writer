@@ -91,24 +91,9 @@ export function suggestionIcon(tool: string) {
   return KNOWN.find((entry) => entry.name === tool)?.icon ?? Plug01Icon;
 }
 
-function list(names: string[]) {
-  return names.length > 1
-    ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
-    : names[0];
-}
-
 /** `null` servers means Claude Code couldn't report them. */
 export function serversFootnote(servers: McpServer[] | null) {
-  if (!servers) return "Uses your Claude Code, with web search and its MCP servers.";
-  const connected = connectedServers(servers);
-  if (!connected.length)
-    return "Uses your Claude Code and web search. Add MCP servers in Claude Code to bring in more tools.";
-  const known = knownConnected(servers).map((entry) => entry.name);
-  const named = (known.length ? known : connected.map((server) => displayName(server.name))).slice(
-    0,
-    3,
-  );
-  if (connected.length === 1)
-    return `Uses your Claude Code, with web search and its ${named[0]} MCP server.`;
-  return `Uses your Claude Code, with web search and its ${connected.length} MCP servers, including ${list(named)}.`;
+  return servers && !connectedServers(servers).length
+    ? "Runs on your Claude Code, with the same tools."
+    : "Runs on your Claude Code, with the same tools and MCPs.";
 }

@@ -4,7 +4,9 @@ Chat is renamed **Co-writer** in every user-visible string (panel header and lab
 
 ## Empty state
 
-Chosen from a playground prototype ("Quiet"): a centred mark, "What are we working on?", "Ask for research, a first draft or edits to this note.", and one card of four suggestions (icon, label, ↵ on hover). A footnote at the bottom says Co-writer runs on the user's Claude Code, with web search and their MCP servers, naming up to three. Clicking a suggestion sends its label as the message.
+Chosen from two prototype rounds. Everything sits at the bottom of the panel, just above the composer, left-aligned: a large "What are we working on?" heading, the subtitle "Ask for research, a first draft or edits to this note.", four plain suggestion rows (icon, label, ↵ on hover) and one footnote line. Clicking a suggestion sends its label as the message.
+
+The footnote reads "Runs on your Claude Code, with the same tools and MCPs.", or "…with the same tools." when no MCP server is connected. It says Co-writer has whatever the user's Claude Code has, rather than counting or naming servers, which the rows already show. Centred layouts, a bordered card, chips and tiles were tried and rejected as too busy.
 
 The composer placeholder is "Ask anything, or describe a change…" and its hint "Select text or ⌥-click to point at it".
 
@@ -18,7 +20,7 @@ Only `connected` servers count. Servers are shown by display name (`plugin:base:
 
 Up to three connected tools from a registry ordered by usefulness to a writer (Glean, Snowflake, Google Drive, Notion, Coda), filled to four with built-in ones: find recent sources on the web, fact-check claims on the web, find related notes in the workspace.
 
-The list never changes after it first appears. On the first launch for a workspace, before discovery finishes, the empty state shows no list and no footnote; both fade in once. If discovery fails and nothing is cached, it shows the built-in suggestions and a footnote that doesn't name servers.
+The list never changes after it first appears. On the first launch for a workspace, before discovery finishes, the empty state shows no list and no footnote; both fade in once. If discovery fails and nothing is cached, it shows the built-in suggestions and the footnote that mentions MCPs.
 
 ## Rejected: suggestions written for the note
 

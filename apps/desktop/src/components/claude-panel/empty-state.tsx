@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowTurnBackwardIcon, QuillWrite01Icon } from "@hugeicons/core-free-icons";
+import { ArrowTurnBackwardIcon } from "@hugeicons/core-free-icons";
 import { sendChat } from "@/hooks/use-claude";
 import { useMcpServers } from "@/hooks/use-co-writer";
 import { serversFootnote, suggestionIcon, toolSuggestions } from "@/lib/co-writer-suggestions";
@@ -11,38 +11,30 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
   const loaded = useMcpServers();
   const servers = loaded === "unavailable" ? null : loaded;
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="flex flex-1 flex-col items-center justify-center pb-8 pt-6 text-center">
-        <div
-          className="co-writer-enter grid size-10 place-items-center rounded-xl bg-[var(--surface-card)] text-[var(--text-secondary)] shadow-[inset_0_0_0_1px_var(--line-subtle),0_1px_2px_rgba(0,0,0,0.06)]"
-          style={stagger(0)}
-        >
-          <HugeiconsIcon icon={QuillWrite01Icon} size={18} strokeWidth={1.8} />
-        </div>
-        <h3
-          className="co-writer-enter mt-3.5 text-[15px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]"
-          style={stagger(1)}
-        >
-          What are we working on?
-        </h3>
-        <p
-          className="co-writer-enter mt-1 text-[13px] leading-normal text-[var(--text-muted)] [text-wrap:balance]"
-          style={stagger(2)}
-        >
-          Ask for research, a first draft or edits to this note.
-        </p>
-        {loaded && (
-          <div
-            className="co-writer-enter mt-[22px] flex w-fit max-w-full flex-col rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--line-subtler)]"
-            style={stagger(3)}
-          >
-            {toolSuggestions(servers).map((suggestion) => (
+    <div className="flex min-h-full flex-col justify-end pt-6">
+      <h3
+        className="co-writer-enter text-[21px] font-medium leading-tight tracking-[-0.02em] text-[var(--text-primary)] [text-wrap:balance]"
+        style={stagger(0)}
+      >
+        What are we working on?
+      </h3>
+      <p
+        className="co-writer-enter mt-1.5 text-[13px] leading-normal text-[var(--text-muted)]"
+        style={stagger(1)}
+      >
+        Ask for research, a first draft or edits to this note.
+      </p>
+      {loaded && (
+        <>
+          <div className="-mx-2.5 mt-3 flex flex-col">
+            {toolSuggestions(servers).map((suggestion, i) => (
               <button
                 key={suggestion.label}
                 type="button"
                 disabled={!path || busy}
                 onClick={() => path && void sendChat(path, suggestion.label)}
-                className="co-writer-suggestion relative flex min-h-[34px] items-center justify-center gap-2 rounded-lg px-7 py-[7px] text-center text-[13px] leading-snug text-[var(--text-secondary)] transition-colors duration-150 hover:enabled:bg-[var(--item-hover-bg)] hover:enabled:text-[var(--text-primary)] active:enabled:scale-[0.99] disabled:opacity-50"
+                className="co-writer-suggestion co-writer-enter relative flex min-h-[32px] items-center gap-2.5 rounded-lg px-2.5 py-[6px] text-left text-[13px] leading-snug text-[var(--text-secondary)] transition-colors duration-150 hover:enabled:bg-[var(--item-hover-bg)] hover:enabled:text-[var(--text-primary)] active:enabled:scale-[0.99] disabled:opacity-50"
+                style={stagger(2 + i)}
               >
                 <span className="grid text-[var(--text-icon-muted)]">
                   <HugeiconsIcon
@@ -51,22 +43,20 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
                     strokeWidth={1.8}
                   />
                 </span>
-                <span className="min-w-0 [text-wrap:pretty]">{suggestion.label}</span>
+                <span className="min-w-0 flex-1 pr-5 [text-wrap:pretty]">{suggestion.label}</span>
                 <span className="co-writer-suggestion-enter absolute right-2.5 grid text-[var(--text-muted)]">
                   <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={13} strokeWidth={1.8} />
                 </span>
               </button>
             ))}
           </div>
-        )}
-      </div>
-      {loaded && (
-        <p
-          className="co-writer-enter text-[11px] leading-normal text-[var(--text-icon-muted)]"
-          style={stagger(4)}
-        >
-          {serversFootnote(servers)}
-        </p>
+          <p
+            className="co-writer-enter mt-4 text-[11.5px] leading-normal text-[var(--text-icon-muted)] [text-wrap:pretty]"
+            style={stagger(6)}
+          >
+            {serversFootnote(servers)}
+          </p>
+        </>
       )}
     </div>
   );

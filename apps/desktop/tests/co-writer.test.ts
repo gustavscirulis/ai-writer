@@ -60,16 +60,13 @@ describe("suggestion helpers", () => {
     expect(toolSuggestions(null).map((s) => s.tool)).toEqual(["web", "web", "workspace"]);
   });
 
-  test("footnote names the connected tools it knows", () => {
+  test("footnote mentions MCPs unless none are connected", () => {
     expect(serversFootnote(servers)).toBe(
-      "Uses your Claude Code, with web search and its 4 MCP servers, including Glean and Snowflake.",
+      "Runs on your Claude Code, with the same tools and MCPs.",
     );
-    expect(serversFootnote([server("claude.ai Slack")])).toBe(
-      "Uses your Claude Code, with web search and its Slack MCP server.",
-    );
-    expect(serversFootnote([])).toMatch(/^Uses your Claude Code and web search\. Add MCP/);
-    expect(serversFootnote(null)).toBe(
-      "Uses your Claude Code, with web search and its MCP servers.",
+    expect(serversFootnote(null)).toBe("Runs on your Claude Code, with the same tools and MCPs.");
+    expect(serversFootnote([server("claude.ai Gmail", "needs-auth")])).toBe(
+      "Runs on your Claude Code, with the same tools.",
     );
   });
 });
