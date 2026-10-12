@@ -29,6 +29,8 @@ export interface ToolPermission {
   tool: string;
   input: Record<string, unknown>;
   description?: string;
+  /** Canonical note Writer resolved for an Edit/Write outside the chat's own note. */
+  target?: { path: string; exists: boolean };
   pending?: boolean;
   error?: string;
 }
@@ -80,6 +82,7 @@ export function parseClaudeLine(line: string): ClaudeEvent | null {
       Array.isArray(request.input)
     )
       throw new Error("Invalid tool permission request");
+    const target = object(data.writer_target);
     return {
       type: "permission",
       permission: {
@@ -87,6 +90,9 @@ export function parseClaudeLine(line: string): ClaudeEvent | null {
         tool: string(request.tool_name),
         input: object(request.input),
         description: string(request.description) || undefined,
+        ...(string(target.path)
+          ? { target: { path: string(target.path), exists: target.exists === true } }
+          : {}),
       },
     };
   }

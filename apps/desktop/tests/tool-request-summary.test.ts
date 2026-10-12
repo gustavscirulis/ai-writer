@@ -45,6 +45,19 @@ describe("summarizeToolRequest", () => {
     expect(summarizeToolRequest(tool, input, ROOT)).toEqual(expected);
   });
 
+  test.each([
+    ["Edit", true, { verb: "Edit", allowLabel: "Yes, edit it" }],
+    ["Write", false, { verb: "Create", allowLabel: "Yes, create it" }],
+    ["Write", true, { verb: "Replace", allowLabel: "Yes, replace it" }],
+  ])("%s on another note (exists: %s)", (tool, exists, expected) => {
+    const path = "/Users/sam/Vault/Ideas/next.md";
+    expect(summarizeToolRequest(tool, { file_path: path }, ROOT, { path, exists })).toEqual({
+      ...expected,
+      target: "next.md",
+      where: "Vault/Ideas",
+    });
+  });
+
   test("shows absolute paths when no workspace is open", () => {
     expect(summarizeToolRequest("Read", { file_path: "/notes/a.md" }, null).where).toBe("/notes");
   });

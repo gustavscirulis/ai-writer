@@ -88,7 +88,7 @@ fn classify(path: &Path) -> Result<PendingOpenPayload, OpenTargetError> {
     Err(OpenTargetError::Unsupported(path.to_path_buf()))
 }
 
-fn is_markdown(path: &Path) -> bool {
+pub(crate) fn is_markdown(path: &Path) -> bool {
     path.extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"))
 }

@@ -24,6 +24,8 @@ pub enum AgentEvent {
         request_id: String,
         #[serde(rename = "toolUseId")]
         tool_use_id: Option<String>,
+        /// Canonical note the edit writes, which may be another note the user approved.
+        path: std::path::PathBuf,
     },
     Exit {
         code: Option<i32>,
@@ -47,8 +49,11 @@ pub enum Input {
     },
 }
 
+/// Canonical notes that a running agent may edit, keyed to its process id.
+pub type NoteClaims =
+    std::sync::Arc<parking_lot::Mutex<std::collections::HashMap<std::path::PathBuf, String>>>;
+
 pub struct AgentProcess {
-    pub note: std::path::PathBuf,
     pub input: mpsc::Sender<Input>,
     pub cancel: watch::Sender<bool>,
     pub finished: watch::Receiver<bool>,

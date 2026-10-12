@@ -5,7 +5,7 @@ A Chat turn used to make its note read-only from Send until the turn finished, i
 ## Behaviour
 
 - Send saves the note so Claude reads the latest text, then leaves it editable. The turn still owns the note for moves/renames (the native edit scope is bound to its canonical path), tab pruning and duplicate sends.
-- Claude's Edit/Write calls already pass through Writer's native PreToolUse hook. When that hook allows an edit to the assigned note, the Rust actor holds the reply and emits `edit_start { requestId, toolUseId }`.
+- Claude's Edit/Write calls already pass through Writer's native PreToolUse hook. When that hook allows an edit to the assigned note, or the user approves one to another note ([`chat-edit-other-notes.md`](chat-edit-other-notes.md)), the Rust actor holds the reply and emits `edit_start { requestId, toolUseId, path }` with the canonical target.
 - The UI then locks the note (CodeMirror read-only, store writes blocked, frontmatter fieldset disabled), saves every alias, records the saved text and answers `claude_edit_ready(processId, requestId, allow)`. Only then does the CLI run the tool. If the save fails, the edit is denied with a message telling Claude to re-read, and a Chat notice explains why.
 - The `tool_result` matching `toolUseId` reloads the note from disk while it is still locked, reconciles feedback anchors, then unlocks. A failed reload keeps the lock; Stop retries it. Stop or exit during an edit reloads and unlocks in the same way.
 - A Chat turn reports `changed` if any of its edits changed the note.

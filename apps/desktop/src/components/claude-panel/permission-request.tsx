@@ -44,7 +44,7 @@ function PermissionPrompt({
   const status = useChatStatus(path);
   const [showInput, setShowInput] = useState(false);
   const [focused, setFocused] = useState(0);
-  const summary = summarizeToolRequest(request.tool, request.input, root);
+  const summary = summarizeToolRequest(request.tool, request.input, root, request.target);
   const decide = (allow: boolean) => void decideToolPermission(path, request.id, allow);
   // Never steal focus from the editor: a stray Space or Enter would approve.
   const focusDefault = useCallback((node: HTMLButtonElement | null) => {

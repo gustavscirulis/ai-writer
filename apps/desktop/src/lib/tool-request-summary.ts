@@ -28,7 +28,22 @@ export function summarizeToolRequest(
   tool: string,
   input: Record<string, unknown>,
   root: string | null,
+  target?: { path: string; exists: boolean },
 ): ToolRequestSummary {
+  if (target && (tool === "Edit" || tool === "Write")) {
+    const [verb, allowLabel] =
+      tool === "Edit"
+        ? ["Edit", "Yes, edit it"]
+        : target.exists
+          ? ["Replace", "Yes, replace it"]
+          : ["Create", "Yes, create it"];
+    return {
+      verb,
+      target: getFileName(target.path),
+      where: displayDir(getParentDir(target.path), root),
+      allowLabel,
+    };
+  }
   const path = stringInput(input, "path");
   const where = path && displayDir(path, root);
   const filePath = stringInput(input, "file_path");
