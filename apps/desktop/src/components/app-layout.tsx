@@ -1,4 +1,5 @@
-import { useActiveFilePath } from "@/hooks/use-tabs";
+import { useActiveFilePath, useActiveTab } from "@/hooks/use-tabs";
+import { pageKind } from "./editor-area/page-kinds";
 import { ClaudePanel, clampChatWidth } from "./claude-panel";
 import {
   toggleChatPanel,
@@ -37,6 +38,8 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   const { isSidebarCollapsed, sidebarWidth, setSidebarWidth } = useSidebar();
   const chatPreferred = useChatPanelVisible();
   const activeFilePath = useActiveFilePath();
+  const activeTab = useActiveTab();
+  const activeShowsChat = !activeTab || pageKind(activeTab.location).showsChat;
   const permissions = useToolPermissions(activeFilePath);
   const chatWidth = useChatPanelWidth();
   const viewportWidth = useViewportWidth();
@@ -47,7 +50,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
     clampSidebarWidth(sidebarWidth, maxSidebarWidth),
   );
   const draftSidebarWidthRef = useRef(draftSidebarWidth);
-  const chatVisible = !showWelcome && (chatPreferred || permissions.length > 0);
+  const chatVisible = !showWelcome && activeShowsChat && (chatPreferred || permissions.length > 0);
   const maxChatWidth = Math.max(
     260,
     Math.min(560, viewportWidth - (isSidebarCollapsed ? 0 : draftSidebarWidth) - 320),
@@ -173,7 +176,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           </div>
         </div>
       )}
-      {!showWelcome && !chatVisible && (
+      {!showWelcome && activeShowsChat && !chatVisible && (
         <button
           type="button"
           onClick={toggleChatPanel}

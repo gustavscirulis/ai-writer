@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Hide Chat while the Settings tab is open. It comes back as you left it when you switch to a note.
+
 - Writer now reopens at the size and position you left it, including maximized. New windows open at that size too.
 
 - Option+` and Option+i now type their characters in the editor instead of doing nothing, for example a backtick on the Latvian keyboard layout.

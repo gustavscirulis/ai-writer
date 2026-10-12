@@ -34,6 +34,8 @@ export interface PageKindInput<K extends string, L extends { kind: K }> {
   keepAlive?: boolean;
   /** Whether file-only context-menu items appear on this tab. Default: `false`. */
   supportsFileContextMenu?: boolean;
+  /** Whether the chat panel is shown while this tab is active. Default: `true`. */
+  showsChat?: boolean;
   /** Reconstruct a live location from a serialized payload. Default:
    *  `{ kind }` — which fits stateless kinds. Override when the kind carries
    *  payload (e.g. a file path). Return `null` for invalid data. */
@@ -63,6 +65,7 @@ export interface PageKind<K extends string = string, L extends { kind: K } = { k
   description: string;
   keepAlive: boolean;
   supportsFileContextMenu: boolean;
+  showsChat: boolean;
   fromPayload: (data: SerializedLocation) => L | null;
   paths: (location: L) => string[];
   primaryPath: (location: L) => string | null;
@@ -96,6 +99,7 @@ export function definePageKind<K extends string, L extends { kind: K }>(
   return {
     keepAlive: false,
     supportsFileContextMenu: false,
+    showsChat: true,
     fromPayload: () => ({ kind: input.kind }) as L,
     paths: () => [],
     primaryPath: () => null,
