@@ -81,6 +81,28 @@ use std::collections::{HashMap, HashSet};
 const INIT_ID: &str = "writer-initialize";
 const HOOK_ID: &str = "writer-note-scope";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
+// Normal CLI startup now includes MCP/plugin connections (typically up to 30s).
+// Keep initialization bounded while allowing those connections to finish.
+const INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(60);
+
+// These tools don't use Writer's built-in file edit path. MCP servers own their
+// side effects; requests requiring permission retain the host approval flow.
+fn uses_host_permission(tool: &str) -> bool {
+    matches!(
+        tool,
+        "Read" | "Glob" | "Grep" | "WebSearch" | "WebFetch" | "ToolSearch" | "WaitForMcpServers"
+    ) || tool
+        .strip_prefix("mcp__")
+        .and_then(|name| name.split_once("__"))
+        .is_some_and(|(server, tool)| {
+            !server.is_empty()
+                && server
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+                && !tool.is_empty()
+                && !tool.chars().any(|c| c.is_whitespace() || c.is_control())
+        })
+}
 
 struct Scope {
     note: PathBuf,
@@ -109,7 +131,7 @@ impl Scope {
         let tool = input["tool_name"]
             .as_str()
             .ok_or("Missing scope tool name")?;
-        if !matches!(tool, "Read" | "Glob" | "Grep" | "Edit" | "Write") {
+        if !matches!(tool, "Edit" | "Write") && !uses_host_permission(tool) {
             return Err(format!("Unsupported scoped tool: {tool}"));
         }
         if !self.active {
@@ -147,14 +169,24 @@ impl Scope {
             json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated}}),
         )
     }
-    fn permission(&mut self, id: &str, request: &Value) -> Result<Option<Value>, String> {
+    async fn permission(&mut self, id: &str, request: &Value) -> Result<Option<Value>, String> {
         let tool = request["tool_name"]
             .as_str()
             .ok_or("Missing permission tool")?;
-        // Writes have a synchronous native hook; permission prompts cannot expand their scope.
-        if !self.active || !matches!(tool, "Read" | "Glob" | "Grep") {
+        // Configured CLI hooks/rules can ask again after PreToolUse. Reuse the
+        // same native guard; a host permission callback cannot expand edit scope.
+        if matches!(tool, "Edit" | "Write") {
+            let reply = self.hook(&json!({"callback_id": HOOK_ID, "input": {"tool_name": tool, "tool_input": request["input"]}})).await?;
+            let output = &reply["hookSpecificOutput"];
+            return Ok(Some(if output["permissionDecision"] == "allow" {
+                json!({"behavior": "allow", "updatedInput": output["updatedInput"]})
+            } else {
+                json!({"behavior": "deny", "message": output["permissionDecisionReason"]})
+            }));
+        }
+        if !self.active || !uses_host_permission(tool) {
             return Ok(Some(
-                json!({"behavior": "deny", "message": "Writer permits workspace reads and edits only to the assigned note."}),
+                json!({"behavior": "deny", "message": "This tool is unavailable outside an active Writer turn or its permitted tool set."}),
             ));
         }
         let input = request["input"]
@@ -236,13 +268,13 @@ async fn run_process(
             }
         }
     });
-    let initialize = json!({"type": "control_request", "request_id": INIT_ID, "request": {"subtype": "initialize", "hooks": {"PreToolUse": [{"matcher": "Read|Glob|Grep|Edit|Write", "hookCallbackIds": [HOOK_ID], "timeout": 10}]}}});
+    let initialize = json!({"type": "control_request", "request_id": INIT_ID, "request": {"subtype": "initialize", "hooks": {"PreToolUse": [{"matcher": "^(Read|Glob|Grep|Edit|Write|WebSearch|WebFetch|ToolSearch|WaitForMcpServers|mcp__.*)$", "hookCallbackIds": [HOOK_ID], "timeout": 10}]}}});
     let startup = if scope.is_some() {
         write_line(&mut stdin, &initialize.to_string(), &mut cancel).await
     } else {
         Ok(())
     };
-    let initialization_deadline = tokio::time::sleep(Duration::from_secs(10));
+    let initialization_deadline = tokio::time::sleep(INITIALIZATION_TIMEOUT);
     tokio::pin!(initialization_deadline);
     let mut failure = startup.err();
     let status = loop {
@@ -271,7 +303,7 @@ async fn run_process(
                     Input::Permission { request_id, allow, ack } => {
                         match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.decision(&request_id, allow)) {
                             Ok(value) => (value.to_string(), ack),
-                            Err(error) => { let _ = ack.send(Err(error.into())); continue; }
+                            Err(error) => { let _ = ack.send(Err(error)); continue; }
                         }
                     }
                 };
@@ -300,7 +332,7 @@ async fn run_process(
                         let request = &value["request"];
                         let reply = match request["subtype"].as_str() {
                             Some("hook_callback") => scope.hook(request).await.map(Some),
-                            Some("can_use_tool") => scope.permission(id, request),
+                            Some("can_use_tool") => scope.permission(id, request).await,
                             _ => Err("Unsupported native control request".into()),
                         };
                         match reply {
@@ -359,7 +391,7 @@ fn scoped_command(
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--safe-mode", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write", "--allowedTools", "Edit", "Write", "--disallowedTools", "mcp__*", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit only the assigned openFile in writer_context; other files are read-only. Preserve frontmatter and formatting unless asked to change them. Report changes."])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit only the assigned openFile in writer_context; other files are read-only. Use configured MCP tools when relevant, but do not use them to edit other workspace files. Preserve frontmatter and formatting unless asked to change them. Report changes."])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -432,13 +464,20 @@ pub async fn claude_start(
                 rx,
                 cancel_rx,
                 finished_tx,
-                on_event,
+                on_event.clone(),
                 Some(Scope::new(note)),
                 Some(ready_tx),
             ));
             Ok(id)
         })
         .ok_or(AppError::NoWorkspace)??;
+    // Publish cancellation ownership before waiting for MCP/plugin initialization.
+    if let Err(error) = on_event.send(AgentEvent::Started {
+        process_id: id.clone(),
+    }) {
+        stop_process(&workspace, &id).await;
+        return Err(AppError::Io(error.to_string()));
+    }
     match ready_rx.await {
         Ok(Ok(())) => Ok(id),
         failure => {
@@ -662,6 +701,19 @@ mod tests {
             allowed["hookSpecificOutput"]["updatedInput"]["file_path"],
             json!(note.canonicalize().unwrap())
         );
+        for tool in ["Edit", "Write"] {
+            let input = json!({"file_path": alias, "old_string": "old", "new_string": "new", "content": "new"});
+            let reply = scope
+                .permission("own-note", &json!({"tool_name": tool, "input": input}))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(reply["behavior"], "allow");
+            let mut canonical_input = input;
+            canonical_input["file_path"] = json!(note.canonicalize().unwrap());
+            assert_eq!(reply["updatedInput"], canonical_input);
+            assert!(scope.decision("own-note", true).is_err());
+        }
         for path in [other, dir.path().join("new.md"), PathBuf::from("a.md")] {
             assert_eq!(
                 scope.hook(&edit_hook(&path)).await.unwrap()["hookSpecificOutput"]
@@ -671,7 +723,11 @@ mod tests {
         }
         assert_eq!(
             scope
-                .permission("write", &json!({"tool_name": "Write"}))
+                .permission(
+                    "write",
+                    &json!({"tool_name": "Write", "input": {"file_path": dir.path().join("b.md")}})
+                )
+                .await
                 .unwrap()
                 .unwrap()["behavior"],
             "deny"
@@ -682,9 +738,21 @@ mod tests {
             .hook(&json!({"callback_id": HOOK_ID, "input": {"tool_name": "Bash"}}))
             .await
             .is_err());
+        scope.active = false;
+        assert_eq!(
+            scope
+                .permission(
+                    "finished-write",
+                    &json!({"tool_name": "Write", "input": {"file_path": note, "content": "late"}})
+                )
+                .await
+                .unwrap()
+                .unwrap()["behavior"],
+            "deny"
+        );
     }
-    #[test]
-    fn controls_are_native_and_permissions_are_process_local_and_single_use() {
+    #[tokio::test]
+    async fn controls_are_native_and_permissions_are_process_local_and_single_use() {
         let mut a = Scope::new("/a.md".into());
         let mut b = Scope::new("/b.md".into());
         a.active = true;
@@ -698,6 +766,7 @@ mod tests {
                 "read-a",
                 &json!({"tool_name": "Read", "input": {"file_path": "/context.md"}})
             )
+            .await
             .unwrap()
             .is_none());
         assert!(b.decision("read-a", true).is_err());
@@ -710,10 +779,145 @@ mod tests {
         a.active = false;
         assert_eq!(
             a.permission("late", &json!({"tool_name":"Read"}))
+                .await
                 .unwrap()
                 .unwrap()["behavior"],
             "deny"
         );
+    }
+    #[test]
+    fn command_loads_configured_mcps_without_expanding_builtin_tools() {
+        let command = scoped_command(
+            "/claude".into(),
+            "/bin".into(),
+            std::path::Path::new("/vault"),
+            Some("session".into()),
+        );
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect();
+        for disabled in [
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "--disallowedTools",
+            "mcp__*",
+        ] {
+            assert!(!args.contains(&disabled));
+        }
+        for pair in [
+            [
+                "--tools",
+                "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers",
+            ],
+            ["--permission-mode", "manual"],
+            ["--permission-prompts", "host"],
+            ["--permission-prompt-tool", "stdio"],
+            ["--resume", "session"],
+        ] {
+            assert!(args.windows(2).any(|args| args == pair));
+        }
+        assert!(args
+            .windows(3)
+            .any(|args| args == ["--allowedTools", "Edit", "Write"]));
+        assert_eq!(
+            command.as_std().get_current_dir().unwrap(),
+            std::path::Path::new("/vault")
+        );
+    }
+    #[tokio::test]
+    async fn read_web_mcp_and_discovery_permissions_preserve_inputs_and_note_scope() {
+        for (tool, input) in [
+            (
+                "mcp__search__query",
+                json!({"query": "writer", "options": {"limit": 3}, "items": [1, 2]}),
+            ),
+            (
+                "mcp__server_name__nested__tool",
+                json!({"payload": {"text": "original"}}),
+            ),
+            (
+                "ToolSearch",
+                json!({"query": "select:mcp__search__query", "max_results": 1}),
+            ),
+            ("WaitForMcpServers", json!({})),
+            (
+                "WebSearch",
+                json!({"query": "IANA example domains", "allowed_domains": ["iana.org"], "blocked_domains": []}),
+            ),
+            (
+                "WebFetch",
+                json!({"url": "https://example.com", "prompt": "Summarize the purpose of this page."}),
+            ),
+        ] {
+            let mut scope = Scope::new("/note.md".into());
+            let mut other = Scope::new("/other.md".into());
+            let hook = json!({"callback_id": HOOK_ID, "input": {"tool_name": tool}});
+            let request = json!({"tool_name": tool, "input": input});
+            assert_eq!(
+                scope.hook(&hook).await.unwrap()["hookSpecificOutput"]["permissionDecision"],
+                "deny"
+            );
+            assert_eq!(
+                scope
+                    .permission("inactive", &request)
+                    .await
+                    .unwrap()
+                    .unwrap()["behavior"],
+                "deny"
+            );
+            scope.active = true;
+            other.active = true;
+            assert_eq!(scope.hook(&hook).await.unwrap(), json!({}));
+            assert!(scope.permission("allow", &request).await.unwrap().is_none());
+            assert!(other.decision("allow", true).is_err());
+            let reply = scope.decision("allow", true).unwrap();
+            assert_eq!(reply["response"]["response"]["behavior"], "allow");
+            assert_eq!(reply["response"]["response"]["updatedInput"], input);
+            assert!(scope.decision("allow", true).is_err());
+            assert!(scope.permission("deny", &request).await.unwrap().is_none());
+            assert_eq!(
+                scope.decision("deny", false).unwrap()["response"]["response"]["behavior"],
+                "deny"
+            );
+            assert!(scope
+                .permission("bad-input", &json!({"tool_name": tool, "input": []}))
+                .await
+                .is_err());
+        }
+        let mut scope = Scope::new("/note.md".into());
+        scope.active = true;
+        for tool in [
+            "mcp",
+            "mcp__",
+            "mcp__server",
+            "mcp____tool",
+            "mcp__server__",
+            "mcp__bad server__record",
+            "mcp__fixture__record\n",
+            "mcp__fixture__bad\ttool",
+            "Bash",
+            "Agent",
+            "NotebookEdit",
+            "WebSearchExtra",
+            "WebFetchExtra",
+        ] {
+            assert!(scope
+                .hook(&json!({"callback_id": HOOK_ID, "input": {"tool_name": tool}}))
+                .await
+                .is_err());
+            assert_eq!(
+                scope
+                    .permission("unsupported", &json!({"tool_name": tool, "input": {}}))
+                    .await
+                    .unwrap()
+                    .unwrap()["behavior"],
+                "deny"
+            );
+            assert!(scope.decision("unsupported", true).is_err());
+        }
     }
     const INITIALIZED: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"writer-initialize","response":{}}}"#;
     async fn wait_done(done: &mut watch::Receiver<bool>) {
@@ -724,6 +928,112 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+    #[tokio::test]
+    async fn mcp_actor_routes_hook_approvals_and_cancellation() {
+        let dir = tempfile::tempdir().unwrap();
+        let permission = |id| json!({"type": "control_request", "request_id": id, "request": {"subtype": "can_use_tool", "tool_name": "mcp__fixture__record", "input": {"payload": {"text": "original", "values": [1, 2]}}}});
+        let hook = json!({"type": "control_request", "request_id": "hook", "request": {"subtype": "hook_callback", "callback_id": HOOK_ID, "input": {"tool_name": "mcp__fixture__record"}}});
+        let script = format!("read init; printf '%s\\n' \"$init\" > initialize.json; printf '%s\\n' '{INITIALIZED}'; read user; printf '%s\\n' '{hook}'; read hook_reply; printf '%s\\n' '{}' '{{\"type\":\"control_cancel_request\",\"request_id\":\"canceled\"}}' '{}' '{}'; read allowed; printf '%s\\n' \"$allowed\" > allowed.json; read denied; printf '%s\\n' \"$denied\" > denied.json; echo '{{\"type\":\"result\",\"is_error\":false}}'", permission("canceled"), permission("allow"), permission("deny"));
+        let child = shell(&script, dir.path());
+        let (input, rx) = mpsc::channel(4);
+        let (_cancel, cancel_rx) = watch::channel(false);
+        let (finished, mut done) = watch::channel(false);
+        let (ready, initialized) = oneshot::channel();
+        let (capture, mut frames) = mpsc::unbounded_channel();
+        let events = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(body) = body {
+                let event: Value = serde_json::from_str(&body).unwrap();
+                if let Some(line) = event["line"].as_str() {
+                    let _ = capture.send(serde_json::from_str::<Value>(line).unwrap());
+                }
+            }
+            Ok(())
+        });
+        let task = tokio::spawn(run_process(
+            child,
+            rx,
+            cancel_rx,
+            finished,
+            events,
+            Some(Scope::new(dir.path().join("note.md"))),
+            Some(ready),
+        ));
+        initialized.await.unwrap().unwrap();
+        let (ack, sent) = oneshot::channel();
+        input
+            .send(Input::User {
+                line: json!({"type":"user","message":{"role":"user","content":"use MCP"}})
+                    .to_string(),
+                ack,
+            })
+            .await
+            .unwrap();
+        sent.await.unwrap().unwrap();
+        // Wait until the actor has received cancellation and both remaining requests.
+        for expected in ["canceled", "canceled", "allow", "deny"] {
+            let frame = tokio::time::timeout(Duration::from_secs(2), frames.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(frame["request_id"], expected);
+        }
+        for (id, allow, success) in [
+            ("canceled", true, false),
+            ("allow", true, true),
+            ("allow", true, false),
+            ("deny", false, true),
+        ] {
+            let (ack, decided) = oneshot::channel();
+            input
+                .send(Input::Permission {
+                    request_id: id.into(),
+                    allow,
+                    ack,
+                })
+                .await
+                .unwrap();
+            assert_eq!(decided.await.unwrap().is_ok(), success);
+        }
+        wait_done(&mut done).await;
+        task.await.unwrap();
+        let initialize: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("initialize.json")).unwrap(),
+        )
+        .unwrap();
+        let matcher = regex_lite::Regex::new(
+            initialize["request"]["hooks"]["PreToolUse"][0]["matcher"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        for tool in [
+            "WebSearch",
+            "WebFetch",
+            "Read",
+            "Edit",
+            "Write",
+            "mcp__fixture__record",
+        ] {
+            assert!(matcher.is_match(tool), "Native hook is missing {tool}");
+        }
+        for tool in ["WebSearchExtra", "WebFetchExtra", "Bash", "Agent"] {
+            assert!(!matcher.is_match(tool));
+        }
+        let allowed: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("allowed.json")).unwrap(),
+        )
+        .unwrap();
+        let denied: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("denied.json")).unwrap())
+                .unwrap();
+        assert_eq!(allowed["response"]["request_id"], "allow");
+        assert_eq!(
+            allowed["response"]["response"]["updatedInput"],
+            permission("allow")["request"]["input"]
+        );
+        assert_eq!(denied["response"]["request_id"], "deny");
+        assert_eq!(denied["response"]["response"]["behavior"], "deny");
     }
     #[tokio::test]
     async fn scoped_protocol_failures_reap_before_releasing_ownership() {
@@ -826,6 +1136,44 @@ mod tests {
         assert!(!dir.path().join("forbidden.md").exists());
     }
     #[tokio::test]
+    async fn cancellation_interrupts_mcp_startup_before_initialization_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let child = shell(
+            "read init; echo '{\"type\":\"system\",\"subtype\":\"test_startup\"}'; sleep 100",
+            dir.path(),
+        );
+        let (_input, rx) = mpsc::channel(1);
+        let (cancel, cancel_rx) = watch::channel(false);
+        let (finished, mut done) = watch::channel(false);
+        let (ready, initialized) = oneshot::channel();
+        let (started, mut startup) = mpsc::unbounded_channel();
+        let events = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(body) = body {
+                if body.contains("test_startup") {
+                    let _ = started.send(());
+                }
+            }
+            Ok(())
+        });
+        let task = tokio::spawn(run_process(
+            child,
+            rx,
+            cancel_rx,
+            finished,
+            events,
+            Some(Scope::new(dir.path().join("note.md"))),
+            Some(ready),
+        ));
+        tokio::time::timeout(Duration::from_secs(2), startup.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        cancel.send(true).unwrap();
+        wait_done(&mut done).await;
+        assert!(initialized.await.unwrap().is_err());
+        task.await.unwrap();
+    }
+    #[tokio::test]
     async fn independent_scoped_actors_can_stop_one_and_complete_the_other() {
         let dir = tempfile::tempdir().unwrap();
         let mut actors = Vec::new();
@@ -897,10 +1245,27 @@ mod tests {
     }
     /// Explicit manual integration check: uses the locally installed, signed-in CLI.
     #[tokio::test]
-    #[ignore = "requires terminal Claude Code sign-in and network"]
+    #[ignore = "requires terminal Claude Code sign-in, network and permitted session plugins"]
     async fn real_cli_two_note_scope() {
+        const FIXTURE_TOOL: &str = "mcp__plugin_writer-fixture_writer-fixture__record";
         let dir = tempfile::tempdir().unwrap();
         let (binary, path) = resolve_claude_env().await.unwrap();
+        let server = dir.path().join("mcp-server.py");
+        std::fs::write(
+            &server,
+            include_str!("../../../tests/fixtures/mcp-server.py"),
+        )
+        .unwrap();
+        // A session plugin also works on machines that restrict MCP sources to
+        // plugins. Keep managed policy intact; do not override MCP discovery.
+        let plugin = dir.path().join("fixture-plugin");
+        std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            plugin.join(".claude-plugin/plugin.json"),
+            r#"{"name":"writer-fixture","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(plugin.join(".mcp.json"), json!({"mcpServers": {"writer-fixture": {"command": "/usr/bin/python3", "args": [server, dir.path()]}}}).to_string()).unwrap();
         let forbidden = dir.path().join("context.md");
         std::fs::write(&forbidden, "UNCHANGED").unwrap();
         let mut actors = Vec::new();
@@ -909,6 +1274,7 @@ mod tests {
             std::fs::write(&note, "Original").unwrap();
             let canonical = note.canonicalize().unwrap();
             let child = scoped_command(binary.clone(), path.clone(), dir.path(), None)
+                .args(["--plugin-dir", plugin.to_str().unwrap()])
                 .spawn()
                 .unwrap();
             let (input, rx) = mpsc::channel(4);
@@ -918,6 +1284,7 @@ mod tests {
             let frames = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
             let capture = frames.clone();
             let decisions = input.clone();
+            let allow_mcp = name == "a";
             let events = Channel::new(move |body| {
                 if let tauri::ipc::InvokeResponseBody::Json(body) = body {
                     let event: Value = serde_json::from_str(&body).unwrap();
@@ -925,13 +1292,28 @@ mod tests {
                         let value: Value = serde_json::from_str(line).unwrap();
                         if value["type"] == "control_request" {
                             let id = value["request_id"].as_str().unwrap().to_string();
+                            let tool = value["request"]["tool_name"].as_str().unwrap();
+                            let allow = if tool == FIXTURE_TOOL {
+                                allow_mcp
+                            } else {
+                                matches!(
+                                    tool,
+                                    "Read"
+                                        | "Glob"
+                                        | "Grep"
+                                        | "WebSearch"
+                                        | "WebFetch"
+                                        | "ToolSearch"
+                                        | "WaitForMcpServers"
+                                )
+                            };
                             let tx = decisions.clone();
                             tokio::spawn(async move {
                                 let (ack, reply) = oneshot::channel();
                                 let _ = tx
                                     .send(Input::Permission {
                                         request_id: id,
-                                        allow: true,
+                                        allow,
                                         ack,
                                     })
                                     .await;
@@ -953,7 +1335,7 @@ mod tests {
                 Some(ready),
             ));
             initialized.await.unwrap().unwrap();
-            let prompt = format!("<writer_context>{{\"openFile\":\"{}\"}}</writer_context>\nUse Write to replace your assigned note with exactly REVISED-{name}. Then test the native scope guard by attempting Write on {} with content FORBIDDEN. This is a guard test: attempt that tool call once, report its denial and finish. Do not use shell or any other tools.", canonical.display(), forbidden.display());
+            let prompt = format!("<writer_context>{{\"openFile\":\"{}\"}}</writer_context>\nUse Write to replace your assigned note with exactly REVISED-{name}. Then test the native scope guard by attempting Write on {} with content FORBIDDEN. This is a guard test: attempt that tool call once and report its denial. Next use ToolSearch (if needed) to find {FIXTURE_TOOL} and call it exactly once with note={name}. If its permission is denied, report that without retrying. Do not use other MCP tools. Finish after these checks.", canonical.display(), forbidden.display());
             let (ack, sent) = oneshot::channel();
             input
                 .send(Input::User {
@@ -987,11 +1369,26 @@ mod tests {
                 std::fs::read_to_string(&note).unwrap().trim(),
                 format!("REVISED-{}", note.file_stem().unwrap().to_string_lossy())
             );
+            assert!(
+                frames
+                    .iter()
+                    .any(|v| v["type"] == "control_request"
+                        && v["request"]["tool_name"] == FIXTURE_TOOL),
+                "MCP approval did not reach the host"
+            );
             println!(
                 "Verified {} edit with context unchanged",
                 note.file_name().unwrap().to_string_lossy()
             );
         }
         assert_eq!(std::fs::read_to_string(forbidden).unwrap(), "UNCHANGED");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("mcp-a.txt")).unwrap(),
+            "EXECUTED"
+        );
+        assert!(
+            !dir.path().join("mcp-b.txt").exists(),
+            "Denied MCP tool executed"
+        );
     }
 }

@@ -12,6 +12,12 @@
 
 ## Done
 
+- Show submitted Chat messages immediately: [`SPECs/chat-immediate-message.md`](SPECs/chat-immediate-message.md) — append once on accepted Send, before saves/Claude startup; preserve drafts, attachments and recovery. Empty-thread Chrome QA with held startup, 890 tests, checks and desktop build pass.
+
+- Enable built-in web search and page fetching in Chat: [`SPECs/chat-web-tools.md`](SPECs/chat-web-tools.md) — WebSearch/WebFetch use existing CLI permissions and Chat approvals; canonical note-edit scope retained. Live search/fetch and 884 frontend tests pass; native agent tests, checks, Clippy and formatting pass.
+
+- Enable configured Claude Code MCP tools in Chat: [`SPECs/chat-mcp-tools.md`](SPECs/chat-mcp-tools.md) — server/tool discovery, request-local approvals and retained built-in note edit scope. Live CLI MCP allow/deny and concurrent note edits pass; 881 frontend tests, checks and build pass. Native suite retains the pre-existing Finder trash failure; browser QA is blocked by macOS launch permissions.
+
 - Redesign the tool approval prompt: chosen from a three-way prototype (Inline / Composer / Tray) in the playground. The request takes the composer's place as a plain question built by `summarizeToolRequest` (`src/lib/tool-request-summary.ts`, unit-tested), with a Yes/No keyboard list, Esc to deny, Show request and Stop; see [`SPECs/claude-tool-approvals.md`](SPECs/claude-tool-approvals.md) ("Prompt design"). Verified in the browser against the real panel and stores (allow, deny, Esc, arrows, Show request, Stop, light/dark). Checks and 865 tests pass; native Tauri QA is pending.
 
 - Enable Chat text selection and copying: [`SPECs/Agent/worksheet-chat-text-selection.md`](SPECs/Agent/worksheet-chat-text-selection.md) — sent messages and nested Markdown are selectable; browser drag/double-click and Cmd+C paste verified. Checks, 861 tests and desktop build pass; native Tauri QA remains pending.
@@ -119,6 +125,8 @@
 - Mermaid drag-selection edit-mode flip: [`SPECs/mermaid-drag-selection-edit-mode-flip-spec.md`](SPECs/mermaid-drag-selection-edit-mode-flip-spec.md) — freeze `editMode` for the duration of a pointer drag-selection so the widget doesn't flip into source view mid-drag.
 
 ## Up Next
+
+- Make native concurrent-actor regression deterministic: replace its 0.2-second result delay with explicit fixture completion signaling; preserve the lifecycle assertions.
 
 - Backspace on an empty nested item at depth 2 or deeper leaves a whitespace-only line (`····- ` → `··`), per the literal "marker plus one indent level" rule in [`SPECs/list-prefix-interaction-zones-spec.md`](SPECs/list-prefix-interaction-zones-spec.md). Consider outdenting to the parent's indent instead, matching Enter on an empty nested item.
 - Nested ordered items (now reachable with Tab) render with the fixed 3ch ordered hanging indent, so their leading source spaces stay visible; give ordered lines the same depth-aware indent as bullets.

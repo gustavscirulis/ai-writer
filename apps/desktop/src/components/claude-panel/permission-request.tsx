@@ -69,7 +69,7 @@ function PermissionPrompt({
   };
   const options = [
     { label: request.pending ? "Sending…" : summary.allowLabel, allow: true },
-    { label: "No, keep to this note", allow: false },
+    { label: "No, deny this request", allow: false },
   ];
   return (
     <div className="shrink-0 px-3 pb-3">

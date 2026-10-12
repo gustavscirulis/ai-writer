@@ -119,6 +119,9 @@ test("sending clears the composer immediately, before startup/delivery, and pres
   useClaudeStore.getState().setDraft("/notes/a.md", "  Edit this\n");
   const sending = send("  Edit this\n");
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("");
+  expect(chatMessages("/notes/a.md")).toHaveLength(1);
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ role: "user", text: "Edit this" });
+  const messageId = chatMessages("/notes/a.md")[0].id;
   await tick();
   start.resolve("process");
   await tick();
@@ -127,6 +130,8 @@ test("sending clears the composer immediately, before startup/delivery, and pres
   useClaudeStore.getState().setDraft("/notes/a.md", "Next message");
   delivery.resolve(null);
   expect(await sending).toBe(true);
+  expect(chatMessages("/notes/a.md")).toHaveLength(1);
+  expect(chatMessages("/notes/a.md")[0].id).toBe(messageId);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Next message");
 });
 
@@ -142,8 +147,57 @@ test.each(["write_file", "claude_start", "claude_send"])(
     useClaudeStore.getState().setDraft("/notes/a.md", "  Retry this\n");
     expect(await send("  Retry this\n")).toBe(false);
     expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("  Retry this\n");
+    expect(chatMessages("/notes/a.md")).toHaveLength(1);
+    expect(chatMessages("/notes/a.md")[0].text).toBe("Retry this");
+    expect(chatState().error).toContain("Unavailable");
   },
 );
+
+test.each(["write_file", "read_file", "claude_start"])(
+  "the submitted message is visible while %s is pending",
+  async (pendingCommand) => {
+    const pending = deferred<unknown>();
+    let pendingArgs: unknown;
+    mockedInvoke.mockImplementation((command, args) => {
+      if (command === pendingCommand) {
+        pendingArgs = args;
+        return pending.promise;
+      }
+      return defaultInvoke(command, args);
+    });
+    useEditorStore.getState().updateContent("/notes/a.md", "Dirty buffer");
+    const sending = send("Immediate message");
+    const message = chatMessages("/notes/a.md")[0];
+    expect(message).toMatchObject({ role: "user", text: "Immediate message" });
+    expect(chatState()).toMatchObject({ status: "running", activity: "thinking" });
+    await tick();
+    expect(pendingArgs).toBeDefined();
+    expect(chatMessages("/notes/a.md")).toEqual([message]);
+    expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_send")).toBe(false);
+    pending.resolve(await defaultInvoke(pendingCommand, pendingArgs));
+    expect(await sending).toBe(true);
+    expect(chatMessages("/notes/a.md")).toEqual([message]);
+  },
+);
+
+test("retrying a failed startup adds one new submitted message", async () => {
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start"
+      ? Promise.reject(new Error("Startup failed"))
+      : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().setDraft("/notes/a.md", "Retry this");
+  expect(await send("Retry this")).toBe(false);
+  await tick();
+  const first = chatMessages("/notes/a.md")[0];
+  mockedInvoke.mockImplementation(defaultInvoke);
+  const retry = send("Retry this");
+  expect(chatMessages("/notes/a.md")).toHaveLength(2);
+  expect(chatMessages("/notes/a.md")[0]).toBe(first);
+  expect(chatMessages("/notes/a.md")[1].id).not.toBe(first.id);
+  expect(await retry).toBe(true);
+  expect(chatMessages("/notes/a.md")).toHaveLength(2);
+});
 
 test("a failed send keeps a newer draft", async () => {
   const start = deferred<string>();
@@ -186,6 +240,8 @@ test("failed delivery restores only the originating note's draft after tab switc
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "For A");
   const sending = send("For A");
+  const message = chatMessages("/notes/a.md")[0];
+  expect(message?.text).toBe("For A");
   await tick();
   disk.set("/notes/b.md", "B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
@@ -194,7 +250,39 @@ test("failed delivery restores only the originating note's draft after tab switc
   expect(await sending).toBe(false);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("For A");
   expect(useClaudeStore.getState().chats["/notes/b.md"].draft).toBe("For B");
+  expect(chatMessages("/notes/a.md")).toEqual([message]);
+  expect(chatMessages("/notes/b.md")).toEqual([]);
 });
+
+test.each(["New chat", "workspace reset"])(
+  "late startup success cannot repopulate messages after %s",
+  async (reset) => {
+    const start = deferred<string>();
+    mockedInvoke.mockImplementation((command, args) =>
+      command === "claude_start" ? start.promise : defaultInvoke(command, args),
+    );
+    const sending = send("Old message");
+    expect(chatMessages("/notes/a.md")[0]?.text).toBe("Old message");
+    await tick();
+    const oldChannel = channels[0];
+    let resetting: Promise<void> | undefined;
+    if (reset === "New chat") resetting = useClaudeStore.getState().newChat("/notes/a.md");
+    else
+      useWorkspaceStore.setState((state) => ({
+        workspaceGeneration: state.workspaceGeneration + 1,
+      }));
+    start.resolve("old-process");
+    expect(await sending).toBe(false);
+    await resetting;
+    oldChannel.onmessage({
+      type: "claude",
+      line: JSON.stringify({ type: "result", is_error: false }),
+    });
+    await tick();
+    expect(chatMessages("/notes/a.md")).toEqual([]);
+    expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_send")).toBe(false);
+  },
+);
 
 test("an abandoned workspace send never restores a draft into the new workspace", async () => {
   const start = deferred<string>();
@@ -214,14 +302,19 @@ test("an abandoned workspace send never restores a draft into the new workspace"
 
 test("suggestion and feedback sends keep unrelated composer drafts", async () => {
   useClaudeStore.getState().setDraft("/notes/a.md", "Unsent draft");
-  expect(await send("Suggestion")).toBe(true);
+  const suggestion = send("Suggestion");
+  expect(chatMessages("/notes/a.md")[0]?.text).toBe("Suggestion");
+  expect(await suggestion).toBe(true);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Unsent draft");
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(
-    await send("Unsent draft", {
-      turn: { path: "/notes/a.md", prepare: () => "Feedback prompt", complete: vi.fn() },
-    }),
-  ).toBe(true);
+  const feedback = send("Unsent draft", {
+    turn: { path: "/notes/a.md", prepare: () => "Feedback prompt", complete: vi.fn() },
+  });
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual([
+    "Suggestion",
+    "Unsent draft",
+  ]);
+  expect(await feedback).toBe(true);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Unsent draft");
 });
 
@@ -229,9 +322,13 @@ test("empty and busy sends leave the composer draft intact", async () => {
   useClaudeStore.getState().setDraft("/notes/a.md", "Draft");
   expect(await send(" ")).toBe(false);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
+  expect(chatMessages("/notes/a.md")).toEqual([]);
+  expect(await useClaudeStore.getState().send("/notes/missing.md", "Invalid")).toBe(false);
+  expect(chatMessages("/notes/missing.md")).toEqual([]);
   await send("First");
   expect(await send("Draft")).toBe(false);
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Draft");
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["First"]);
 });
 
 test("saves and locks the target before starting, leaving other notes editable", async () => {
@@ -263,7 +360,10 @@ test("attachments reach Claude as saved-file lines and stay on the user message"
   const unregister = registerEditorView("/notes/a.md", view, () => {});
   const [, paragraph] = feedbackTargets(body);
   const attachments = [{ anchor: paragraph!, quote: "two" }];
-  expect(await send("Cut this", { attachments })).toBe(true);
+  const sending = send("Cut this", { attachments });
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ text: "Cut this", attachments });
+  expect(await sending).toBe(true);
+  expect(chatMessages("/notes/a.md")).toHaveLength(1);
   unregister();
   const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
     line: string;
@@ -329,12 +429,68 @@ test("old process callbacks cannot finish a newer turn", async () => {
   const old = channels[0];
   await useClaudeStore.getState().stop("/notes/a.md");
   await send("Second");
+  old.onmessage({ type: "started", processId: "obsolete-process" });
   old.onmessage({ type: "exit", code: 0 });
   emit({ type: "result", is_error: false }, old);
   await tick();
   expect(chatState().status).toBe("running");
   expect(isAgentEditing()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop").at(-1)?.[1]).toEqual({
+    processId: "process-2",
+  });
+});
+test.each(["before Stop", "after Stop"])(
+  "Stop cancels MCP initialization when ownership arrives %s",
+  async (timing) => {
+    const start = deferred<string>();
+    mockedInvoke.mockImplementation((command, args) => {
+      if (command === "claude_start") return start.promise;
+      if (command === "claude_stop") start.reject(new Error("Startup canceled"));
+      return defaultInvoke(command, args);
+    });
+    const sending = send("Edit");
+    await tick();
+    const started = () => channels[0].onmessage({ type: "started", processId: "starting-process" });
+    const message = chatMessages("/notes/a.md")[0];
+    if (timing === "before Stop") started();
+    const stopping = useClaudeStore.getState().stop("/notes/a.md");
+    if (timing === "after Stop") started();
+    await stopping;
+    expect(await sending).toBe(false);
+    expect(isAgentEditing()).toBe(false);
+    expect(chatState().error).toBeNull();
+    expect(chatMessages("/notes/a.md")).toEqual([message]);
+    expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop")).toEqual([
+      ["claude_stop", { processId: "starting-process" }],
+    ]);
+    expect(mockedInvoke.mock.calls.some(([c]) => c === "claude_send")).toBe(false);
+  },
+);
+test("failed startup cancellation retains ownership for an immediate Stop retry", async () => {
+  const start = deferred<string>();
+  let failures = 1;
+  mockedInvoke.mockImplementation((command, args) => {
+    if (command === "claude_start") return start.promise;
+    if (command === "claude_stop") {
+      if (failures-- > 0) return Promise.reject(new Error("IPC failure"));
+      start.reject(new Error("Startup canceled"));
+    }
+    return defaultInvoke(command, args);
+  });
+  const sending = send("Edit");
+  await tick();
+  const stopping = useClaudeStore.getState().stop("/notes/a.md");
+  channels[0].onmessage({ type: "started", processId: "starting-process" });
+  await stopping;
+  expect(isAgentEditing()).toBe(true);
+  expect(chatState().error).toContain("Could not stop");
+  await useClaudeStore.getState().stop("/notes/a.md");
+  expect(await sending).toBe(false);
+  expect(isAgentEditing()).toBe(false);
+  const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
+  expect(stops).toHaveLength(2);
+  expect(stops[0][1]).toEqual(stops[1][1]);
 });
 test("deleting an open file reports deletion without leaving all notes locked", async () => {
   await send("Delete this note");
@@ -419,42 +575,55 @@ test("CLI warnings remain inspectable after success without becoming turn errors
   expect(chatState().status).toBe("running");
   emit({ type: "result", is_error: false });
   await tick();
-  expect(chatState().notices).toEqual([warning]);
+  const firstTurn = chatState().messages[0].id;
+  expect(chatState().notices).toEqual([{ afterId: firstTurn, text: warning }]);
   expect(chatState().error).toBeNull();
   expect(isAgentEditing()).toBe(false);
   await send("Second");
-  expect(chatState().notices).toEqual([]);
+  channels[channels.length - 1].onmessage({ type: "stderr", message: warning });
+  expect(chatState().notices).toEqual([{ afterId: firstTurn, text: warning }]);
   emit({ type: "result", is_error: true, errors: ["Actual turn failure"] });
   await tick();
   expect(chatState().error).toBe("Actual turn failure");
-  expect(chatState().notices).toEqual([]);
+  expect(chatState().notices).toHaveLength(1);
   await useClaudeStore.getState().newChat("/notes/a.md");
   expect(chatState().notices).toEqual([]);
   channel.onmessage({ type: "stderr", message: "Stale notice" });
   expect(chatState().notices).toEqual([]);
 });
-test("CLI notice buffer is bounded and cleared on process restart or workspace change", async () => {
+test("CLI notices are bounded, anchored where they arrive, and cleared on workspace change", async () => {
   await send("First");
   const channel = channels[channels.length - 1];
   for (let i = 0; i < 60; i++) channel.onmessage({ type: "stderr", message: `Notice ${i}` });
   expect(chatState().notices).toHaveLength(50);
-  expect(chatState().notices[0]).toBe("Notice 10");
+  expect(chatState().notices[0].text).toBe("Notice 10");
   await useClaudeStore.getState().stop("/notes/a.md");
   await send("Restart");
-  expect(chatState().notices).toEqual([]);
-  channels[channels.length - 1].onmessage({ type: "stderr", message: "Current notice" });
+  const restart = channels[channels.length - 1];
+  const restartTurn = chatState().messages.at(-1)!.id;
+  restart.onmessage({ type: "stderr", message: "Before reply" });
+  emit({ type: "assistant", message: { id: "reply", content: [{ type: "text", text: "Hi" }] } });
+  restart.onmessage({ type: "stderr", message: "After reply" });
+  expect(chatState().notices.slice(-2)).toEqual([
+    { afterId: restartTurn, text: "Before reply" },
+    { afterId: "reply", text: "After reply" },
+  ]);
   useWorkspaceStore.setState((s) => ({ workspaceGeneration: s.workspaceGeneration + 1 }));
   expect(chatState().notices).toEqual([]);
 });
 
-function requestPermission(id: string, tool = "Read") {
+function requestPermission(
+  id: string,
+  tool = "Read",
+  input = { query: "A writer's notes", limit: 3 } as Record<string, unknown>,
+) {
   emit({
     type: "control_request",
     request_id: id,
     request: {
       subtype: "can_use_tool",
       tool_name: tool,
-      input: { query: "A writer's notes", limit: 3 },
+      input,
     },
   });
 }
@@ -463,27 +632,39 @@ function sentDecisions() {
     .filter(([command]) => command === "claude_decide_permission")
     .map(([, payload]) => payload);
 }
-test("queues distinct approvals, opens the panel and sends allow/deny once without persisting rules", async () => {
-  await send("Search");
-  requestPermission("first");
-  requestPermission("second", "Grep");
-  requestPermission("first");
-  expect(chatState().permissions.map((entry) => entry.id)).toEqual(["first", "second"]);
-  expect(useSettingsStore.getState().settings["appearance.agent-panel-visible"]).toBe(true);
-  expect(isAgentEditing()).toBe(true);
-  const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
-  await useClaudeStore.getState().decidePermission("/notes/a.md", "first", false);
-  await approving;
-  await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false);
-  expect(sentDecisions()).toEqual([
-    { processId: "process-1", requestId: "first", allow: true },
-    { processId: "process-1", requestId: "second", allow: false },
-  ]);
-  expect(chatState().permissions).toEqual([]);
-  expect(chatState().status).toBe("running");
-  emit({ type: "result", is_error: false });
-  await tick();
-});
+test.each([
+  { tool: "Read", input: { file_path: "/notes/context.md" } },
+  { tool: "mcp__notes__search", input: { query: "A writer's notes", limit: 3 } },
+  { tool: "WebSearch", input: { query: "IANA example domains", allowed_domains: ["iana.org"] } },
+  { tool: "WebFetch", input: { url: "https://example.com", prompt: "Summarize the page." } },
+])(
+  "queues %s approvals and sends allow/deny once without persisting rules",
+  async ({ tool, input }) => {
+    await send("Search");
+    requestPermission("first", tool, input);
+    requestPermission("second", tool, input);
+    requestPermission("first", tool, input);
+    expect(chatState().permissions.map((entry) => entry.id)).toEqual(["first", "second"]);
+    expect(chatState().permissions[0]).toMatchObject({
+      tool,
+      input,
+    });
+    expect(useSettingsStore.getState().settings["appearance.agent-panel-visible"]).toBe(true);
+    expect(isAgentEditing()).toBe(true);
+    const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
+    await useClaudeStore.getState().decidePermission("/notes/a.md", "first", false);
+    await approving;
+    await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false);
+    expect(sentDecisions()).toEqual([
+      { processId: "process-1", requestId: "first", allow: true },
+      { processId: "process-1", requestId: "second", allow: false },
+    ]);
+    expect(chatState().permissions).toEqual([]);
+    expect(chatState().status).toBe("running");
+    emit({ type: "result", is_error: false });
+    await tick();
+  },
+);
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
   await send("Search");
   requestPermission("first");
@@ -860,6 +1041,7 @@ test("Stop during feedback preparation settles cancellation exactly once without
   const send = useClaudeStore.getState().send("/notes/a.md", "Feedback", {
     turn: { path: "/notes/a.md", prepare: () => prepare.promise, complete },
   });
+  expect(chatMessages("/notes/a.md")[0]?.text).toBe("Feedback");
   await tick();
   const stop = useClaudeStore.getState().stop("/notes/a.md");
   prepare.resolve("Prepared");
@@ -1262,9 +1444,11 @@ test("aliases share ownership and pending widget writes are drained before start
     () => useEditorStore.getState().updateContent(alias, "Embedded edit"),
   );
   const sending = useClaudeStore.getState().send("/notes/a.md", "A");
+  expect(chatState(alias).messages.map((message) => message.text)).toEqual(["A"]);
   await tick();
   expect(isAgentEditing(alias)).toBe(true);
   expect(await useClaudeStore.getState().send(alias, "Duplicate")).toBe(false);
+  expect(chatState(alias).messages.map((message) => message.text)).toEqual(["A"]);
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_start")).toBe(false);
   disk.set("/notes/a.md", "Embedded edit");
   write.resolve({ path: "/notes/a.md", modified_at: 2 });

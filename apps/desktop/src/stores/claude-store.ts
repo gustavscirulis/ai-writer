@@ -26,18 +26,23 @@ import {
   parseClaudeLine,
   reduceClaudeMessages,
   getClaudeActivity,
+  isVisibleMessage,
   type ClaudeActivity,
   type ChatMessage,
   type ToolPermission,
 } from "@/lib/claude-stream";
 
+export interface ChatNotice {
+  afterId: string;
+  text: string;
+}
 export interface Chat {
   messages: ChatMessage[];
   draft: string;
   activity: ClaudeActivity;
   status: "idle" | "running" | "stopping" | "error";
   error: string | null;
-  notices: string[];
+  notices: ChatNotice[];
   permissions: ToolPermission[];
 }
 export const EMPTY_CHAT: Chat = {
@@ -62,6 +67,7 @@ interface ClaudeState {
 interface Run {
   key: string;
   path: string;
+  turnId: string;
   root: string;
   workspaceGeneration: number;
   options: AgentTurnOptions | null;
@@ -72,6 +78,8 @@ interface Run {
   exited: boolean;
   error: string | null;
   processId: string | null;
+  processStarted: Promise<void>;
+  resolveProcessStarted: () => void;
   pendingSend: Promise<boolean> | null;
   finishing: Promise<void> | null;
   stopping: Promise<void> | null;
@@ -283,7 +291,13 @@ function finish(run: Run): Promise<void> {
 }
 type tauriReadResult = Awaited<ReturnType<typeof tauri.readFile>>;
 function receive(run: Run, event: tauri.AgentEvent) {
-  if (!current(run) || run.cancelled) return;
+  if (!current(run)) return;
+  if (event.type === "started") {
+    run.processId = event.processId;
+    run.resolveProcessStarted();
+    return;
+  }
+  if (run.cancelled) return;
   try {
     if (event.type === "exit") {
       run.exited = true;
@@ -295,13 +309,15 @@ function receive(run: Run, event: tauri.AgentEvent) {
       return;
     }
     if (event.type === "stderr") {
-      const notice = event.message.trim();
-      if (notice)
-        updateChat(run.key, (chat) =>
-          chat.notices.includes(notice)
-            ? chat
-            : { ...chat, notices: [...chat.notices, notice].slice(-50) },
-        );
+      const text = event.message.trim();
+      if (text)
+        updateChat(run.key, (chat) => {
+          // Every turn starts a new CLI process that repeats its startup warnings.
+          if (chat.notices.some((notice) => notice.text === text)) return chat;
+          const visible = chat.messages.filter(isVisibleMessage);
+          const afterId = visible[visible.length - 1]?.id ?? run.turnId;
+          return { ...chat, notices: [...chat.notices, { afterId, text }].slice(-50) };
+        });
       return;
     }
     const parsed = parseClaudeLine(event.line);
@@ -429,9 +445,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       }));
       return Promise.resolve(false);
     }
+    let resolveProcessStarted!: () => void;
+    const processStarted = new Promise<void>((resolve) => {
+      resolveProcessStarted = resolve;
+    });
+    const turnId = crypto.randomUUID();
     const run: Run = {
       key,
       path,
+      turnId,
       root: workspace.root,
       workspaceGeneration: workspace.workspaceGeneration,
       options: options ?? null,
@@ -442,6 +464,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       exited: false,
       error: null,
       processId: null,
+      processStarted,
+      resolveProcessStarted,
       pendingSend: null,
       finishing: null,
       stopping: null,
@@ -455,12 +479,19 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     runs.set(key, run);
     const draft = get().chats[key]?.draft;
     const restore = !options && draft === text ? draft : null;
+    const message: ChatMessage = {
+      id: turnId,
+      role: "user",
+      text: text.trim(),
+      tools: [],
+      ...(attachments?.length ? { attachments } : {}),
+    };
     updateChat(key, (chat) => ({
       ...chat,
+      messages: [...chat.messages, message],
       status: "running",
       activity: "thinking",
       error: null,
-      notices: [],
       permissions: [],
       ...(restore !== null ? { draft: "" } : {}),
     }));
@@ -496,27 +527,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           attachments: options ? [] : attachmentContext(path, attachments),
         };
         const content = `<writer_context>${JSON.stringify(context)}</writer_context>\n\n${prepared}`;
-        updateChat(key, (chat) => ({
-          ...chat,
-          messages: [
-            ...chat.messages,
-            {
-              id: crypto.randomUUID(),
-              role: "user",
-              text: text.trim(),
-              tools: [],
-              ...(attachments?.length ? { attachments } : {}),
-            },
-          ],
-        }));
         await tauri.claudeSend(
           id,
           JSON.stringify({ type: "user", message: { role: "user", content } }),
         );
         return true;
       } catch (error) {
-        if (current(run)) end(run, errorText(error));
-        else console.error("[chat] Abandoned turn failed", error);
+        if (current(run)) {
+          if (!run.cancelled) end(run, errorText(error));
+        } else console.error("[chat] Abandoned turn failed", error);
         return false;
       }
     })();
@@ -542,6 +561,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     patch(run, { status: "stopping", activity: null, permissions: [] });
     const task = (async () => {
       try {
+        if (!run.processId && run.pendingSend)
+          await Promise.race([run.processStarted, run.pendingSend]);
         await terminate(run);
         if (run.pendingSend) await run.pendingSend;
         if (!current(run)) return;
