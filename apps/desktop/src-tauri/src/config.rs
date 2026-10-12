@@ -352,8 +352,6 @@ impl Settings {
             workspace_path: None,
         };
 
-        // Migrate from old preferences.json if it exists and config doesn't
-        settings.migrate_from_preferences(&global_config_dir)?;
         settings.migrate_theme_fonts()?;
         settings.migrate_editor_width()?;
 
@@ -441,32 +439,6 @@ impl Settings {
             }
         }
         self.reset_global(OLD_KEY)
-    }
-
-    /// One-time migration: read theme from old `preferences.json` (tauri-plugin-store format)
-    /// and write it into the new config file. Removes the old file after migration.
-    fn migrate_from_preferences(&mut self, app_data_dir: &Path) -> std::io::Result<()> {
-        let prefs_path = app_data_dir.join("preferences.json");
-        // Only migrate if the global config doesn't already have a theme set
-        if self.global.contains_key("appearance.theme") {
-            // Old file exists but we already have settings — just clean up
-            return match std::fs::remove_file(&prefs_path) {
-                Ok(()) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(error) => Err(error),
-            };
-        }
-        let data = match std::fs::read_to_string(&prefs_path) {
-            Ok(data) => data,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error),
-        };
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
-            if let Some(theme) = json.get("theme").and_then(|v| v.as_str()) {
-                self.set_global("appearance.theme", ConfigValue::String(theme.to_string()))?;
-            }
-        }
-        std::fs::remove_file(&prefs_path)
     }
 
     /// Load workspace-level config from `{workspace_root}/.writer/config`.

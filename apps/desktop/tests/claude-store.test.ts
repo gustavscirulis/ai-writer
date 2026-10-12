@@ -15,6 +15,8 @@ vi.mock("@/lib/preferences", () => ({
   setPreference: vi.fn(async () => {}),
   readPreferenceStrict: vi.fn(async () => undefined),
   writePreferenceStrict: vi.fn(async () => {}),
+  readStoreEntriesStrict: vi.fn(async () => []),
+  writeStoreEntriesStrict: vi.fn(async () => {}),
 }));
 import { invoke } from "@tauri-apps/api/core";
 import { useClaudeStore, chatForPath } from "../src/stores/claude-store";
@@ -27,7 +29,11 @@ import {
   resumeFeedbackPersistence,
 } from "../src/stores/feedback-store";
 import { feedbackTargets } from "../src/lib/feedback-anchors";
-import { writePreferenceStrict } from "../src/lib/preferences";
+import {
+  readStoreEntriesStrict,
+  writePreferenceStrict,
+  writeStoreEntriesStrict,
+} from "../src/lib/preferences";
 import { applyFeedback } from "../src/hooks/use-feedback";
 import { useSettingsStore } from "../src/stores/settings-store";
 import {
@@ -65,6 +71,23 @@ const chatMessages = (path: string) => useClaudeStore.getState().chats[path]?.me
 const tick = async () => {
   for (let i = 0; i < 50; i++) await Promise.resolve();
 };
+async function reopenWithSavedChat(
+  record: { sessionId: string | null; messages: unknown[] },
+  path = "/notes/a.md",
+) {
+  vi.mocked(readStoreEntriesStrict).mockResolvedValue([
+    [`/notes\0${path}`, { version: 1, ...record }],
+  ]);
+  useWorkspaceStore.setState((s) => ({ workspaceGeneration: s.workspaceGeneration + 1 }));
+  await tick();
+  await useFeedbackStore
+    .getState()
+    .load("/notes", useWorkspaceStore.getState().workspaceGeneration);
+}
+const savedChats = () =>
+  vi
+    .mocked(writeStoreEntriesStrict)
+    .mock.calls.flatMap(([, changes]) => changes as [string, unknown][]);
 function defaultInvoke(command: string, payload: unknown): Promise<unknown> {
   const args = payload as { path: string; content: string };
   if (command === "read_file") {
@@ -82,6 +105,8 @@ function defaultInvoke(command: string, payload: unknown): Promise<unknown> {
 beforeEach(async () => {
   resumeFeedbackPersistence();
   vi.mocked(writePreferenceStrict).mockReset().mockResolvedValue(undefined);
+  vi.mocked(writeStoreEntriesStrict).mockReset().mockResolvedValue(undefined);
+  vi.mocked(readStoreEntriesStrict).mockReset().mockResolvedValue([]);
   vi.clearAllMocks();
   vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
   channels.length = 0;
@@ -1330,8 +1355,9 @@ test("background approvals do not open the panel or change notes and decisions s
 });
 
 test("New chat reserves sends and moves throughout its asynchronous session reset", async () => {
+  await reopenWithSavedChat({ sessionId: "session-a", messages: [] });
   const reset = deferred<void>();
-  vi.mocked(writePreferenceStrict).mockImplementation(() => reset.promise);
+  vi.mocked(writeStoreEntriesStrict).mockImplementation(() => reset.promise);
   const resetting = useClaudeStore.getState().newChat("/notes/a.md");
   expect(await send("Race")).toBe(false);
   expect(() => beginPathMutation()).toThrow("AI editing");
@@ -1345,11 +1371,11 @@ test("New chat reserves sends and moves throughout its asynchronous session rese
 
 test("session persistence failure recovers on retry without leaving the note locked forever", async () => {
   await send("A");
-  vi.mocked(writePreferenceStrict).mockRejectedValue(new Error("Disk full"));
+  vi.mocked(writeStoreEntriesStrict).mockRejectedValue(new Error("Disk full"));
   emit({ type: "system", subtype: "init", session_id: "session-a" });
   await tick();
   expect(isAgentEditing("/notes/a.md")).toBe(true);
-  vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
+  vi.mocked(writeStoreEntriesStrict).mockResolvedValue(undefined);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentEditing("/notes/a.md")).toBe(false);
   expect(chatState().error).toContain("Could not save chat session");
@@ -1496,4 +1522,100 @@ test("feedback outcomes remain independent across simultaneous notes", async () 
   expect(useFeedbackStore.getState().byPath["/notes/b.md"]).toEqual([]);
   expect(useFeedbackStore.getState().turnErrors["/notes/b.md"]).toBeNull();
   expect(useFeedbackStore.getState().error).toBeNull();
+});
+
+test("a reopened workspace restores each note's chat and resumes its session", async () => {
+  await reopenWithSavedChat({
+    sessionId: "session-a",
+    messages: [
+      { id: "u1", role: "user", text: "Earlier question", tools: [] },
+      {
+        id: "a1",
+        role: "assistant",
+        text: "Earlier answer",
+        tools: [
+          { id: "t1", name: "Read" },
+          { id: "t2", name: "Edit", done: true },
+        ],
+      },
+    ],
+  });
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual([
+    "Earlier question",
+    "Earlier answer",
+  ]);
+  expect(chatMessages("/notes/a.md")[1]!.tools).toEqual([
+    { id: "t1", name: "Read", done: true, error: true },
+    { id: "t2", name: "Edit", done: true },
+  ]);
+  await send("Follow up");
+  expect(
+    mockedInvoke.mock.calls.filter(([command]) => command === "claude_start").at(-1)?.[1],
+  ).toMatchObject({ resumeSessionId: "session-a" });
+  emit({ type: "system", subtype: "init", session_id: "session-a" });
+  emit({ type: "stream_event", event: { type: "message_start", message: { id: "a2" } } });
+  emit({
+    type: "stream_event",
+    event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Reply" } },
+  });
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(savedChats().at(-1)).toEqual([
+    "/notes\0/notes/a.md",
+    {
+      version: 1,
+      sessionId: "session-a",
+      messages: chatMessages("/notes/a.md"),
+    },
+  ]);
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual([
+    "Earlier question",
+    "Earlier answer",
+    "Follow up",
+    "Reply",
+  ]);
+});
+
+test("the sent message is saved before Claude starts, and New chat and moves rewrite the record", async () => {
+  const start = deferred<string>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start" ? start.promise : defaultInvoke(command, args),
+  );
+  const sending = send("Remember me");
+  await tick();
+  expect(savedChats()).toEqual([
+    [
+      "/notes\0/notes/a.md",
+      { version: 1, sessionId: null, messages: [expect.objectContaining({ text: "Remember me" })] },
+    ],
+  ]);
+  start.resolve("process-1");
+  await sending;
+  emit({ type: "result", is_error: false });
+  await tick();
+  await useClaudeStore.getState().rewriteChatPaths("/notes", "/notes/a.md", "/notes/c.md", false);
+  expect(savedChats().slice(-2)).toEqual([
+    ["/notes\0/notes/a.md", undefined],
+    ["/notes\0/notes/c.md", expect.objectContaining({ version: 1 })],
+  ]);
+  await useClaudeStore.getState().newChat("/notes/c.md");
+  expect(savedChats().at(-1)).toEqual(["/notes\0/notes/c.md", undefined]);
+});
+
+test("an expired Claude Code session keeps the restored thread and says to start a new chat", async () => {
+  await reopenWithSavedChat({
+    sessionId: "gone",
+    messages: [{ id: "u1", role: "user", text: "Earlier", tools: [] }],
+  });
+  await send("Again");
+  emit({
+    type: "result",
+    is_error: true,
+    errors: ["No conversation found with session ID: gone"],
+  });
+  await tick();
+  expect(chatState().error).toBe(
+    "This conversation can't be continued in Claude Code any more. Start a new chat to keep going.",
+  );
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["Earlier", "Again"]);
 });

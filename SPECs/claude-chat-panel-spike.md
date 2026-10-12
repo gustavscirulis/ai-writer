@@ -46,4 +46,4 @@ Tests cover interleaved note starts, streams, acknowledgements and completion; s
 
 Live macOS window hide/reopen still needs a manual pass: application-service/XPC failures prevented usable native UI automation in this environment. The pre-existing Finder trash test is affected by the same service failure. This is distinct from the passing native process/CLI workflow.
 
-Future work: graceful protocol interrupt, onboarding/account recovery, persisted visible history/session picker, changed-file/diff review, native GUI end-to-end automation and a separate fork's identity/releases. Codex support remains future work.
+Future work: graceful protocol interrupt, onboarding/account recovery, a session picker (visible history persists per [persist-chat-history.md](./persist-chat-history.md)), changed-file/diff review, native GUI end-to-end automation and a separate fork's identity/releases. Codex support remains future work.

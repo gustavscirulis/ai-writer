@@ -5,7 +5,7 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useEditorStore } from "@/stores/editor-store";
 import * as tauri from "@/lib/tauri";
 import { flushSave } from "@/lib/save";
-import { readPreferenceStrict, writePreferenceStrict } from "@/lib/preferences";
+import { readStoreEntriesStrict, writeStoreEntriesStrict } from "@/lib/preferences";
 import { getEditorView, synchronizeEditorView } from "@/lib/editor-views";
 import {
   markAgentReload,
@@ -96,48 +96,113 @@ let drains = 0;
 export function chatForPath(chats: Record<string, Chat>, path: string | null) {
   return path ? (chats[documentPath(path)] ?? EMPTY_CHAT) : EMPTY_CHAT;
 }
-const sessionsKey = (root: string) => `workspace:${root}:agent:claude-sessions`;
+const EXPIRED_SESSION =
+  "This conversation can't be continued in Claude Code any more. Start a new chat to keep going.";
 
-type Sessions = Record<string, string>;
-const loadedSessions = new Map<string, Promise<Sessions>>();
-function loadSessions(root: string) {
-  let sessions = loadedSessions.get(root);
-  if (!sessions) {
-    sessions = readPreferenceStrict<Sessions>(sessionsKey(root)).then((stored) => ({
-      ...stored,
-    }));
-    loadedSessions.set(root, sessions);
-    const pending = sessions;
-    void pending.catch(() => {
-      if (loadedSessions.get(root) === pending) loadedSessions.delete(root);
-    });
-  }
-  return sessions;
+/** One record per canonical note path, so the visible thread and its session can't drift. */
+interface ChatRecord {
+  version: 1;
+  sessionId: string | null;
+  messages: ChatMessage[];
+}
+type ChatRecords = Record<string, ChatRecord>;
+const CHATS_FILE = "chats.json";
+// Claude Code sessions belong to the root they ran in, so a nested workspace must not share them.
+const recordPrefix = (root: string) => `${root}\0`;
+
+/** A tool that never finished was cut off by a quit or crash, not still running. */
+function restoreMessages(messages: ChatMessage[]) {
+  return messages.map((message) =>
+    message.tools.some((tool) => !tool.done && !tool.error)
+      ? {
+          ...message,
+          tools: message.tools.map((tool) =>
+            tool.done || tool.error ? tool : { ...tool, done: true, error: true },
+          ),
+        }
+      : message,
+  );
 }
 
-const sessionWrites = new Map<string, Promise<void>>();
-function updateSessions(root: string, update: (sessions: Sessions) => Sessions) {
-  const key = sessionsKey(root);
-  const task = (sessionWrites.get(key) ?? Promise.resolve())
+function hydrate(root: string, generation: number, records: ChatRecords) {
+  const workspace = useWorkspaceStore.getState();
+  if (workspace.root !== root || workspace.workspaceGeneration !== generation) return;
+  useClaudeStore.setState((state) => {
+    let chats = state.chats;
+    for (const [key, record] of Object.entries(records)) {
+      const stored = restoreMessages(record.messages);
+      const ids = new Set(stored.map((message) => message.id));
+      chats = withChat(chats, key, (chat) => ({
+        ...chat,
+        messages: [...stored, ...chat.messages.filter((message) => !ids.has(message.id))],
+      }));
+    }
+    return { chats };
+  });
+}
+
+const loadedChats = new Map<string, Promise<ChatRecords>>();
+function loadChats(root: string) {
+  let loaded = loadedChats.get(root);
+  if (!loaded) {
+    const generation = useWorkspaceStore.getState().workspaceGeneration;
+    const prefix = recordPrefix(root);
+    loaded = readStoreEntriesStrict<ChatRecord>(CHATS_FILE).then((entries) => {
+      const records: ChatRecords = {};
+      for (const [entry, record] of entries) {
+        if (!entry.startsWith(prefix)) continue;
+        const key = entry.slice(prefix.length);
+        if (record?.version === 1 && Array.isArray(record.messages)) records[key] = record;
+        else console.error("[chat] Ignoring unreadable saved chat", key);
+      }
+      hydrate(root, generation, records);
+      return records;
+    });
+    loadedChats.set(root, loaded);
+    const pending = loaded;
+    void pending.catch(() => {
+      if (loadedChats.get(root) === pending) loadedChats.delete(root);
+    });
+  }
+  return loaded;
+}
+
+const chatWrites = new Map<string, Promise<void>>();
+function updateChats(root: string, update: (records: ChatRecords) => ChatRecords) {
+  const task = (chatWrites.get(root) ?? Promise.resolve())
     .catch(() => {})
     .then(async () => {
-      const sessions = update(await loadSessions(root));
-      await writePreferenceStrict(key, sessions);
-      loadedSessions.set(root, Promise.resolve(sessions));
+      const before = await loadChats(root);
+      const records = update(before);
+      const keys = new Set([...Object.keys(before), ...Object.keys(records)]);
+      const changes = [...keys]
+        .filter((key) => before[key] !== records[key])
+        .map((key): [string, ChatRecord | undefined] => [recordPrefix(root) + key, records[key]]);
+      if (changes.length) await writeStoreEntriesStrict(CHATS_FILE, changes);
+      loadedChats.set(root, Promise.resolve(records));
     });
-  sessionWrites.set(key, task);
+  chatWrites.set(root, task);
   const clear = () => {
-    if (sessionWrites.get(key) === task) sessionWrites.delete(key);
+    if (chatWrites.get(root) === task) chatWrites.delete(root);
   };
   void task.then(clear, clear);
   return task;
 }
-function persistSession(root: string, path: string, session: string | null) {
-  return updateSessions(root, (sessions) => {
-    const next = { ...sessions };
-    if (session) next[path] = session;
-    else delete next[path];
-    return next;
+/** Snapshots the note's live messages at write time; a stale workspace keeps the stored ones. */
+function persistChat(root: string, key: string, generation: number, sessionId?: string) {
+  return updateChats(root, (records) => {
+    const workspace = useWorkspaceStore.getState();
+    const live = workspace.root === root && workspace.workspaceGeneration === generation;
+    const stored = records[key];
+    const messages = live
+      ? (useClaudeStore.getState().chats[key]?.messages ?? [])
+      : (stored?.messages ?? []);
+    const record: ChatRecord = {
+      version: 1,
+      sessionId: sessionId ?? stored?.sessionId ?? null,
+      messages: messages.filter(isVisibleMessage),
+    };
+    return { ...records, [key]: record };
   });
 }
 
@@ -256,8 +321,18 @@ function finish(run: Run): Promise<void> {
           if (failures.size) throw failures.values().next().value;
         }
       }
-      if (run.sessionWrite) {
-        await run.sessionWrite.catch(() => persistSession(run.root, run.key, run.sessionId));
+      if (run.handedOff) {
+        // Only a lost session ID keeps the note locked; a lost transcript is reported.
+        const sessionSaved = await (run.sessionWrite ?? Promise.resolve()).then(
+          () => true,
+          () => false,
+        );
+        try {
+          await persistChat(run.root, run.key, run.workspaceGeneration, run.sessionId ?? undefined);
+        } catch (error) {
+          if (!sessionSaved) throw error;
+          run.error ??= `Could not save this chat: ${errorText(error)}`;
+        }
       }
       if (!current(run)) return;
       const options = run.options;
@@ -324,11 +399,18 @@ function receive(run: Run, event: tauri.AgentEvent) {
     if (!parsed) return;
     if (parsed.type === "init") {
       run.sessionId = parsed.sessionId;
-      run.sessionWrite = persistSession(run.root, run.key, parsed.sessionId);
-      void run.sessionWrite.catch((error) => {
+      const write = persistChat(run.root, run.key, run.workspaceGeneration, parsed.sessionId);
+      run.sessionWrite = write;
+      void write.catch((error) => {
         end(run, `Could not save chat session: ${errorText(error)}`);
       });
-    } else if (parsed.type === "result") end(run, parsed.error);
+    } else if (parsed.type === "result")
+      end(
+        run,
+        run.sessionId === null && parsed.error?.startsWith("No conversation found with session ID")
+          ? EXPIRED_SESSION
+          : parsed.error,
+      );
     else if (parsed.type === "permission") {
       if (run.ended || run.permissionIds.has(parsed.permission.id)) return;
       run.permissionIds.add(parsed.permission.id);
@@ -495,6 +577,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       permissions: [],
       ...(restore !== null ? { draft: "" } : {}),
     }));
+    void persistChat(run.root, key, run.workspaceGeneration).catch((error) =>
+      console.error("[chat] Could not save the sent message", error),
+    );
     const task = (async () => {
       try {
         for (const alias of aliases) await flushSave(alias.path);
@@ -504,14 +589,14 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         run.before = saved.content;
         const prepared = options ? await options.prepare(saved.content) : text.trim();
         if (!current(run) || run.cancelled || run.ended) return false;
-        const sessions = await loadSessions(run.root);
+        const records = await loadChats(run.root);
         if (!current(run) || run.cancelled || run.ended) return false;
         const channel = new Channel<tauri.AgentEvent>();
         channel.onmessage = (event) => receive(run, event);
         const id = await tauri.claudeStart(
           run.root,
           workspace.workspaceEpoch!,
-          sessions[key] ?? sessions[path] ?? null,
+          records[key]?.sessionId ?? null,
           path,
           channel,
         );
@@ -613,10 +698,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       updateChat(key, (chat) => ({ ...chat, status: "stopping" }));
       try {
         if (workspace.root)
-          await updateSessions(workspace.root, (sessions) => {
-            const next = { ...sessions };
+          await updateChats(workspace.root, (records) => {
+            const next = { ...records };
             delete next[key];
-            delete next[path];
             return next;
           });
         if (useWorkspaceStore.getState().workspaceGeneration !== workspace.workspaceGeneration)
@@ -644,7 +728,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   rewriteChatPaths: async (root, from, to, isDir) => {
     if (useWorkspaceStore.getState().root === root)
       set((state) => ({ chats: rekey(state.chats, from, to, isDir) }));
-    await updateSessions(root, (sessions) => rekey(sessions, from, to, isDir));
+    await updateChats(root, (records) => rekey(records, from, to, isDir));
   },
 }));
 useWorkspaceStore.subscribe((state, previous) => {
@@ -652,10 +736,14 @@ useWorkspaceStore.subscribe((state, previous) => {
   const abandoned = [...runs.values()];
   runs.clear();
   resets.clear();
-  loadedSessions.clear();
+  loadedChats.clear();
   clearAgentEditing();
   clearDocumentPaths();
   useClaudeStore.setState({ chats: {} });
+  if (state.root)
+    void loadChats(state.root).catch((error) =>
+      console.error("[chat] Could not load saved chats", error),
+    );
   for (const run of abandoned) {
     run.cancelled = true;
     const options = run.options;
