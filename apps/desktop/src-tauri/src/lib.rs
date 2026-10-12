@@ -603,6 +603,7 @@ pub fn run() {
             commands::agent::claude::claude_start,
             commands::agent::claude::claude_send,
             commands::agent::claude::claude_decide_permission,
+            commands::agent::claude::claude_answer,
             commands::agent::claude::claude_edit_ready,
             commands::agent::claude::claude_stop,
             commands::agent::set_pending_approvals,

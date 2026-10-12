@@ -820,6 +820,106 @@ test("reports the window's pending approval count for the Dock badge only when i
   emit({ type: "control_cancel_request", request_id: "second" });
   expect(reported()).toEqual([1, 2, 1, 0]);
 });
+test("Claude's questions wait for answers, keep a failed reply for retry and show the answers in the thread", async () => {
+  const answers = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_answer")
+      .map(([, payload]) => payload);
+  const questions = [
+    { question: "Which tone?", header: "Tone", multiSelect: false, options: [] },
+    { question: "Which length?", header: "Length", multiSelect: false, options: [] },
+  ];
+  await send("Rewrite it");
+  emit({
+    type: "assistant",
+    message: {
+      id: "ask",
+      content: [
+        { type: "tool_use", id: "toolu_ask", name: "AskUserQuestion", input: { questions } },
+      ],
+    },
+  });
+  requestPermission("ask", "AskUserQuestion", { questions });
+  expect(chatState().permissions.map((entry) => entry.tool)).toEqual(["AskUserQuestion"]);
+  const reply = { "Which tone?": "Warm", "Which length?": "Short" };
+  mockedInvoke.mockImplementationOnce(async () => {
+    throw new Error("Claude Code exited");
+  });
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "ask", { kind: "questions", answers: reply });
+  expect(chatState().permissions[0]).toMatchObject({
+    pending: false,
+    error: "Could not send your reply: Claude Code exited",
+  });
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "ask", { kind: "questions", answers: reply });
+  expect(answers().at(-1)).toEqual({
+    processId: "process-1",
+    requestId: "ask",
+    answer: { kind: "questions", answers: reply },
+  });
+  expect(sentDecisions()).toEqual([]);
+  expect(chatState().permissions).toEqual([]);
+  emit({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_ask" }] },
+    tool_use_result: { questions, answers: reply },
+  });
+  expect(chatState().messages.at(-1)!.tools[0]).toMatchObject({
+    done: true,
+    questions: [
+      { question: "Which tone?", answer: "Warm" },
+      { question: "Which length?", answer: "Short" },
+    ],
+  });
+  emit({ type: "result", is_error: false });
+  await tick();
+});
+test("plan mode starts the turn in plan mode, and approving the plan turns it off", async () => {
+  const starts = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_start")
+      .map(([, payload]) => (payload as { plan: boolean }).plan);
+  useClaudeStore.getState().setPlanMode("/notes/a.md", true);
+  await send("Restructure it");
+  expect(starts()).toEqual([true]);
+  const input = { plan: "1. Merge the intro", planFilePath: "/home/.claude/plans/a.md" };
+  emit({
+    type: "assistant",
+    message: {
+      id: "plan",
+      content: [{ type: "tool_use", id: "toolu_plan", name: "ExitPlanMode", input }],
+    },
+  });
+  expect(chatState().messages.at(-1)!.tools[0]).toMatchObject({ plan: "1. Merge the intro" });
+  requestPermission("plan", "ExitPlanMode", input);
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "plan", { kind: "plan", approve: false, feedback: "Keep the intro" });
+  expect(chatState().planMode).toBe(true);
+  requestPermission("plan-2", "ExitPlanMode", input);
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "plan-2", { kind: "plan", approve: true, feedback: null });
+  expect(
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_answer")
+      .map(([, payload]) => (payload as { answer: unknown }).answer),
+  ).toEqual([
+    { kind: "plan", approve: false, feedback: "Keep the intro" },
+    { kind: "plan", approve: true, feedback: null },
+  ]);
+  expect(chatState().planMode).toBe(false);
+  expect(chatState().permissions).toEqual([]);
+  emit({ type: "result", is_error: false });
+  await tick();
+  await send("Now tighten it");
+  expect(starts()).toEqual([true, false]);
+  emit({ type: "result", is_error: false });
+  await tick();
+});
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
   await send("Search");
   requestPermission("first");

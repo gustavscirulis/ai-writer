@@ -79,10 +79,10 @@ function EditorTabButton({
       {agent && (
         <button
           type="button"
-          aria-label={`${title}: ${agent === "approval" ? "Agent needs approval" : agent === "error" ? "Agent needs attention" : "Agent running"}. Open chat`}
+          aria-label={`${title}: ${agent === "approval" ? "Agent needs your input" : agent === "error" ? "Agent needs attention" : "Agent running"}. Open chat`}
           title={
             agent === "approval"
-              ? "Agent needs approval"
+              ? "Agent needs your input"
               : agent === "error"
                 ? "Agent needs attention"
                 : "Agent running"

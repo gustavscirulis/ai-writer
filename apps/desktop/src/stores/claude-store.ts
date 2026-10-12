@@ -60,6 +60,8 @@ export interface Chat {
   permissions: ToolPermission[];
   /** Tools the user always allows in this chat. Kept in memory until the app quits. */
   allowedTools: string[];
+  /** The next turn starts in plan mode. Kept in memory; approving a plan turns it off. */
+  planMode: boolean;
 }
 export const EMPTY_CHAT: Chat = {
   messages: [],
@@ -72,6 +74,7 @@ export const EMPTY_CHAT: Chat = {
   notices: [],
   permissions: [],
   allowedTools: [],
+  planMode: false,
 };
 interface ClaudeState {
   chats: Record<string, Chat>;
@@ -80,6 +83,9 @@ interface ClaudeState {
   removeFile: (path: string, file: string) => void;
   setFileError: (path: string, error: string | null) => void;
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
+  /** Replies to a request that needs the user's answer, such as Claude's questions. */
+  answer: (path: string, id: string, answer: tauri.HostAnswer) => Promise<void>;
+  setPlanMode: (path: string, planMode: boolean) => void;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
   /** Sends the queued items (all ready ones by default) together as one turn. */
   sendQueue: (path: string, ids?: string[]) => Promise<void>;
@@ -578,6 +584,43 @@ function receive(run: Run, event: tauri.AgentEvent) {
     void useClaudeStore.getState().stop(run.path);
   }
 }
+/** The request stays visible while its reply is delivered, and keeps the error if delivery fails. */
+async function reply(
+  key: string,
+  id: string,
+  deliver: (processId: string) => Promise<void>,
+): Promise<ToolPermission | null> {
+  const run = runs.get(key);
+  const request = useClaudeStore
+    .getState()
+    .chats[key]?.permissions.find((entry) => entry.id === id);
+  if (!run?.processId || run.ended || run.cancelled || !request || request.pending) return null;
+  const pending = { ...request, pending: true, error: undefined };
+  updateChat(key, (chat) => ({
+    ...chat,
+    permissions: chat.permissions.map((entry) => (entry === request ? pending : entry)),
+  }));
+  try {
+    await deliver(run.processId);
+    if (!current(run)) return null;
+    updateChat(key, (chat) => ({
+      ...chat,
+      permissions: chat.permissions.filter((entry) => entry !== pending),
+    }));
+    return request;
+  } catch (error) {
+    if (current(run))
+      updateChat(key, (chat) => ({
+        ...chat,
+        permissions: chat.permissions.map((entry) =>
+          entry === pending
+            ? { ...entry, pending: false, error: `Could not send your reply: ${errorText(error)}` }
+            : entry,
+        ),
+      }));
+    return null;
+  }
+}
 export const useClaudeStore = create<ClaudeState>((set, get) => ({
   chats: {},
   setDraft: (path, draft) => {
@@ -606,48 +649,33 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
   decidePermission: async (path, id, allow, always = false) => {
     const key = documentPath(path);
-    const run = runs.get(key);
-    const request = get().chats[key]?.permissions.find((entry) => entry.id === id);
-    if (!run?.processId || run.ended || run.cancelled || !request || request.pending) return;
-    const pending = { ...request, pending: true, error: undefined };
-    updateChat(key, (chat) => ({
-      ...chat,
-      permissions: chat.permissions.map((entry) => (entry === request ? pending : entry)),
-    }));
     const allowsTool = always && allow;
-    try {
-      await tauri.claudeDecidePermission(run.processId, id, allow, allowsTool);
-      if (!current(run)) return;
-      updateChat(key, (chat) => ({
-        ...chat,
-        permissions: chat.permissions.filter((entry) => entry !== pending),
-        allowedTools:
-          allowsTool && !chat.allowedTools.includes(request.tool)
-            ? [...chat.allowedTools, request.tool]
-            : chat.allowedTools,
-      }));
-      // Requests already queued before the rule existed still wait for a reply.
-      if (allowsTool)
-        await Promise.all(
-          get()
-            .chats[key]?.permissions.filter((entry) => entry.tool === request.tool)
-            .map((entry) => get().decidePermission(path, entry.id, true)) ?? [],
-        );
-    } catch (error) {
-      if (current(run))
-        updateChat(key, (chat) => ({
-          ...chat,
-          permissions: chat.permissions.map((entry) =>
-            entry === pending
-              ? {
-                  ...entry,
-                  pending: false,
-                  error: `Could not send your decision: ${errorText(error)}`,
-                }
-              : entry,
-          ),
-        }));
-    }
+    const request = await reply(key, id, (processId) =>
+      tauri.claudeDecidePermission(processId, id, allow, allowsTool),
+    );
+    if (!request || !allowsTool) return;
+    updateChat(key, (chat) =>
+      chat.allowedTools.includes(request.tool)
+        ? chat
+        : { ...chat, allowedTools: [...chat.allowedTools, request.tool] },
+    );
+    // Requests already queued before the rule existed still wait for a reply.
+    await Promise.all(
+      get()
+        .chats[key]?.permissions.filter((entry) => entry.tool === request.tool)
+        .map((entry) => get().decidePermission(path, entry.id, true)) ?? [],
+    );
+  },
+  answer: async (path, id, answer) => {
+    const key = documentPath(path);
+    const request = await reply(key, id, (processId) => tauri.claudeAnswer(processId, id, answer));
+    // Native code has left plan mode for the rest of this turn.
+    if (request && answer.kind === "plan" && answer.approve) get().setPlanMode(path, false);
+  },
+  setPlanMode: (path, planMode) => {
+    updateChat(documentPath(path), (chat) =>
+      chat.planMode === planMode ? chat : { ...chat, planMode },
+    );
   },
   send: (path, text, { turn: options, attachments, feedbackIds, files } = {}) => {
     const key = documentPath(path);
@@ -761,6 +789,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           records[key]?.sessionId ?? null,
           path,
           chatForPath(get().chats, key).allowedTools,
+          chatForPath(get().chats, key).planMode,
           channel,
         );
         run.processId = id;

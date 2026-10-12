@@ -2,6 +2,10 @@
 
 ## 2026-10-12
 
+- Co-writer has a plan mode. Turn on Plan next to + in the message box, or press Shift+Tab there, and Claude looks around and comes back with a plan before changing anything. It can ask you questions along the way. The plan takes the message box's place: choose "Yes, start writing" and Claude carries on in the same reply, or "No, keep planning" and tell it what to change. Plan turns itself off once you approve, and each plan stays in the conversation.
+
+- Co-writer can ask you questions. When Claude needs to know something, such as which tone you want, the question takes the message box's place with a few options to pick from. You can also type your own answer, or choose not to answer. Use ↑/↓ and Enter, or press a number to pick an option. Your answers stay in the conversation's tool list.
+
 - Co-writer's tool summaries now show up where the tools were used in a reply, between the messages around them. Before, all of a reply's tool use was grouped at the top, above text Claude had written earlier.
 
 - Go back to earlier versions of a note. Click the clock button at the top right (in the Co-writer header when Co-writer is open), or press ⌘⇧H, to see every version on the right, grouped by day. Versions made by Claude are tagged. Click a version, or use ↑/↓, to preview it with its changes highlighted, then press "Restore this version" to bring it back. ⌘Z undoes a restore. Versions are kept in a hidden `.writer/history` folder in your workspace. Recent versions are all kept, older ones are thinned out to one per hour, day and then week, and Claude's edits are always kept.

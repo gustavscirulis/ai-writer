@@ -4,6 +4,7 @@ import {
   useToolPermissions,
   useHasChatMessages,
 } from "@/hooks/use-claude";
+import { needsAnswer } from "@/lib/claude-stream";
 
 export function ChatActivity({ path }: { path: string | null }) {
   const status = useChatStatus(path);
@@ -17,7 +18,9 @@ export function ChatActivity({ path }: { path: string | null }) {
   const label =
     status === "running"
       ? permissions.length > 0
-        ? "Waiting for your approval."
+        ? needsAnswer(permissions[0].tool)
+          ? "Waiting for your answer."
+          : "Waiting for your approval."
         : thinking
           ? "Thinking…"
           : activity === "working"

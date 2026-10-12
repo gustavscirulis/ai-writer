@@ -2,6 +2,8 @@ import { memo, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
+  BubbleChatQuestionIcon,
+  CheckListIcon,
   CommandLineIcon,
   Edit02Icon,
   File01Icon,
@@ -12,9 +14,10 @@ import {
   Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import type { ChatAttachment, ChatMessage, ChatTool } from "@/lib/claude-stream";
-import { getFileName } from "@/lib/paths";
+import { getFileName, getRelativePath } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
 import { openLinkedFile } from "@/hooks/editor-api";
+import { useWorkspaceRoot } from "@/hooks/use-workspace";
 import { FileChip } from "./file-chip";
 import { MarkdownReply } from "./markdown-reply";
 import {
@@ -23,7 +26,10 @@ import {
   revealAttachment,
 } from "@/hooks/feedback-api";
 
-const TOOL_KINDS: Record<string, { verb: string; icon: typeof File01Icon }> = {
+const TOOL_KINDS: Record<
+  string,
+  { verb: string; icon: typeof File01Icon; label?: string; running?: string }
+> = {
   Read: { verb: "read", icon: File01Icon },
   Edit: { verb: "edited", icon: Edit02Icon },
   MultiEdit: { verb: "edited", icon: Edit02Icon },
@@ -33,16 +39,30 @@ const TOOL_KINDS: Record<string, { verb: string; icon: typeof File01Icon }> = {
   WebFetch: { verb: "browsed", icon: GlobalIcon },
   WebSearch: { verb: "browsed", icon: GlobalIcon },
   Bash: { verb: "ran commands", icon: CommandLineIcon },
+  AskUserQuestion: {
+    verb: "asked you",
+    icon: BubbleChatQuestionIcon,
+    label: "Asked",
+    running: "Asking you",
+  },
+  ExitPlanMode: {
+    verb: "made a plan",
+    icon: CheckListIcon,
+    label: "Plan",
+    running: "Waiting for plan approval",
+  },
 };
 
 function toolKind(tool: ChatTool) {
   return TOOL_KINDS[tool.name] ?? { verb: `used ${tool.name}`, icon: Wrench01Icon };
 }
 
-/** Notes Claude wrote can be opened from the tool list, like a link. */
-function opensNote(tool: ChatTool) {
+/** Notes Claude wrote in the workspace can be opened from the tool list, like a link. */
+function opensNote(tool: ChatTool, root: string | null) {
   return (
     !!tool.path &&
+    !!root &&
+    getRelativePath(tool.path, root) !== tool.path.replace(/\\/g, "/") &&
     tool.done === true &&
     !tool.error &&
     ["Edit", "MultiEdit", "Write"].includes(tool.name) &&
@@ -66,7 +86,7 @@ export function Disclosure({
   listLabel,
 }: {
   label: ReactNode;
-  count: number;
+  count?: number;
   children: ReactNode;
   listLabel: string;
 }) {
@@ -85,9 +105,11 @@ export function Disclosure({
           <HugeiconsIcon icon={ArrowRight01Icon} size={12} strokeWidth={2} />
         </span>
         {label}
-        <span className="min-w-4 shrink-0 rounded-full bg-[var(--surface-subtle)] px-1 text-center text-[10px] leading-4 tabular-nums">
-          {count}
-        </span>
+        {count !== undefined && (
+          <span className="min-w-4 shrink-0 rounded-full bg-[var(--surface-subtle)] px-1 text-center text-[10px] leading-4 tabular-nums">
+            {count}
+          </span>
+        )}
       </button>
       {open && (
         <div
@@ -104,6 +126,7 @@ export function Disclosure({
 function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
   const running = live ? tools.find((tool) => !tool.done && !tool.error) : undefined;
   const failed = tools.filter((tool) => tool.error).length;
+  const root = useWorkspaceRoot();
   return (
     <Disclosure
       count={tools.length}
@@ -112,7 +135,7 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
         <>
           {running ? (
             <span className="chat-thinking-shimmer truncate">
-              Using {running.name}
+              {toolKind(running).running ?? `Using ${running.name}`}
               {running.path ? ` · ${getFileName(running.path)}` : ""}
             </span>
           ) : (
@@ -124,40 +147,73 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
     >
       <ul className="flex flex-col gap-1.5">
         {tools.map((tool) => (
-          <li key={tool.id} title={tool.path} className="flex min-w-0 items-center gap-[7px]">
-            <HugeiconsIcon
-              icon={toolKind(tool).icon}
-              size={13}
-              strokeWidth={1.8}
-              className="shrink-0"
-            />
-            <span className={`truncate ${tool.error ? "line-through" : ""}`}>
-              {tool.name}
-              {tool.path && " "}
-              {tool.path &&
-                (opensNote(tool) ? (
-                  <button
-                    type="button"
-                    onClick={() => void openLinkedFile(tool.path!)}
-                    className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
-                  >
-                    {getFileName(tool.path)}
-                  </button>
-                ) : (
-                  <span className="font-medium text-[var(--text-secondary)]">
-                    {getFileName(tool.path)}
-                  </span>
-                ))}
-            </span>
-            <span className="ml-auto shrink-0">
-              {tool.error ? "Denied / failed" : tool.done ? "" : "Running"}
-            </span>
+          <li key={tool.id} title={tool.path} className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-[7px]">
+              <HugeiconsIcon
+                icon={toolKind(tool).icon}
+                size={13}
+                strokeWidth={1.8}
+                className="shrink-0"
+              />
+              <span className={`truncate ${tool.error ? "line-through" : ""}`}>
+                {toolKind(tool).label ?? tool.name}
+                {tool.path && " "}
+                {tool.path &&
+                  (opensNote(tool, root) ? (
+                    <button
+                      type="button"
+                      onClick={() => void openLinkedFile(tool.path!)}
+                      className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
+                    >
+                      {getFileName(tool.path)}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-[var(--text-secondary)]">
+                      {getFileName(tool.path)}
+                    </span>
+                  ))}
+              </span>
+              <span className="ml-auto shrink-0">
+                {tool.error ? "Denied / failed" : tool.done ? "" : "Running"}
+              </span>
+            </div>
+            {tool.questions?.map(({ question, answer }) => (
+              <p key={question} className="pl-5 leading-snug">
+                {question}
+                {answer && (
+                  <span className="block font-medium text-[var(--text-secondary)]">{answer}</span>
+                )}
+              </p>
+            ))}
           </li>
         ))}
       </ul>
     </Disclosure>
   );
 }
+
+/** The plan Claude presented in plan mode, collapsed once the user has answered it. */
+function PlanCard({ tool }: { tool: ChatTool & { plan: string } }) {
+  const outcome = tool.error ? "Kept planning" : tool.done ? "Approved" : "Waiting for approval";
+  return (
+    <Disclosure
+      listLabel="Plan"
+      label={
+        <>
+          <HugeiconsIcon icon={CheckListIcon} size={13} strokeWidth={1.8} className="shrink-0" />
+          <span className="truncate">Plan · {outcome}</span>
+        </>
+      }
+    >
+      <div className="text-[12.5px] text-[var(--text-secondary)]">
+        <MarkdownReply id={`plan-${tool.id}`} text={tool.plan} />
+      </div>
+    </Disclosure>
+  );
+}
+
+const hasPlan = (tool: ChatTool): tool is ChatTool & { plan: string } =>
+  tool.name === "ExitPlanMode" && !!tool.plan;
 
 function attachmentProps(path: string | null, attachment: ChatAttachment) {
   return {
@@ -239,6 +295,7 @@ export const UserMessage = memo(function UserMessage({
 
 type TurnSegment =
   | { kind: "text"; message: ChatMessage }
+  | { kind: "plan"; tool: ChatTool & { plan: string } }
   | { kind: "tools"; key: string; tools: ChatTool[] };
 
 /** Texts and runs of consecutive tool calls, in the order they happened. Within one message, text precedes its tool calls. */
@@ -246,10 +303,12 @@ function turnSegments(messages: ChatMessage[]) {
   const segments: TurnSegment[] = [];
   for (const message of messages) {
     if (message.text) segments.push({ kind: "text", message });
-    if (!message.tools.length) continue;
-    const last = segments[segments.length - 1];
-    if (last?.kind === "tools") last.tools.push(...message.tools);
-    else segments.push({ kind: "tools", key: `${message.id}:tools`, tools: [...message.tools] });
+    for (const tool of message.tools) {
+      const last = segments[segments.length - 1];
+      if (hasPlan(tool)) segments.push({ kind: "plan", tool });
+      else if (last?.kind === "tools") last.tools.push(tool);
+      else segments.push({ kind: "tools", key: `${tool.id}:tools`, tools: [tool] });
+    }
   }
   return segments;
 }
@@ -266,6 +325,8 @@ export const AssistantTurn = memo(
               id={segment.message.id}
               text={segment.message.text}
             />
+          ) : segment.kind === "plan" ? (
+            <PlanCard key={segment.tool.id} tool={segment.tool} />
           ) : (
             <ToolSummary key={segment.key} tools={segment.tools} live={live} />
           ),

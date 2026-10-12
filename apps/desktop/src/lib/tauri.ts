@@ -398,6 +398,7 @@ export function claudeStart(
   resumeSessionId: string | null,
   notePath: string,
   alwaysAllow: string[],
+  plan: boolean,
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
 ): Promise<string> {
   return invoke("claude_start", {
@@ -406,6 +407,7 @@ export function claudeStart(
     resumeSessionId,
     notePath: documentPath(notePath),
     alwaysAllow,
+    plan,
     onEvent,
   });
 }
@@ -427,6 +429,17 @@ export function claudeDecidePermission(
   always: boolean,
 ): Promise<void> {
   return invoke("claude_decide_permission", { processId, requestId, allow, always });
+}
+/** The user's reply to a question (`answers` keyed by question text, `null` declines) or a plan. */
+export type HostAnswer =
+  | { kind: "questions"; answers: Record<string, string> | null }
+  | { kind: "plan"; approve: boolean; feedback: string | null };
+export function claudeAnswer(
+  processId: string,
+  requestId: string,
+  answer: HostAnswer,
+): Promise<void> {
+  return invoke("claude_answer", { processId, requestId, answer });
 }
 export function setPendingApprovals(count: number): Promise<void> {
   return invoke("set_pending_approvals", { count });

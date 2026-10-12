@@ -12,6 +12,8 @@
 
 ## Done
 
+- Co-writer plan mode and Claude's questions: [`SPECs/chat-plan-mode-and-questions.md`](SPECs/chat-plan-mode-and-questions.md). Claude's questions and plans take the composer's place like approvals, with native answer checks. Plan mode (toggle or Shift+Tab) blocks note edits until you approve the plan, then Claude continues writing in the same reply. Verified with the real CLI (ignored Rust test). Native app QA of the prompts and Dock badge is still pending.
+
 - Keep Chat tool summaries in chronological order. `AssistantTurn` now splits a reply into text steps and runs of consecutive tool calls, and renders each run as its own summary where it happened instead of putting one summary at the top. A React render test covers the order.
 
 - Version history for notes: [`SPECs/version-history-spec.md`](SPECs/version-history-spec.md). Each version is stored as a plain file under `.writer/history/` in the vault. User saves coalesce, Claude turns are grouped, and older versions are thinned out over time. The panel opens from the clock button or ⌘⇧H, shows a read-only preview with inline diff highlights, flips versions with ↑/↓, and restores as one undoable step. Native, frontend and WebDriver tests pass; the WebDriver test covers an external edit, a typed edit, flipping versions and restoring.

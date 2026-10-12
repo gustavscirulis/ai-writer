@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowUp02Icon,
   Cancel01Icon,
+  CheckListIcon,
   ParagraphIcon,
   PlusSignIcon,
   TextIcon,
@@ -22,6 +23,8 @@ import {
   focusChatComposer,
   useChatFiles,
   useChatFileError,
+  usePlanMode,
+  togglePlanMode,
 } from "@/hooks/use-claude";
 import { useChatDropActive } from "@/hooks/use-file-drop";
 import {
@@ -108,6 +111,7 @@ export function Composer() {
   const error = useChatError(path);
   const items = useDocumentFeedback(path);
   const files = useChatFiles(path);
+  const planMode = usePlanMode(path);
   const dropActive = useChatDropActive();
   const attached = useMemo(
     () =>
@@ -220,7 +224,9 @@ export function Composer() {
                 ? "What should change here?"
                 : busy
                   ? "Queue a follow-up…"
-                  : "Ask anything, or describe a change…"
+                  : planMode
+                    ? "Describe what you want planned…"
+                    : "Ask anything, or describe a change…"
           }
           value={text}
           onChange={(event) => path && setChatDraft(path, event.target.value)}
@@ -234,7 +240,10 @@ export function Composer() {
           rows={2}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || !path) return;
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            if (event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey) {
+              event.preventDefault();
+              togglePlanMode(path);
+            } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
               queue();
             } else if (event.key === "Enter" && !event.shiftKey) {
@@ -267,6 +276,25 @@ export function Composer() {
               className="grid size-7 shrink-0 place-items-center rounded-full text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              aria-pressed={planMode}
+              title={planMode ? "Plan mode is on (⇧⇥)" : "Plan first, then write (⇧⇥)"}
+              disabled={!path}
+              onClick={() => {
+                if (!path) return;
+                togglePlanMode(path);
+                focusChatComposer();
+              }}
+              className={`inline-flex h-[26px] shrink-0 items-center gap-1 rounded-full px-2 text-[12px] font-medium transition-colors duration-150 disabled:opacity-40 ${
+                planMode
+                  ? "bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--text-primary)]"
+                  : "text-[var(--text-muted)] hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              <HugeiconsIcon icon={CheckListIcon} size={14} strokeWidth={1.8} />
+              Plan
             </button>
             <span className="min-w-0 truncate text-[11px] text-[var(--text-muted)]">
               {busy && text.trim() ? (
