@@ -3,6 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { PhysicalPosition } from "@tauri-apps/api/dpi";
 import { getActiveFilePath } from "@/hooks/editor-api";
 import { attachChatFiles } from "@/hooks/use-claude";
+import { detectPlatform } from "@/lib/platform";
 import * as tauri from "@/lib/tauri";
 
 let dropActive = false;
@@ -23,8 +24,11 @@ export function useChatDropActive() {
   return useSyncExternalStore(subscribe, () => dropActive);
 }
 
+// Tauri types this as physical, but only WebView2 reports physical pixels; WKWebView/WebKitGTK report CSS points.
+const scale = detectPlatform() === "windows" ? () => window.devicePixelRatio : () => 1;
+
 function overChat(position: PhysicalPosition) {
-  const { x, y } = position.toLogical(window.devicePixelRatio);
+  const { x, y } = position.toLogical(scale());
   return !!getActiveFilePath() && !!document.elementFromPoint(x, y)?.closest("[data-chat-drop]");
 }
 

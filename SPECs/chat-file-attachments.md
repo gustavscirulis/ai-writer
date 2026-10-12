@@ -12,7 +12,9 @@ Picked and dropped paths go through `resolve_chat_files`, which returns canonica
 
 ## Drop routing
 
-The frontend owns every file drop (`hooks/use-file-drop.ts`, mounted in `App`). Native `WindowEvent::DragDrop` handling is gone. A drop whose position, converted to CSS pixels, lands inside `[data-chat-drop]` while a note is active attaches its files. Any other drop calls `open_dropped_paths`, which opens the first openable path exactly as the native handler did.
+The frontend owns every file drop (`hooks/use-file-drop.ts`, mounted in `App`). Native `WindowEvent::DragDrop` handling is gone. A drop whose position lands inside `[data-chat-drop]` while a note is active attaches its files. Any other drop calls `open_dropped_paths`, which opens the first openable path exactly as the native handler did.
+
+Tauri types the drop position as `PhysicalPosition`, but only WebView2 (Windows) reports physical pixels. WKWebView (macOS) and WebKitGTK already report CSS points, so dividing those by `devicePixelRatio` would put the hit-test at half the real coordinates on Retina.
 
 ## Sending
 
@@ -40,4 +42,4 @@ Files are sent by reference, and Claude reads them with its own `Read` tool, so 
 - Render: sent messages show file chips with image thumbnails.
 - Real CLI (`real_cli_reads_attached_files`, ignored): a PNG, a PDF and a CSV outside the workspace were read with no prompt, and Claude answered red, PINEAPPLE-42 and MANGO.
 - Browser harness with the real panel and mocked IPC: picker chips, folder rejection, drop routing to Chat or open, paste and send.
-- Native Tauri GUI QA is still pending: `tauri-webdriver` isn't installed here, so drop positions under real Retina scaling haven't been checked.
+- Native Tauri GUI QA is still pending: `tauri-webdriver` isn't installed here. The macOS drop units come from reading wry 0.55 (`wkwebview/drag_drop.rs`), not from a Retina run.
