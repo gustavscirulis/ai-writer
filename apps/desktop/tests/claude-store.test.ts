@@ -1342,7 +1342,7 @@ function createFeedback(source: string, target = 0) {
 }
 const feedbackItems = () => useFeedbackStore.getState().byPath["/notes/a.md"]!;
 
-test("applying one note resolves only that note after closed-file reconciliation", async () => {
+test("applying one note resolves only that note after closed-file reconciliation, then sends the rest", async () => {
   disk.set("/notes/a.md", "Original\n\nSecond");
   useEditorStore.getState().reloadFromDisk("/notes/a.md", disk.get("/notes/a.md")!);
   const first = createFeedback("Original\n\nSecond");
@@ -1355,8 +1355,9 @@ test("applying one note resolves only that note after closed-file reconciliation
   await claudeEdits(() => disk.set("/notes/a.md", "Revised\n\nSecond"));
   emit({ type: "result", is_error: false });
   await tick();
-  expect(feedbackItems().map((x) => x.status)).toEqual(["pending"]);
-  expect(feedbackItems()[0]!.anchor.attached).toBe(true);
+  expect(feedbackItems().map((x) => x.status)).toEqual(["running"]);
+  expect(feedbackItems()[0]!.anchor?.attached).toBe(true);
+  expect(channels).toHaveLength(2);
 });
 
 test("real batch does not resolve when the feedback reconciliation read fails", async () => {
@@ -1381,23 +1382,75 @@ test("real batch does not resolve when the feedback reconciliation read fails", 
   expect(isAgentTurnActive()).toBe(false);
 });
 
-test("real batch success clears request errors; a no-op and Stop stay pending", async () => {
-  const id = createFeedback("Original");
-  await applyFeedback("/notes/a.md", [id]);
+test("a clean finish clears the queue even without changes; Stop pauses it", async () => {
+  const noop = createFeedback("Original");
+  await applyFeedback("/notes/a.md", [noop]);
   emit({ type: "result", is_error: false });
   await tick();
-  expect(feedbackItems()[0]!.status).toBe("pending");
-  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"]).toContain("No document changes");
-  await applyFeedback("/notes/a.md", [id]);
+  expect(feedbackItems()).toEqual([]);
   expect(useFeedbackStore.getState().turnErrors["/notes/a.md"] ?? null).toBeNull();
+  const id = createFeedback("Original");
+  await applyFeedback("/notes/a.md", [id]);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(feedbackItems()[0]!.status).toBe("pending");
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"]).toContain("paused");
   await applyFeedback("/notes/a.md", [id]);
+  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"] ?? null).toBeNull();
   await claudeEdits(() => disk.set("/notes/a.md", "Revised"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems()).toEqual([]);
   expect(useFeedbackStore.getState().turnErrors["/notes/a.md"] ?? null).toBeNull();
+});
+
+test("a clean turn sends everything queued during it as one merged turn", async () => {
+  await send("First");
+  useFeedbackStore.getState().saveNotes("/notes/a.md", "Then summarize it");
+  useFeedbackStore.getState().saveNotes("/notes/a.md", "And add a title");
+  createFeedback("Original");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(channels).toHaveLength(2);
+  const sent = chatMessages("/notes/a.md").filter((message) => message.role === "user");
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toMatchObject({
+    text: "Then summarize it\n\nAnd add a title",
+    attachments: [expect.objectContaining({ note: "Shorten the opening" })],
+  });
+  expect(feedbackItems().map((item) => item.status)).toEqual(["running", "running", "running"]);
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(feedbackItems()).toEqual([]);
+  expect(channels).toHaveLength(2);
+});
+
+test.each([
+  ["Stop", () => useClaudeStore.getState().stop("/notes/a.md")],
+  ["an error", () => emit({ type: "result", is_error: true, result: "Boom" })],
+  ["an early exit", () => channels[0]!.onmessage({ type: "exit", code: 1 })],
+] as const)("%s pauses the queue", async (_, end) => {
+  await send("First");
+  useFeedbackStore.getState().saveNotes("/notes/a.md", "Queued");
+  await end();
+  await tick();
+  expect(channels).toHaveLength(1);
+  expect(feedbackItems()[0]!.status).toBe("pending");
+});
+
+test("the drain skips notes that need review or re-pointing, and runs with the tab closed", async () => {
+  const detached = createFeedback("Original");
+  useFeedbackStore.getState().reconcile("/notes/a.md", null, "Rewritten");
+  expect(feedbackItems()[0]!.anchor?.attached).toBe(false);
+  await send("First");
+  useFeedbackStore.getState().saveNotes("/notes/a.md", "Queued");
+  useEditorStore.getState().closeFile("/notes/a.md");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(channels).toHaveLength(2);
+  expect(feedbackItems().map((item) => [item.id === detached, item.status])).toEqual([
+    [true, "pending"],
+    [false, "running"],
+  ]);
 });
 
 test("cancelled shutdown retains a real completion and permits retry without workspace reload", async () => {
@@ -1678,8 +1731,7 @@ test("feedback outcomes remain independent across simultaneous notes", async () 
   emit({ type: "result", is_error: false }, channels[0]);
   emit({ type: "result", is_error: false }, channels[1]);
   await tick();
-  expect(feedbackItems()[0]!.status).toBe("pending");
-  expect(useFeedbackStore.getState().turnErrors["/notes/a.md"]).toContain("No document changes");
+  expect(feedbackItems()).toEqual([]);
   expect(useFeedbackStore.getState().byPath["/notes/b.md"]).toEqual([]);
   expect(useFeedbackStore.getState().turnErrors["/notes/b.md"]).toBeNull();
   expect(useFeedbackStore.getState().error).toBeNull();

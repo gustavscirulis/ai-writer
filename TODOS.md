@@ -12,6 +12,8 @@
 
 ## Done
 
+- Chat queue: [`SPECs/chat-queue.md`](SPECs/chat-queue.md). Saved notes and queued messages are one queue. ⌘Enter queues, with or without chips. Enter while Claude replies queues. The queue sends as one turn after every clean turn, and Stop or an error pauses it until Send all. A clean finish clears what it sent even without document changes. 909 frontend tests pass, and a WebDriver run of the built app with the real CLI passed three flows: queueing while idle and during a reply, then a merged auto-send; Stop pausing the queue and Send resuming it; and removing and editing queued items.
+
 - Drag to reorder tabs: [`SPECs/tab-drag-reorder.md`](SPECs/tab-drag-reorder.md). Pointer-based drag in the tab strip with live neighbour shifting, edge auto-scroll, Esc to cancel and a settle animation; the order is committed through `moveTab` and persisted with the session.
 
 - Always allow a tool in Chat approvals: see "Always allow" in [`SPECs/claude-tool-approvals.md`](SPECs/claude-tool-approvals.md). A third option allows every later request for the same tool in that chat until the app quits or New chat. Native `Scope.always` enforces it, and the store passes it to each turn's process. Native and store tests, checks, Clippy and formatting pass. Native Tauri QA is pending.

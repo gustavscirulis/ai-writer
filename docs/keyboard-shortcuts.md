@@ -62,17 +62,17 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 
 ## Chat
 
-| Shortcut             | Action                                                                  |
-| -------------------- | ----------------------------------------------------------------------- |
-| Cmd+L                | Add the selection to the Chat composer (the block at the caret if none) |
-| Alt+click            | Add the clicked block to the Chat composer                              |
-| Enter (composer)     | Send: Claude makes the change now                                       |
-| Cmd+Enter (composer) | Save the draft as notes for the next pass                               |
-| Backspace (composer) | Remove the last attachment when the draft is empty                      |
-| Escape (composer)    | Clear attachments                                                       |
-| Enter (approval)     | Choose the highlighted option (Yes is highlighted first)                |
-| Up / Down (approval) | Move between Yes and No                                                 |
-| Escape (approval)    | Deny the request                                                        |
+| Shortcut             | Action                                                                          |
+| -------------------- | ------------------------------------------------------------------------------- |
+| Cmd+L                | Add the selection to the Chat composer (the block at the caret if none)         |
+| Alt+click            | Add the clicked block to the Chat composer                                      |
+| Enter (composer)     | Send now; while Claude is replying, queue it instead                            |
+| Cmd+Enter (composer) | Queue the draft (one item per attachment); on an empty composer, send the queue |
+| Backspace (composer) | Remove the last attachment when the draft is empty                              |
+| Escape (composer)    | Clear attachments                                                               |
+| Enter (approval)     | Choose the highlighted option (Yes is highlighted first)                        |
+| Up / Down (approval) | Move between Yes and No                                                         |
+| Escape (approval)    | Deny the request                                                                |
 
 ## Editor (inherited from CodeMirror)
 

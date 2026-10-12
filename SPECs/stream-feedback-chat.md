@@ -15,18 +15,18 @@ Pointing at text:
 
 The composer:
 
-- Enter sends the message with its chips. Claude makes the change now, and the user message shows the attachments.
+- Enter sends the message with its chips. Claude makes the change now, and the user message shows the attachments. While Claude is replying, Enter queues instead; see [Chat queue](chat-queue.md).
 - The message draft clears immediately when the send is accepted. Failed delivery restores it only if the same attempt still owns an empty draft; see [composer send lifecycle](chat-composer-send.md).
-- ⌘Enter saves the draft as one note per chip, without calling Claude.
+- ⌘Enter queues the draft as one note per chip, or as one plain message without chips, without calling Claude.
 - Backspace on an empty draft removes the last chip, and Esc clears all chips.
 - Hovering a chip, a saved note or a message attachment highlights its text in the editor.
 
-Saved notes:
+Saved notes (the queue, see [Chat queue](chat-queue.md)):
 
 - Saved notes show as a dotted underline on their text, with a count dot right of the block. The dot swaps for the comment button while the block is hovered.
-- A tray above the composer reads "N notes for the next pass", with Apply or Apply all.
+- A tray above the composer reads "N queued", with Send or Send all. Queued items also send by themselves after every clean turn.
 - Clicking a note moves it back into the composer as a chip plus its text, for editing. × removes it.
-- Applying sends the notes as one message ("Apply my N notes"). Success removes them. Stop, failure and no-op turns keep them. If a turn changed the note but failed, its notes need a "Keep" before they can be applied again.
+- Sending the queue sends every ready item as one message. A clean finish removes them, even if the note didn't change. Stop and failure keep them and pause the queue. If a turn changed the note but failed, its notes need a "Keep" before they can be sent again.
 
 Anchors:
 

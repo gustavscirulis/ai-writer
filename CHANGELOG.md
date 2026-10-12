@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Queue messages for Chat. Press Enter while Claude is replying, or ⌘Enter at any time, to queue a message. You no longer need to point at text first. Queued messages and notes are sent together as soon as Claude finishes a reply. Stop or an error pauses the queue until you press Send all. Saved notes are now part of the same queue: the tray reads "N queued", and a note that Claude handled is cleared even if the note didn't change.
+
 - Drag tabs to reorder them. The other tabs slide aside as you drag, and the new order is kept when you reopen the workspace. Press Esc while dragging to put the tab back.
 
 - Chat approvals have a new choice: “Yes, and don't ask again”. It allows that kind of request, such as reading files or using one MCP tool, for the rest of the note's chat. It resets when you start a new chat or quit Writer. Chat still can't edit notes outside the workspace or a note another chat is editing.
