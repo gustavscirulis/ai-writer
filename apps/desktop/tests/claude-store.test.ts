@@ -458,6 +458,38 @@ test("attachments reach Claude as saved-file lines and stay on the user message"
   expect(context.attachments).toEqual([{ fromLine: 6, toLine: 6, text: "two" }]);
   expect(chatMessages("/notes/a.md").at(-1)).toMatchObject({ text: "Cut this", attachments });
 });
+test("attached files reach Claude by path, stay on the saved message and leave the composer", async () => {
+  const files = ["/Users/me/Downloads/diagram.png", "/notes/b.md"];
+  useClaudeStore.getState().addFiles("/notes/a.md", [...files, files[0]!]);
+  expect(chatState().files).toEqual(files);
+  const sending = send("What changed?", { files });
+  expect(chatState().files).toEqual([]);
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ text: "What changed?", files });
+  expect(await sending).toBe(true);
+  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
+    line: string;
+    files: string[];
+  };
+  expect(payload.files).toEqual(files);
+  const content = JSON.parse(payload.line).message.content as string;
+  const context = JSON.parse(content.match(/<writer_context>(.*)<\/writer_context>/)![1]!);
+  expect(context.files).toEqual(files);
+  const saved = savedChats().filter(([key]) => key.endsWith("/notes/a.md"));
+  expect(saved.at(-1)![1]).toMatchObject({ messages: [{ text: "What changed?", files }] });
+});
+test("a failed send puts its attached files back in the composer", async () => {
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_send"
+      ? Promise.reject(new Error("Couldn't find diagram.png."))
+      : defaultInvoke(command, args),
+  );
+  useClaudeStore.getState().addFiles("/notes/a.md", ["/tmp/diagram.png"]);
+  const sending = send("Describe it", { files: ["/tmp/diagram.png"] });
+  useClaudeStore.getState().addFiles("/notes/a.md", ["/tmp/later.pdf"]);
+  expect(await sending).toBe(false);
+  expect(chatState().files).toEqual(["/tmp/diagram.png", "/tmp/later.pdf"]);
+  expect(chatState().error).toContain("Couldn't find diagram.png.");
+});
 test("save failure does not start Claude or discard the dirty buffer", async () => {
   mockedInvoke.mockImplementation((command, args) =>
     command === "write_file"

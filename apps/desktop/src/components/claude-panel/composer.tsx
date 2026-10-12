@@ -1,7 +1,17 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUp02Icon, Cancel01Icon, ParagraphIcon, TextIcon } from "@hugeicons/core-free-icons";
 import {
+  ArrowUp02Icon,
+  Attachment01Icon,
+  Cancel01Icon,
+  ParagraphIcon,
+  TextIcon,
+} from "@hugeicons/core-free-icons";
+import {
+  dismissChatFileError,
+  pasteChatImage,
+  pickChatFiles,
+  removeChatFile,
   sendChat,
   stopChat,
   useChatStatus,
@@ -10,7 +20,10 @@ import {
   setChatDraft,
   registerChatComposer,
   focusChatComposer,
+  useChatFiles,
+  useChatFileError,
 } from "@/hooks/use-claude";
+import { useChatDropActive } from "@/hooks/use-file-drop";
 import {
   applyFeedback,
   canApplyFeedback,
@@ -25,7 +38,9 @@ import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
 import { documentPath } from "@/lib/agent-turn";
+import { pastedImageFile } from "@/lib/pasted-image";
 import { useEditorStore } from "@/stores/editor-store";
+import { FileChip } from "./file-chip";
 import { FeedbackError, NotesTray } from "./notes-tray";
 
 const MAX_INPUT_HEIGHT = 180;
@@ -33,6 +48,27 @@ const KBD =
   "inline-block min-w-[18px] rounded bg-[var(--surface-subtle)] px-1 text-center text-[10.5px] font-medium leading-4 text-[var(--text-secondary)]";
 
 type AttachedItem = FeedbackItem & { anchor: FeedbackAnchor };
+
+function FileError({ path }: { path: string }) {
+  const error = useChatFileError(path);
+  if (!error) return null;
+  return (
+    <p
+      role="alert"
+      className="chat-rise mb-2 flex items-start gap-2 px-1 text-[12px] leading-normal text-[var(--text-secondary)]"
+    >
+      <span className="min-w-0 flex-1">{error}</span>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => dismissChatFileError(path)}
+        className="grid size-4 shrink-0 place-items-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+      >
+        <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={2} />
+      </button>
+    </p>
+  );
+}
 
 function AttachmentChip({ item }: { item: AttachedItem }) {
   const label = attachmentLabel(item.anchor, item.quote, 28);
@@ -74,6 +110,8 @@ export function Composer() {
   const status = useChatStatus(path);
   const error = useChatError(path);
   const items = useDocumentFeedback(path);
+  const files = useChatFiles(path);
+  const dropActive = useChatDropActive();
   const attached = useMemo(
     () =>
       items.filter(
@@ -113,6 +151,7 @@ export function Composer() {
       path,
       draft,
       sent.map((item) => ({ anchor: item.anchor, quote: item.quote })),
+      files,
     );
     if (!ok) return;
     consumeFeedback(
@@ -148,6 +187,7 @@ export function Composer() {
       }}
     >
       {path && <FeedbackError />}
+      {path && <FileError path={path} />}
       {path && (
         <NotesTray
           path={path}
@@ -162,12 +202,23 @@ export function Composer() {
       )}
       <div
         data-chat-composer
-        className="rounded-[18px] border border-[var(--line-subtle)] bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]"
+        data-chat-drop
+        className={`rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
       >
-        {attached.length > 0 && (
+        {(attached.length > 0 || files.length > 0) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (
               <AttachmentChip key={item.id} item={item} />
+            ))}
+            {files.map((file) => (
+              <FileChip
+                key={file}
+                path={file}
+                onRemove={() => {
+                  if (path) removeChatFile(path, file);
+                  focusChatComposer();
+                }}
+              />
             ))}
           </div>
         )}
@@ -185,6 +236,12 @@ export function Composer() {
           }
           value={text}
           onChange={(event) => path && setChatDraft(path, event.target.value)}
+          onPaste={(event) => {
+            const image = path && pastedImageFile(event.clipboardData);
+            if (!image) return;
+            event.preventDefault();
+            void pasteChatImage(path, image);
+          }}
           disabled={!path}
           rows={2}
           onKeyDown={(event) => {
@@ -196,6 +253,9 @@ export function Composer() {
               event.preventDefault();
               if (busy) queue();
               else void send();
+            } else if (event.key === "Backspace" && !text && files.length) {
+              event.preventDefault();
+              removeChatFile(path, files[files.length - 1]!);
             } else if (event.key === "Backspace" && !text && attached.length) {
               event.preventDefault();
               removeFeedback(path, attached[attached.length - 1]!.id);
@@ -228,6 +288,16 @@ export function Composer() {
             )}
           </span>
           <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              aria-label="Attach files"
+              title="Attach files"
+              disabled={!path}
+              onClick={() => path && void pickChatFiles(path)}
+              className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              <HugeiconsIcon icon={Attachment01Icon} size={15} strokeWidth={1.8} />
+            </button>
             {(attached.length > 0 || text.trim() !== "") && (
               <button
                 type="button"

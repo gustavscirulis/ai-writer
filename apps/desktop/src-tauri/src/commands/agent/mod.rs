@@ -35,6 +35,8 @@ pub enum AgentEvent {
 pub enum Input {
     User {
         line: String,
+        /// Canonical files the user attached; Read may open them this turn.
+        files: Vec<std::path::PathBuf>,
         ack: oneshot::Sender<Result<(), String>>,
     },
     Permission {

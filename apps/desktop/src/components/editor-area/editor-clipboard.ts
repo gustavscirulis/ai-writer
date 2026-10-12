@@ -3,11 +3,9 @@ import type { Extension } from "@codemirror/state";
 import * as editorApi from "@/hooks/editor-api";
 import { parseDocument, parseFrontmatter } from "@/lib/frontmatter";
 import { formatMarkdownDestination } from "@/lib/paths";
+import { pastedImageFile, readPastedImage } from "@/lib/pasted-image";
 import * as tauri from "@/lib/tauri";
 import { showEditorNotice } from "./editor-notice-store";
-
-const MAX_IMAGE_SIZE_MB = 5;
-const MAX_IMAGE_SIZE = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 
 async function handleImagePaste(
   file: File,
@@ -15,17 +13,14 @@ async function handleImagePaste(
   filePath: string,
   isDisposed: () => boolean,
 ) {
-  const buffer = await file.arrayBuffer();
+  const image = await readPastedImage(file);
   if (isDisposed()) return;
-  if (buffer.byteLength > MAX_IMAGE_SIZE) {
-    const sizeMb = (buffer.byteLength / (1024 * 1024)).toFixed(1);
-    showEditorNotice(`Image not pasted: ${sizeMb} MB is over the ${MAX_IMAGE_SIZE_MB} MB limit`);
+  if (!image.ok) {
+    showEditorNotice(image.error);
     return;
   }
 
-  const imageData = Array.from(new Uint8Array(buffer));
-  const format = file.type.split("/")[1] || "png";
-  const result = await tauri.saveClipboardImage(filePath, imageData, format);
+  const result = await tauri.saveClipboardImage(filePath, image.imageData, image.format);
   if (isDisposed()) return;
   const imageMarkdown = `![${file.name}](${formatMarkdownDestination(result.relative_path)})`;
   const cursor = view.state.selection.main.head;
@@ -87,22 +82,14 @@ export function editorClipboardExtension(
     paste(event, view) {
       if (handleFrontmatterPaste(event, view, getFilePath())) return true;
 
-      const items = event.clipboardData?.items;
-      if (!items) return false;
+      const imageFile = pastedImageFile(event.clipboardData);
+      if (!imageFile) return false;
 
-      for (const item of items) {
-        if (!item.type.startsWith("image/")) continue;
-        const imageFile = item.getAsFile();
-        if (!imageFile) continue;
-
-        event.preventDefault();
-        void handleImagePaste(imageFile, view, getFilePath(), isDisposed).catch((error) => {
-          console.error("[editor] Failed to paste image:", error);
-        });
-        return true;
-      }
-
-      return false;
+      event.preventDefault();
+      void handleImagePaste(imageFile, view, getFilePath(), isDisposed).catch((error) => {
+        console.error("[editor] Failed to paste image:", error);
+      });
+      return true;
     },
     keydown(event, view) {
       return handleFrontmatterStart(event, view, getFilePath());

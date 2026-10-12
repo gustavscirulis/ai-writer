@@ -19,6 +19,8 @@ export interface ChatMessage {
   text: string;
   tools: ChatTool[];
   attachments?: ChatAttachment[];
+  /** Absolute paths of files attached to a user message. */
+  files?: string[];
   textBlocks?: { key: string; text: string; snapshotId?: string; snapshotIndex?: number }[];
 }
 export function isVisibleMessage(message: ChatMessage) {

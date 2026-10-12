@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  convertFileSrc: (path: string) => `asset://localhost${path}`,
+}));
 vi.mock("@/hooks/feedback-api", () => ({
   clearAttachmentHighlight: vi.fn(),
   highlightAttachment: vi.fn(),
@@ -148,4 +152,24 @@ test("opener failures become visible error text; fragments stay native and unsaf
   expect(await openReplyLink(event, "javascript:alert(1)")).toBeNull();
   expect(event.preventDefault).toHaveBeenCalledOnce();
   expect(openUrl).not.toHaveBeenCalled();
+});
+
+test("user messages show their attached files, with thumbnails for images", () => {
+  const html = renderToStaticMarkup(
+    createElement(UserMessage, {
+      message: {
+        id: "files",
+        role: "user",
+        text: "Compare these",
+        tools: [],
+        files: ["/Users/me/Downloads/diagram.png", "/Users/me/report.pdf"],
+      },
+      path: null,
+    }),
+  );
+  expect(html).toContain('aria-label="Attached files"');
+  expect(html).toContain('src="asset://localhost/Users/me/Downloads/diagram.png"');
+  expect(html).toContain("diagram.png");
+  expect(html).toContain("report.pdf");
+  expect(html).toContain('title="/Users/me/report.pdf"');
 });
