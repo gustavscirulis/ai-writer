@@ -12,6 +12,8 @@ import {
   focusChatComposer,
 } from "@/hooks/use-claude";
 import {
+  applyFeedback,
+  canApplyFeedback,
   clearAttachedFeedback,
   consumeFeedback,
   removeFeedback,
@@ -120,8 +122,19 @@ export function Composer() {
     const selected = useEditorStore.getState().activeFilePath;
     if (selected && documentPath(selected) === documentPath(path)) clearAttachmentHighlight();
   };
+  const empty = !text.trim() && !attached.length;
+  const ready = useMemo(() => notes.filter(canApplyFeedback), [notes]);
   const queue = () => {
-    if (!path || !saveFeedbackNotes(path, text)) return;
+    if (!path) return;
+    if (empty) {
+      if (!busy && ready.length)
+        void applyFeedback(
+          path,
+          ready.map((item) => item.id),
+        );
+      return;
+    }
+    if (!saveFeedbackNotes(path, text)) return;
     setChatDraft(path, "");
     setTrayOpen(true);
     clearAttachmentHighlight();
@@ -205,6 +218,10 @@ export function Composer() {
               <>
                 <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
                 <kbd className={KBD}>⌘↵</kbd> queue
+              </>
+            ) : empty && !busy && ready.length ? (
+              <>
+                <kbd className={KBD}>⌘↵</kbd> send queued
               </>
             ) : (
               path && "Select text or ⌥-click a paragraph to point at it"

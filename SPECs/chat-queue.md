@@ -12,7 +12,7 @@ Saved notes and queued messages are one system: the feedback store's `pending` i
 - **Sending**
   - Every clean turn ends by sending the ready queue as one turn. A clean turn is a completed turn with no error and no Stop, whether it was a plain turn or a queue turn.
   - Ready means `pending`, not needing "Keep", and not detached ("Text changed · click to re-point"). Items that aren't ready stay in the tray.
-  - The tray's Send / Send all sends the queue by hand. It is disabled while a turn is running.
+  - The tray's Send / Send all, or ⌘Enter on an empty composer (no text, no chips), sends the queue by hand. It is disabled while a turn is running.
   - The bubble shows the plain messages, joined by blank lines, as its text, and the anchored notes as note attachments. A queue of only anchored notes keeps the "Apply this note" / "Apply my N notes" label.
   - The drain doesn't need the note's tab to be open.
 - **Outcomes**
