@@ -4,6 +4,8 @@
 
 - When you send a Chat message, it moves to the top of the conversation and stays there while Claude's reply appears below it, so you can read the reply as it comes in. Before, the conversation kept scrolling as the reply grew.
 
+- The Chat attach button is now a + at the bottom left of the message box, where the "Select text or ⌥-click a paragraph" hint used to be.
+
 - Attach files to a Chat message: click the paperclip, paste a screenshot, or drop files from Finder onto the message box. Chat can read anything Claude Code can, including images, PDFs, other notes, spreadsheets and code, and files outside the workspace don't need an extra approval. Attached files show above your message and stay in the thread after a restart. Dropping a file anywhere else in the window still opens it.
 
 - Clicking a file opens it in a new tab, or switches to its tab if it's already open. This applies to files in the sidebar, Pinned, Recents, the command palette, links in a note and Chat's tool list. To have files replace the current tab as before, turn off Settings → Tabs → Open Files in New Tab.
