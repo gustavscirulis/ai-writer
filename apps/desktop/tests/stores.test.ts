@@ -248,6 +248,7 @@ describe("editor-store", () => {
       activeFilePath: null,
     });
     useWorkspaceStore.setState({ chromeMode: "workspace" });
+    useSettingsStore.setState({ settings: {} });
   });
 
   test("openFile loads file and sets active", async () => {
@@ -440,15 +441,53 @@ describe("editor-store", () => {
     expect(useEditorStore.getState().activeTabId).toBe(launcherTabId);
   });
 
-  test("opening an already-open file from a launcher tab creates a duplicate file tab", async () => {
+  test("opening an already-open file from a launcher tab focuses its tab", async () => {
     mockedInvoke.mockResolvedValue({ path: "/a.md", content: "a", modified_at: 1 });
 
     await useEditorStore.getState().openFile("/a.md");
+    const fileTabId = useEditorStore.getState().activeTabId;
     useEditorStore.getState().openNewTab();
 
     await useEditorStore.getState().openFile("/a.md");
 
-    expect(tabPaths()).toEqual(["/a.md", "/a.md"]);
+    expect(useEditorStore.getState().tabs.map((tab) => tab.location.kind)).toEqual([
+      "file",
+      "launcher",
+    ]);
+    expect(useEditorStore.getState().activeTabId).toBe(fileTabId);
+  });
+
+  test("openFile opens a new tab, or focuses the tab already showing the file", async () => {
+    mockedInvoke
+      .mockResolvedValueOnce({ path: "/a.md", content: "a", modified_at: 1 })
+      .mockResolvedValueOnce({ path: "/b.md", content: "b", modified_at: 2 });
+
+    await useEditorStore.getState().openFile("/a.md");
+    const aTabId = useEditorStore.getState().activeTabId;
+    await useEditorStore.getState().openFile("/b.md");
+    expect(tabPaths()).toEqual(["/a.md", "/b.md"]);
+    expect(useEditorStore.getState().activeFilePath).toBe("/b.md");
+
+    await useEditorStore.getState().openFile("/a.md");
+    expect(tabPaths()).toEqual(["/a.md", "/b.md"]);
+    expect(useEditorStore.getState().activeTabId).toBe(aTabId);
+  });
+
+  test("openFile replaces the active file in place when new-tab opening is off", async () => {
+    useSettingsStore.setState({ settings: { "tabs.open-in-new-tab": false } });
+    mockedInvoke
+      .mockResolvedValueOnce({ path: "/a.md", content: "a", modified_at: 1 })
+      .mockResolvedValueOnce({ path: "/b.md", content: "b", modified_at: 2 });
+
+    await useEditorStore.getState().openFile("/a.md");
+    await useEditorStore.getState().openFile("/b.md");
+
+    expect(useEditorStore.getState().tabs).toEqual([
+      expect.objectContaining({
+        location: { kind: "file", path: "/b.md" },
+        back: [{ kind: "file", path: "/a.md" }],
+      }),
+    ]);
   });
 
   test("navigateToFile is a no-op on launcher tabs until a file is chosen", async () => {

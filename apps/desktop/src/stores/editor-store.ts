@@ -15,6 +15,7 @@ import {
 } from "@/lib/frontmatter";
 import { getDocumentStats, type DocumentStats } from "@/lib/document-stats";
 import { cancelSave, scheduleSave, registerSaveStore } from "@/lib/save";
+import { useSettingsStore } from "@/stores/settings-store";
 import {
   locationBehavior,
   serializeLocation,
@@ -364,19 +365,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFile: async (path: string) => {
     const state = get();
     const activeTab = getActiveTab(state);
+    const opensInNewTab = useSettingsStore.getState().settings["tabs.open-in-new-tab"] !== false;
+
+    if (opensInNewTab) {
+      const existing = state.tabs.find(
+        (tab) => tab.location.kind === "file" && tab.location.path === path,
+      );
+      if (existing) {
+        state.setActiveTab(existing.id);
+        return;
+      }
+    }
 
     if (activeTab?.location.kind === "launcher") {
       await state.replaceTabWithFile(activeTab.id, path);
       return;
     }
 
-    // Reuse the active file tab by navigating in-place.
-    if (activeTab?.location.kind === "file") {
+    if (!opensInNewTab && activeTab?.location.kind === "file") {
       await state.navigateToFile(path);
       return;
     }
 
-    // No tabs at all — create one.
     const loadPromise = ensureFileLoaded(path, set as EditorStateSetter, get);
     loadPromise.catch(() => {});
 
@@ -468,7 +478,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   // Always create a fresh tab for `path`, even if another tab already shows it.
   // Used by the sidebar context menu's "Open in new tab" action so it never
-  // collapses into the existing tab the way `openFile` does.
+  // focuses or replaces an existing tab the way `openFile` does.
   openFileInNewTab: async (path: string) => {
     const nextTab = createFileTab(path);
 

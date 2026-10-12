@@ -371,6 +371,15 @@
       "default": ""
     },
     {
+      "key": "tabs.open-in-new-tab",
+      "label": "Open Files in New Tab",
+      "description": "Open each file in its own tab, or switch to its tab if it's already open. Off replaces the file in the current tab.",
+      "category": "Tabs",
+      "type": "boolean",
+      "scope": "global",
+      "default": true
+    },
+    {
       "key": "window.restore-workspace",
       "label": "Restore Workspace",
       "description": "Automatically reopen the last workspace when the app starts",

@@ -364,7 +364,7 @@ function wikiLinkClickHandler(getFilePath: () => string, isDisposed: () => boole
           .then((result) => {
             if (isDisposed()) return;
             if (result.kind === "internal") {
-              void editorApi.navigateToFile(result.path);
+              void editorApi.openLinkedFile(result.path);
             }
           })
           .catch((error) => {

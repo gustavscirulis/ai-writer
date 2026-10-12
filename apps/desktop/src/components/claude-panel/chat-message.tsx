@@ -14,7 +14,7 @@ import {
 import type { ChatAttachment, ChatMessage, ChatTool } from "@/lib/claude-stream";
 import { getFileName } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
-import { navigateToFile } from "@/hooks/editor-api";
+import { openLinkedFile } from "@/hooks/editor-api";
 import { MarkdownReply } from "./markdown-reply";
 import {
   clearAttachmentHighlight,
@@ -137,7 +137,7 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
                 (opensNote(tool) ? (
                   <button
                     type="button"
-                    onClick={() => void navigateToFile(tool.path!)}
+                    onClick={() => void openLinkedFile(tool.path!)}
                     className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
                   >
                     {getFileName(tool.path)}
