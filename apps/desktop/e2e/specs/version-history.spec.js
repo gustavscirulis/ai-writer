@@ -127,15 +127,15 @@ describe("Version history", function () {
     await press("Escape");
   });
 
-  it("opens from the Chat header while Chat is open", async function () {
+  it("opens from the Co-writer header while Co-writer is open", async function () {
     await press("L", { metaKey: true, shiftKey: true });
-    const button = await $('aside[aria-label="Chat panel"] button[aria-label="Version history"]');
+    const button = await $('aside[aria-label="Co-writer"] button[aria-label="Version history"]');
     await button.waitForExist({ timeout: 5_000 });
     await shot("history-chat-header");
     await button.click();
     await $('aside[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
     await $("button[aria-label='Close version history']").click();
-    await $('aside[aria-label="Chat panel"]').waitForExist({ timeout: 5_000 });
+    await $('aside[aria-label="Co-writer"]').waitForExist({ timeout: 5_000 });
     await press("L", { metaKey: true, shiftKey: true });
   });
 });

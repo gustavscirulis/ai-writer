@@ -58,8 +58,10 @@ interface FeedbackState {
   highlight: (highlighted: FeedbackHighlight | null) => void;
   remove: (path: string, id: string) => void;
   clearAttached: (path: string) => void;
-  /** Sent attachments leave the composer. */
-  consume: (path: string, ids: string[]) => void;
+  /** Removes sent attachments from the composer and returns them. */
+  take: (path: string, ids: string[]) => FeedbackItem[];
+  /** Puts attachments back in the composer when their message failed to send. */
+  restore: (path: string, items: FeedbackItem[]) => void;
   saveNotes: (path: string, text: string) => number;
   /** Moves a note back into the composer and returns its text. */
   takeBack: (path: string, id: string) => string | null;
@@ -358,15 +360,46 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
           : items,
       false,
     ),
-  consume: (path, ids) =>
+  take: (path, ids) => {
+    const taken = (get().byPath[path] ?? EMPTY_ITEMS).filter(
+      (item) => item.status === "attached" && ids.includes(item.id),
+    );
+    if (!taken.length) return [];
+    changeItems(path, (items) => items.filter((item) => !taken.includes(item)), false);
+    return taken;
+  },
+  restore: (path, restored) => {
+    // Edits made while the items were out of the store never reached their anchors.
+    const content = checkpoints.get(path);
+    const targets = content === undefined ? null : feedbackTargets(content);
     changeItems(
       path,
-      (items) =>
-        items.some((item) => item.status === "attached" && ids.includes(item.id))
-          ? items.filter((item) => item.status !== "attached" || !ids.includes(item.id))
-          : items,
+      (items) => {
+        const missing = restored.filter(
+          (entry) =>
+            !items.some(
+              (item) =>
+                item.id === entry.id ||
+                (item.status === "attached" &&
+                  item.anchor?.from === entry.anchor?.from &&
+                  item.anchor?.to === entry.anchor?.to &&
+                  item.quote === entry.quote),
+            ),
+        );
+        if (!missing.length) return items;
+        return [
+          ...missing.map((item) => ({
+            ...item,
+            status: "attached" as const,
+            anchor:
+              item.anchor && targets ? recoverFeedbackAnchor(item.anchor, targets) : item.anchor,
+          })),
+          ...items,
+        ];
+      },
       false,
-    ),
+    );
+  },
   saveNotes: (path, text) => {
     const feedback = text.trim();
     if (closing || !feedback || !get().loaded || !get().root) return 0;

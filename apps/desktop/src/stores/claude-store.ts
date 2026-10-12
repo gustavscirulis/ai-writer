@@ -130,7 +130,7 @@ export function chatForPath(chats: Record<string, Chat>, path: string | null) {
   return path ? (chats[documentPath(path)] ?? EMPTY_CHAT) : EMPTY_CHAT;
 }
 const EXPIRED_SESSION =
-  "This conversation can't be continued in Claude Code any more. Start a new chat to keep going.";
+  "This conversation can't be continued in Claude Code any more. Start a new conversation to keep going.";
 
 /** One record per canonical note path, so the visible thread and its session can't drift. */
 interface ChatRecord {
@@ -649,7 +649,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         }));
     }
   },
-  send: (path, text, { turn: options, attachments, files } = {}) => {
+  send: (path, text, { turn: options, attachments, feedbackIds, files } = {}) => {
     const key = documentPath(path);
     const workspace = useWorkspaceStore.getState();
     if (!text.trim() || runs.has(key) || resets.has(key) || drains > 0 || isAppClosing())
@@ -718,6 +718,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const draft = get().chats[key]?.draft;
     const restore = !options && draft === text ? draft : null;
     const sentFiles = options ? [] : (files ?? []);
+    const sentFeedback =
+      options || !feedbackIds?.length ? [] : useFeedbackStore.getState().take(path, feedbackIds);
     const message: ChatMessage = {
       id: turnId,
       role: "user",
@@ -796,6 +798,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
             ...chat,
             files: [...sentFiles.filter((file) => !chat.files.includes(file)), ...chat.files],
           }));
+        if (!ok && !run.cancelled && sentFeedback.length && current(run))
+          useFeedbackStore.getState().restore(path, sentFeedback);
         return ok;
       })
       .finally(() => {

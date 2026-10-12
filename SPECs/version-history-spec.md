@@ -2,7 +2,7 @@
 
 ## Summary
 
-Every workspace note gets durable version history, in the style of Google Docs. A clock button at the top right, which moves into the Chat header while Chat is open (or ⌘⇧H, or "Show Version History" in the command palette) opens a list of versions on the right. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ↑/↓ flips between versions, Esc closes, and "Restore this version" brings an earlier version back as a new "Restored" version.
+Every workspace note gets durable version history, in the style of Google Docs. A clock button at the top right, which moves into the Co-writer header while Co-writer is open (or ⌘⇧H, or "Show Version History" in the command palette) opens a list of versions on the right. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ↑/↓ flips between versions, Esc closes, and "Restore this version" brings an earlier version back as a new "Restored" version.
 
 ## Storage
 
@@ -50,7 +50,7 @@ Pruning runs on workspace open, after indexing. Per note:
 ## UI
 
 - **Panel** (`components/version-history/history-panel.tsx`):
-  - Takes Chat's slot and width while open; Chat comes back on close.
+  - Takes Co-writer's slot and width while open; Co-writer comes back on close.
   - Versions are grouped under day headings. The first row is "Current version", and rows are tagged "Claude" or "Restored".
   - The panel closes when the active tab shows another note.
 - **Preview** (`history-preview.tsx`):

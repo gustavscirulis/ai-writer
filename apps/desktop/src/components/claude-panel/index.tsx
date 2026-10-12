@@ -44,13 +44,13 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   return (
     <aside
       ref={rootRef}
-      aria-label="Chat panel"
+      aria-label="Co-writer"
       className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] text-[13px] text-[var(--text-primary)]"
       style={{ width: "var(--agent-panel-width)" }}
     >
       <div
         role="separator"
-        aria-label="Resize chat panel"
+        aria-label="Resize Co-writer"
         aria-orientation="vertical"
         aria-valuemin={260}
         aria-valuemax={maxWidth}
@@ -95,7 +95,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
         }}
       >
         <h2 data-tauri-drag-region className="text-[13px] font-semibold text-[var(--text-primary)]">
-          Chat
+          Co-writer
         </h2>
         <div data-tauri-drag-region className="flex items-center gap-0.5">
           <button
@@ -110,8 +110,8 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
           </button>
           <button
             type="button"
-            title="New chat"
-            aria-label="New chat"
+            title="New conversation"
+            aria-label="New conversation"
             disabled={!path || status === "stopping"}
             onClick={() => path && void newChat(path)}
             className={HEADER_BUTTON}
@@ -121,7 +121,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
           <button
             type="button"
             title="Close"
-            aria-label="Close chat panel"
+            aria-label="Close Co-writer"
             onClick={toggleChatPanel}
             className={HEADER_BUTTON}
           >

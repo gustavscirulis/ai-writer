@@ -28,7 +28,6 @@ import {
   applyFeedback,
   canApplyFeedback,
   clearAttachedFeedback,
-  consumeFeedback,
   removeFeedback,
   saveFeedbackNotes,
   useDocumentFeedback,
@@ -37,9 +36,7 @@ import {
 import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-api";
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
-import { documentPath } from "@/lib/agent-turn";
 import { pastedImageFile } from "@/lib/pasted-image";
-import { useEditorStore } from "@/stores/editor-store";
 import { FileChip } from "./file-chip";
 import { FeedbackError, NotesTray } from "./notes-tray";
 
@@ -143,23 +140,14 @@ export function Composer() {
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }, [text]);
-  const send = async () => {
+  const send = () => {
     if (!path) return;
-    const draft = text;
-    const sent = attached;
-    const ok = await sendChat(
-      path,
-      draft,
-      sent.map((item) => ({ anchor: item.anchor, quote: item.quote })),
+    void sendChat(path, text, {
+      attachments: attached.map((item) => ({ anchor: item.anchor, quote: item.quote })),
+      feedbackIds: attached.map((item) => item.id),
       files,
-    );
-    if (!ok) return;
-    consumeFeedback(
-      path,
-      sent.map((item) => item.id),
-    );
-    const selected = useEditorStore.getState().activeFilePath;
-    if (selected && documentPath(selected) === documentPath(path)) clearAttachmentHighlight();
+    });
+    if (attached.length) clearAttachmentHighlight();
   };
   const empty = !text.trim() && !attached.length;
   const ready = useMemo(() => notes.filter(canApplyFeedback), [notes]);
@@ -183,7 +171,7 @@ export function Composer() {
       className="px-3 pb-3"
       onSubmit={(event) => {
         event.preventDefault();
-        void send();
+        send();
       }}
     >
       {path && <FeedbackError />}
@@ -232,7 +220,7 @@ export function Composer() {
                 ? "What should change here?"
                 : busy
                   ? "Queue a follow-up…"
-                  : "Ask about your writing…"
+                  : "Ask anything, or describe a change…"
           }
           value={text}
           onChange={(event) => path && setChatDraft(path, event.target.value)}
@@ -252,7 +240,7 @@ export function Composer() {
             } else if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               if (busy) queue();
-              else void send();
+              else send();
             } else if (event.key === "Backspace" && !text && files.length) {
               event.preventDefault();
               removeChatFile(path, files[files.length - 1]!);

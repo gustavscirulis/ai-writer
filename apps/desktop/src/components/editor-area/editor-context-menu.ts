@@ -119,7 +119,7 @@ export function buildEditorBodyMenuItemsSpec(
     items.push({
       kind: "item",
       id: "add-to-chat",
-      text: "Add to chat",
+      text: "Add to Co-writer",
       accelerator: "CmdOrCtrl+L",
       action: handlers.onAddToChat,
     });

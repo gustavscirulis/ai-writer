@@ -2,13 +2,17 @@
 
 ## 2026-10-12
 
-- Go back to earlier versions of a note. Click the clock button at the top right (in the Chat header when Chat is open), or press ⌘⇧H, to see every version on the right, grouped by day. Versions made by Claude are tagged. Click a version, or use ↑/↓, to preview it with its changes highlighted, then press "Restore this version" to bring it back. ⌘Z undoes a restore. Versions are kept in a hidden `.writer/history` folder in your workspace. Recent versions are all kept, older ones are thinned out to one per hour, day and then week, and Claude's edits are always kept.
+- Go back to earlier versions of a note. Click the clock button at the top right (in the Co-writer header when Co-writer is open), or press ⌘⇧H, to see every version on the right, grouped by day. Versions made by Claude are tagged. Click a version, or use ↑/↓, to preview it with its changes highlighted, then press "Restore this version" to bring it back. ⌘Z undoes a restore. Versions are kept in a hidden `.writer/history` folder in your workspace. Recent versions are all kept, older ones are thinned out to one per hour, day and then week, and Claude's edits are always kept.
+
+- When you send a Chat message, the paragraphs and text you attached leave the message box straight away, the same as your text and files. Before, they stayed there until Claude Code had started. If the message fails to send, they come back.
 
 - While Chat is waiting for you to approve a request, Writer's Dock icon shows a badge with the number of requests waiting, so you can see it from another app. The badge clears once you answer, or when the request is cancelled.
 
 - When you send a Chat message, it moves to the top of the conversation and stays there while Claude's reply appears below it, so you can read the reply as it comes in. Before, the conversation kept scrolling as the reply grew.
 
 - The Chat attach button is now a + at the bottom left of the message box, where the "Select text or ⌥-click a paragraph" hint used to be.
+
+- Chat is now called Co-writer. When a conversation is empty, it suggests things to try with the tools you have connected, such as researching in Glean, checking numbers in Snowflake or finding sources on the web. On a new, blank note it offers ways to start instead, like drafting an outline, which fill in the message box for you to finish. A line underneath notes that Co-writer runs on your Claude Code, with the same tools and MCPs.
 
 - Attach files to a Chat message: click the paperclip, paste a screenshot, or drop files from Finder onto the message box. Chat can read anything Claude Code can, including images, PDFs, other notes, spreadsheets and code, and files outside the workspace don't need an extra approval. Attached files show above your message and stay in the thread after a restart. Dropping a file anywhere else in the window still opens it.
 

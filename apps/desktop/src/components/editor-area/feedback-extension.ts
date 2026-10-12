@@ -75,7 +75,7 @@ const marks = {
   focus: Decoration.mark({ class: "writer-mark-focus" }),
 };
 
-/** "Add to chat ⌘L" above a selection while the editor has focus. */
+/** "Add to Co-writer ⌘L" above a selection while the editor has focus. */
 function selectionPill(getPath: () => string): Extension {
   const tooltip = (state: EditorState, previous: Tooltip | null): Tooltip | null => {
     const range = state.selection.main;
@@ -91,7 +91,7 @@ function selectionPill(getPath: () => string): Extension {
         button.type = "button";
         const kbd = document.createElement("kbd");
         kbd.textContent = "⌘L";
-        button.append(icon(CommentAdd01Icon, 14), "Add to chat", kbd);
+        button.append(icon(CommentAdd01Icon, 14), "Add to Co-writer", kbd);
         button.addEventListener("mousedown", (event) => event.preventDefault());
         button.addEventListener("click", () => attachFromEditor(getPath(), view));
         dom.append(button);
@@ -145,8 +145,8 @@ function feedbackGutter(getPath: () => string) {
         this.overlay.className = "writer-feedback-gutter";
         this.button.type = "button";
         this.button.className = "writer-paragraph-comment";
-        this.button.setAttribute("aria-label", "Add this block to chat");
-        this.button.title = "Add to chat (⌥-click the block)";
+        this.button.setAttribute("aria-label", "Add this block to Co-writer");
+        this.button.title = "Add to Co-writer (⌥-click the block)";
         this.button.append(icon(CommentAdd01Icon, 15));
         this.button.addEventListener("pointerdown", (event) => event.preventDefault());
         this.button.addEventListener("click", () => {

@@ -16,6 +16,7 @@ import type {
   WriteResult,
   WorkspaceInfo,
 } from "@/types/fs";
+import type { McpServer } from "@/lib/co-writer-suggestions";
 
 const identityReads = new Map<string, symbol>();
 
@@ -413,6 +414,10 @@ export function claudeSend(processId: string, line: string, files: string[]): Pr
 }
 export function claudeStop(processId: string): Promise<void> {
   return invoke("claude_stop", { processId });
+}
+
+export function claudeMcpServers(root: string): Promise<McpServer[]> {
+  return invoke("claude_mcp_servers", { root });
 }
 
 export function claudeDecidePermission(

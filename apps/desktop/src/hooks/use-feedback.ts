@@ -17,7 +17,6 @@ export const useDocumentFeedback = (path: string | null) =>
 const store = () => useFeedbackStore.getState();
 export const removeFeedback = (path: string, id: string) => store().remove(path, id);
 export const clearAttachedFeedback = (path: string) => store().clearAttached(path);
-export const consumeFeedback = (path: string, ids: string[]) => store().consume(path, ids);
 export const saveFeedbackNotes = (path: string, text: string) => store().saveNotes(path, text);
 export const takeBackFeedback = (path: string, id: string) => store().takeBack(path, id);
 export const acknowledgeFeedback = (path: string, id: string) => store().acknowledge(path, id);
