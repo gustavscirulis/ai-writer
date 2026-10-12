@@ -12,6 +12,8 @@
 
 ## Done
 
+- Remember window size and position across launches: `tauri-plugin-window-state` with SIZE | POSITION | MAXIMIZED (not VISIBLE, so the frontend still reveals windows after hydration); every window maps to one shared entry, and secondary windows keep their random scatter position.
+
 - Stop the editor swallowing Option+`and Option+i: CodeMirror's default completion keymap bound them to`startCompletion` on macOS; wiki-link autocomplete now installs the same keymap without those two chords.
 
 - Show submitted Chat messages immediately: [`SPECs/chat-immediate-message.md`](SPECs/chat-immediate-message.md) — append once on accepted Send, before saves/Claude startup; preserve drafts, attachments and recovery. Empty-thread Chrome QA with held startup, 890 tests, checks and desktop build pass.
