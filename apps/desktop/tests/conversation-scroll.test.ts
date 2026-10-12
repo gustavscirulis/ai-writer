@@ -192,7 +192,7 @@ test("slides the content from where it was instead of smooth scrolling", () => {
     expect(animate).toHaveBeenCalledTimes(2);
     expect(animate).toHaveBeenCalledWith(
       [{ transform: "translateY(292px)" }, { transform: "translateY(0)" }],
-      { duration: 240, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
+      { duration: 500, easing: "cubic-bezier(0.32, 0.72, 0, 1)" },
     );
     render("u2");
     expect(cancel).toHaveBeenCalledTimes(2);

@@ -77,8 +77,8 @@ export function useConversationScroll(anchorId: string | undefined) {
     target.dataset.pinned = "";
     slide.current = layers.map((layer) =>
       layer.animate([{ transform: `translateY(${distance}px)` }, { transform: "translateY(0)" }], {
-        duration: 240,
-        easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+        duration: 500,
+        easing: "cubic-bezier(0.32, 0.72, 0, 1)",
       }),
     );
   }, [anchorId, update]);
