@@ -1,6 +1,7 @@
 # Clear the composer on send
 
 - An accepted ordinary Chat send clears its matching composer draft synchronously, before saving the file, starting Claude or waiting for its input acknowledgement.
+- Every accepted send also inserts its user message in that same state update, so the conversation replaces its empty state immediately. The submitted bubble is retained through failures and Stop; inline errors and conditional draft restoration provide recovery. See [immediate messages](chat-immediate-message.md).
 - Rejected empty/busy/invalid sends keep the draft. A failed save/start/send restores the original draft only if the originating turn/workspace still owns the attempt and its draft remains empty.
 - New text entered during startup or a reply remains intact. Another note's draft and feedback-apply/suggestion sends that do not match the composer are unaffected.
 - The Chat store owns this lifecycle; the composer consumes attachments on successful delivery and no longer clears the draft after awaiting it.

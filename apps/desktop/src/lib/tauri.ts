@@ -335,6 +335,7 @@ export function saveClipboardImage(
 }
 
 export type AgentEvent =
+  | { type: "started"; processId: string }
   | { type: "claude"; line: string }
   | { type: "stderr"; message: string }
   | { type: "exit"; code: number | null };

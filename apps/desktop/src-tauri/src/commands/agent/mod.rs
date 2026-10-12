@@ -8,9 +8,19 @@ use tokio::sync::{mpsc, oneshot, watch};
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
-    Claude { line: String },
-    Stderr { message: String },
-    Exit { code: Option<i32> },
+    Started {
+        #[serde(rename = "processId")]
+        process_id: String,
+    },
+    Claude {
+        line: String,
+    },
+    Stderr {
+        message: String,
+    },
+    Exit {
+        code: Option<i32>,
+    },
 }
 
 pub enum Input {

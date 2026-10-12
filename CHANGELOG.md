@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-12
+
+- CLI notices in Chat now appear once, where they arrived in the conversation, and scroll with it instead of staying pinned to the bottom. Warnings Claude Code repeats on every turn are no longer shown again.
+
+- Show your Chat message in the conversation as soon as you send it, including from an empty thread, while note saving and Claude startup run in the background.
+
+- Chat can now use Claude Code’s built-in web search and fetch webpages, with any required approvals handled in Chat.
+
+- Chat now loads your configured Claude Code MCP servers and supports their tool approvals. Built-in file edits remain limited to the current note; MCP tools use their own server access. Servers configured only for another project or passed only to a terminal session are not inherited.
+
 ## 2026-10-11
 
 - Redesign tool approvals in Chat. While Claude waits on you, the message box becomes the question, for example “Read **maria-chen.md**?” with its folder underneath, and two choices: “Yes, read it” or “No, keep to this note”. Use ↑/↓ and Enter, or press Esc to deny. Show request still reveals the full input, and Stop is right there.

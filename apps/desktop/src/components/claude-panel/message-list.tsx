@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { useConversationScroll } from "./use-conversation-scroll";
 import {
   sendChat,
@@ -7,20 +8,25 @@ import {
   useChatStatus,
 } from "@/hooks/use-claude";
 import { useActiveFilePath } from "@/hooks/use-tabs";
-import type { ChatMessage } from "@/lib/claude-stream";
+import { isVisibleMessage, type ChatMessage } from "@/lib/claude-stream";
+import type { ChatNotice } from "@/stores/claude-store";
 import { AssistantTurn, Disclosure, UserMessage } from "./chat-message";
 import { ChatActivity } from "./chat-activity";
 import "./chat-panel.css";
 
-type Turn = { role: ChatMessage["role"]; messages: ChatMessage[] };
+type Turn = { role: ChatMessage["role"]; messages: ChatMessage[]; notices: string[] };
 
-function groupTurns(messages: ChatMessage[]) {
+function groupTurns(messages: ChatMessage[], notices: ChatNotice[]) {
   const turns: Turn[] = [];
   for (const message of messages) {
-    if (!message.text && message.tools.length === 0) continue;
-    const last = turns[turns.length - 1];
+    if (!isVisibleMessage(message)) continue;
+    let last = turns[turns.length - 1];
     if (message.role === "assistant" && last?.role === "assistant") last.messages.push(message);
-    else turns.push({ role: message.role, messages: [message] });
+    else {
+      last = { role: message.role, messages: [message], notices: [] };
+      turns.push(last);
+    }
+    for (const notice of notices) if (notice.afterId === message.id) last.notices.push(notice.text);
   }
   return turns;
 }
@@ -39,7 +45,7 @@ export function MessageList() {
   const notices = useChatNotices(path);
   const status = useChatStatus(path);
   const scrollRef = useConversationScroll();
-  const turns = groupTurns(messages);
+  const turns = groupTurns(messages, notices);
   const lastId = messages[messages.length - 1]?.id;
   return (
     <div
@@ -80,32 +86,33 @@ export function MessageList() {
           </div>
         )}
         <div className="flex flex-col gap-5">
-          {turns.map((turn) =>
-            turn.role === "user" ? (
-              <UserMessage key={turn.messages[0].id} message={turn.messages[0]} path={path} />
-            ) : (
-              <AssistantTurn
-                key={turn.messages[0].id}
-                messages={turn.messages}
-                live={status === "running" && turn.messages[turn.messages.length - 1].id === lastId}
-              />
-            ),
-          )}
+          {turns.map((turn) => (
+            <Fragment key={turn.messages[0].id}>
+              {turn.role === "user" ? (
+                <UserMessage message={turn.messages[0]} path={path} />
+              ) : (
+                <AssistantTurn
+                  messages={turn.messages}
+                  live={
+                    status === "running" && turn.messages[turn.messages.length - 1].id === lastId
+                  }
+                />
+              )}
+              {turn.notices.length > 0 && (
+                <Disclosure
+                  label={<span>CLI notices</span>}
+                  count={turn.notices.length}
+                  listLabel="CLI notices"
+                >
+                  <p className="whitespace-pre-wrap break-words font-[family-name:var(--mono-font)] text-[11px] leading-relaxed">
+                    {turn.notices.join("\n")}
+                  </p>
+                </Disclosure>
+              )}
+            </Fragment>
+          ))}
         </div>
         {<ChatActivity path={path} />}
-        {notices.length > 0 && (
-          <div className="mt-4 flex">
-            <Disclosure
-              label={<span>CLI notices</span>}
-              count={notices.length}
-              listLabel="CLI notices"
-            >
-              <p className="whitespace-pre-wrap break-words font-[family-name:var(--mono-font)] text-[11px] leading-relaxed">
-                {notices.join("\n")}
-              </p>
-            </Disclosure>
-          </div>
-        )}
         {error && (
           <p
             role="alert"

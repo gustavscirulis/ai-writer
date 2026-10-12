@@ -21,6 +21,9 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   textBlocks?: { key: string; text: string; snapshotId?: string; snapshotIndex?: number }[];
 }
+export function isVisibleMessage(message: ChatMessage) {
+  return message.text !== "" || message.tools.length > 0;
+}
 export interface ToolPermission {
   id: string;
   tool: string;
