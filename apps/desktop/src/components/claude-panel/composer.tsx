@@ -2,9 +2,9 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowUp02Icon,
-  Attachment01Icon,
   Cancel01Icon,
   ParagraphIcon,
+  PlusSignIcon,
   TextIcon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -269,35 +269,35 @@ export function Composer() {
           className="block w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-[1.55] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
         />
         <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] text-[var(--text-muted)]">
-            {busy && text.trim() ? (
-              <>
-                <kbd className={KBD}>↵</kbd> queue for after this reply
-              </>
-            ) : attached.length || text.trim() ? (
-              <>
-                <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
-                <kbd className={KBD}>⌘↵</kbd> queue
-              </>
-            ) : empty && !busy && ready.length ? (
-              <>
-                <kbd className={KBD}>⌘↵</kbd> send queued
-              </>
-            ) : (
-              path && "Select text or ⌥-click a paragraph to point at it"
-            )}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="-ml-1.5 flex min-w-0 items-center gap-1">
             <button
               type="button"
               aria-label="Attach files"
               title="Attach files"
               disabled={!path}
               onClick={() => path && void pickChatFiles(path)}
-              className="grid size-7 place-items-center rounded-full text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
+              className="grid size-7 shrink-0 place-items-center rounded-full text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             >
-              <HugeiconsIcon icon={Attachment01Icon} size={15} strokeWidth={1.8} />
+              <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={1.8} />
             </button>
+            <span className="min-w-0 truncate text-[11px] text-[var(--text-muted)]">
+              {busy && text.trim() ? (
+                <>
+                  <kbd className={KBD}>↵</kbd> queue for after this reply
+                </>
+              ) : attached.length || text.trim() ? (
+                <>
+                  <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
+                  <kbd className={KBD}>⌘↵</kbd> queue
+                </>
+              ) : empty && !busy && ready.length ? (
+                <>
+                  <kbd className={KBD}>⌘↵</kbd> send queued
+                </>
+              ) : null}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
             {(attached.length > 0 || text.trim() !== "") && (
               <button
                 type="button"

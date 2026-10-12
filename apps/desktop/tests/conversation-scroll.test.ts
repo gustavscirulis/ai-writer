@@ -1,9 +1,28 @@
-import { expect, test, vi } from "vite-plus/test";
+import { beforeEach, expect, test, vi } from "vite-plus/test";
+const react = vi.hoisted(() => ({
+  refs: [] as { current: unknown }[],
+  index: 0,
+  effect: () => {},
+}));
 vi.mock("react", () => ({
-  useRef: (value: unknown) => ({ current: value }),
+  useRef: (value: unknown) => (react.refs[react.index++] ??= { current: value }),
   useCallback: (callback: unknown) => callback,
+  useLayoutEffect: (effect: () => void) => {
+    react.effect = effect;
+  },
 }));
 import { useConversationScroll } from "../src/components/claude-panel/use-conversation-scroll";
+
+function render(anchorId: string | undefined) {
+  react.index = 0;
+  const result = useConversationScroll(anchorId);
+  react.effect();
+  return result;
+}
+
+beforeEach(() => {
+  react.refs = [];
+});
 
 test("follows streaming and viewport changes at the bottom, respects scrolling away and cleans up", () => {
   let resize!: () => void;
@@ -41,7 +60,7 @@ test("follows streaming and viewport changes at the bottom, respects scrolling a
     removeEventListener: removed,
   };
   try {
-    const cleanup = useConversationScroll()(scroller as unknown as HTMLDivElement);
+    const cleanup = render(undefined).scrollRef(scroller as unknown as HTMLDivElement);
     expect(observed).toEqual([contents, scroller]);
     resize();
     expect(scroller.scrollTop).toBe(300);
@@ -67,6 +86,116 @@ test("follows streaming and viewport changes at the bottom, respects scrolling a
     cleanup?.();
     expect(disconnected).toHaveBeenCalledOnce();
     expect(removed).toHaveBeenCalledWith("scroll", scroll);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("pins a newly sent message to the top and holds it there while the reply grows", () => {
+  let resize!: () => void;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "8px", paddingBottom: "20px" }));
+  vi.stubGlobal("CSS", { escape: (value: string) => value });
+  vi.stubGlobal("window", { matchMedia: () => ({ matches: true }) });
+  const contents = { offsetTop: 8, offsetHeight: 1000 };
+  const sent = { offsetTop: 900 };
+  const setTop = vi.fn();
+  const scroller = {
+    firstElementChild: contents,
+    scrollHeight: 1028,
+    clientHeight: 400,
+    get scrollTop() {
+      return 0;
+    },
+    set scrollTop(value: number) {
+      setTop(value);
+    },
+    querySelector: (selector: string) => (selector === '[data-message-id="u1"]' ? sent : null),
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const spacer = { style: { height: "" } };
+  try {
+    const { scrollRef, spacerRef } = render("u0");
+    spacerRef.current = spacer as unknown as HTMLDivElement;
+    scrollRef(scroller as unknown as HTMLDivElement);
+    render("u0");
+    expect(setTop).not.toHaveBeenCalled();
+
+    render("u1");
+    expect(spacer.style.height).toBe("264px");
+    expect(setTop).toHaveBeenCalledWith(892);
+
+    render(undefined);
+    setTop.mockClear();
+    contents.offsetHeight = 1100;
+    resize();
+    expect(spacer.style.height).toBe("164px");
+    contents.offsetHeight = 1400;
+    resize();
+    expect(spacer.style.height).toBe("0px");
+    expect(setTop).not.toHaveBeenCalled();
+
+    render("u1");
+    expect(setTop).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("slides the content from where it was instead of smooth scrolling", () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "8px", paddingBottom: "20px" }));
+  vi.stubGlobal("CSS", { escape: (value: string) => value });
+  vi.stubGlobal("window", { matchMedia: () => ({ matches: false }) });
+  const cancel = vi.fn();
+  const animate = vi.fn(() => ({ cancel }));
+  const contents = { offsetTop: 8, offsetHeight: 1000, animate };
+  const spacer = { style: { height: "" }, animate };
+  const sent = { offsetTop: 900, dataset: {} as Record<string, string> };
+  let top = 600;
+  const scroller = {
+    firstElementChild: contents,
+    clientHeight: 400,
+    get scrollTop() {
+      return top;
+    },
+    set scrollTop(value: number) {
+      top = value;
+    },
+    querySelector: () => sent,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  try {
+    const { scrollRef, spacerRef } = render(undefined);
+    spacerRef.current = spacer as unknown as HTMLDivElement;
+    scrollRef(scroller as unknown as HTMLDivElement);
+    render("u1");
+    expect(top).toBe(892);
+    expect(sent.dataset.pinned).toBe("");
+    expect(animate).toHaveBeenCalledTimes(2);
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: "translateY(292px)" }, { transform: "translateY(0)" }],
+      { duration: 500, easing: "cubic-bezier(0.32, 0.72, 0, 1)" },
+    );
+    render("u2");
+    expect(cancel).toHaveBeenCalledTimes(2);
   } finally {
     vi.unstubAllGlobals();
   }

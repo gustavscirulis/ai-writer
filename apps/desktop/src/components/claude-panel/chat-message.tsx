@@ -177,7 +177,11 @@ export const UserMessage = memo(function UserMessage({
   const quotes = message.attachments?.filter((attachment) => attachment.note === undefined) ?? [];
   const notes = message.attachments?.filter((attachment) => attachment.note !== undefined) ?? [];
   return (
-    <article aria-label="You" className="chat-enter flex flex-col items-end gap-1.5">
+    <article
+      aria-label="You"
+      data-message-id={message.id}
+      className="chat-enter flex flex-col items-end gap-1.5"
+    >
       {message.files?.length ? (
         <div aria-label="Attached files" className="flex max-w-[85%] flex-wrap justify-end gap-1">
           {message.files.map((file) => (
