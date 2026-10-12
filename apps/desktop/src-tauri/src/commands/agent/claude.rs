@@ -63,7 +63,20 @@ async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
         .filter_map(|part| part.parse().ok())
         .collect();
     if !version.status.success() || numbers.as_slice() < [2, 1, 296].as_slice() {
-        return Err(AppError::Io("Parallel note agents require Claude Code 2.1.296 or newer. Update Claude Code in your terminal.".into()));
+        let reported = if version.status.success() {
+            text.trim().to_string()
+        } else {
+            String::from_utf8_lossy(&version.stderr).trim().to_string()
+        };
+        eprintln!(
+            "claude: {} --version failed the check: {reported:?} ({})",
+            env.0.display(),
+            version.status
+        );
+        return Err(AppError::Io(format!(
+            "Parallel note agents require Claude Code 2.1.296 or newer, but {} reports “{reported}”. Update Claude Code in your terminal.",
+            env.0.display()
+        )));
     }
     let _ = CLAUDE_ENV.set(env.clone());
     Ok(env)
