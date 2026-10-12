@@ -8,23 +8,24 @@ export function useConversationScroll(anchorId: string | undefined) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const following = useRef(true);
-  const anchor = useRef<HTMLElement | null>(null);
+  const anchorTop = useRef<number | null>(null);
   const seenAnchorId = useRef(anchorId);
+  const slide = useRef<Animation[]>([]);
 
   const update = useCallback(() => {
     const element = scroller.current;
     if (!element) return;
-    const target = anchor.current;
-    if (!target) {
+    if (anchorTop.current === null) {
       if (following.current) element.scrollTop = element.scrollHeight;
       return;
     }
+    // Size from content height only: WebKit misreports descendant offsets mid-slide.
     const style = getComputedStyle(element);
-    const room =
-      element.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
     const contents = element.firstElementChild as HTMLElement;
-    const used = contents.offsetTop + contents.offsetHeight - target.offsetTop;
-    if (spacerRef.current) spacerRef.current.style.height = `${Math.max(0, room - used)}px`;
+    const bottom =
+      parseFloat(style.paddingTop) + contents.offsetHeight + parseFloat(style.paddingBottom);
+    const height = Math.max(0, anchorTop.current + element.clientHeight - bottom);
+    if (spacerRef.current) spacerRef.current.style.height = `${height}px`;
   }, []);
 
   const scrollRef = useCallback(
@@ -56,13 +57,30 @@ export function useConversationScroll(anchorId: string | undefined) {
       `[data-message-id="${CSS.escape(anchorId)}"]`,
     );
     if (!target) return;
-    anchor.current = target;
+    const top = target.offsetTop - parseFloat(getComputedStyle(element).paddingTop);
+    anchorTop.current = top;
     update();
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    element.scrollTo({
-      top: target.offsetTop - parseFloat(getComputedStyle(element).paddingTop),
-      behavior: reduceMotion ? "auto" : "smooth",
-    });
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      element.scrollTop = top;
+      return;
+    }
+    // Native smooth scroll drops frames while the reply starts rendering; a transform doesn't.
+    const layers = [element.firstElementChild, spacerRef.current] as HTMLElement[];
+    const transform = getComputedStyle(layers[0]).transform;
+    const offset = transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0;
+    for (const animation of slide.current) animation.cancel();
+    const from = element.scrollTop - offset;
+    element.scrollTop = top;
+    const travel = element.scrollTop - from;
+    if (!travel) return;
+    const distance = Math.sign(travel) * Math.min(Math.abs(travel), element.clientHeight);
+    target.dataset.pinned = "";
+    slide.current = layers.map((layer) =>
+      layer.animate([{ transform: `translateY(${distance}px)` }, { transform: "translateY(0)" }], {
+        duration: 240,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+      }),
+    );
   }, [anchorId, update]);
 
   return { scrollRef, spacerRef };

@@ -109,7 +109,6 @@ test("pins a newly sent message to the top and holds it there while the reply gr
   const contents = { offsetTop: 8, offsetHeight: 1000 };
   const sent = { offsetTop: 900 };
   const setTop = vi.fn();
-  const scrollTo = vi.fn();
   const scroller = {
     firstElementChild: contents,
     scrollHeight: 1028,
@@ -121,7 +120,6 @@ test("pins a newly sent message to the top and holds it there while the reply gr
       setTop(value);
     },
     querySelector: (selector: string) => (selector === '[data-message-id="u1"]' ? sent : null),
-    scrollTo,
     addEventListener() {},
     removeEventListener() {},
   };
@@ -131,11 +129,11 @@ test("pins a newly sent message to the top and holds it there while the reply gr
     spacerRef.current = spacer as unknown as HTMLDivElement;
     scrollRef(scroller as unknown as HTMLDivElement);
     render("u0");
-    expect(scrollTo).not.toHaveBeenCalled();
+    expect(setTop).not.toHaveBeenCalled();
 
     render("u1");
     expect(spacer.style.height).toBe("264px");
-    expect(scrollTo).toHaveBeenCalledWith({ top: 892, behavior: "auto" });
+    expect(setTop).toHaveBeenCalledWith(892);
 
     render(undefined);
     setTop.mockClear();
@@ -148,7 +146,56 @@ test("pins a newly sent message to the top and holds it there while the reply gr
     expect(setTop).not.toHaveBeenCalled();
 
     render("u1");
-    expect(scrollTo).toHaveBeenCalledOnce();
+    expect(setTop).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test("slides the content from where it was instead of smooth scrolling", () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal("getComputedStyle", () => ({ paddingTop: "8px", paddingBottom: "20px" }));
+  vi.stubGlobal("CSS", { escape: (value: string) => value });
+  vi.stubGlobal("window", { matchMedia: () => ({ matches: false }) });
+  const cancel = vi.fn();
+  const animate = vi.fn(() => ({ cancel }));
+  const contents = { offsetTop: 8, offsetHeight: 1000, animate };
+  const spacer = { style: { height: "" }, animate };
+  const sent = { offsetTop: 900, dataset: {} as Record<string, string> };
+  let top = 600;
+  const scroller = {
+    firstElementChild: contents,
+    clientHeight: 400,
+    get scrollTop() {
+      return top;
+    },
+    set scrollTop(value: number) {
+      top = value;
+    },
+    querySelector: () => sent,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  try {
+    const { scrollRef, spacerRef } = render(undefined);
+    spacerRef.current = spacer as unknown as HTMLDivElement;
+    scrollRef(scroller as unknown as HTMLDivElement);
+    render("u1");
+    expect(top).toBe(892);
+    expect(sent.dataset.pinned).toBe("");
+    expect(animate).toHaveBeenCalledTimes(2);
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: "translateY(292px)" }, { transform: "translateY(0)" }],
+      { duration: 240, easing: "cubic-bezier(0.23, 1, 0.32, 1)" },
+    );
+    render("u2");
+    expect(cancel).toHaveBeenCalledTimes(2);
   } finally {
     vi.unstubAllGlobals();
   }
