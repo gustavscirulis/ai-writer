@@ -2,6 +2,7 @@ pub mod agent;
 pub mod chat_files;
 pub mod fonts;
 pub mod fs;
+pub mod history;
 pub mod images;
 pub mod recents;
 pub mod search;

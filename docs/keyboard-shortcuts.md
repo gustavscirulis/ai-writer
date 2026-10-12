@@ -9,6 +9,7 @@ These shortcuts are handled by the global `useKeyboardShortcuts` hook and work r
 | Shortcut        | Action                                                             |
 | --------------- | ------------------------------------------------------------------ |
 | Cmd+Shift+L     | Toggle experimental Co-writer panel                                |
+| Cmd+Shift+H     | Toggle version history for the current note (↑/↓ flip, Esc close)  |
 | Cmd+P           | File search (command palette)                                      |
 | Cmd+O           | Go to file                                                         |
 | Cmd+N           | Create new note                                                    |
@@ -31,7 +32,7 @@ is multiplied on top of `editor.font-size`, which it never changes.
 
 In compact single-file windows, sidebar and tab-management shortcuts do not
 create hidden UI state: Cmd+\\, Cmd+T, Ctrl+Tab, Ctrl+Shift+Tab, and Cmd+1 ...
-Cmd+9 and Cmd+Shift+L are ignored. Cmd+P, Cmd+O, Cmd+N, zoom, and history navigation still
+Cmd+9, Cmd+Shift+L and Cmd+Shift+H are ignored. Cmd+P, Cmd+O, Cmd+N, zoom, and history navigation still
 work.
 
 ## Menu Accelerators

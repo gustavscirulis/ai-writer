@@ -1,6 +1,7 @@
 import { useRef, type PointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Clock01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import { toggleVersionHistory } from "@/hooks/use-version-history";
 import {
   newChat,
   setChatPanelWidth,
@@ -97,6 +98,16 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
           Co-writer
         </h2>
         <div data-tauri-drag-region className="flex items-center gap-0.5">
+          <button
+            type="button"
+            title="Version history (⌘⇧H)"
+            aria-label="Version history"
+            disabled={!path}
+            onClick={() => path && toggleVersionHistory(path)}
+            className={HEADER_BUTTON}
+          >
+            <HugeiconsIcon icon={Clock01Icon} size={16} strokeWidth={1.8} />
+          </button>
           <button
             type="button"
             title="New conversation"

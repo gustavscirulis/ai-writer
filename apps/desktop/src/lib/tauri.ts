@@ -81,6 +81,37 @@ export async function renameEntry(oldPath: string, newPath: string): Promise<Doc
   return identity;
 }
 
+export type VersionSource = "user" | "agent" | "restore" | "external";
+export interface NoteVersion {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  source: VersionSource;
+}
+
+/** Versions of a note, newest first. */
+export function listVersions(path: string): Promise<NoteVersion[]> {
+  return invoke("history_list", { path: documentPath(path) });
+}
+
+export function readVersion(path: string, id: string): Promise<string> {
+  return invoke("history_read", { path: documentPath(path), id });
+}
+
+/** Record the note's disk content as a version; a no-op for non-notes or unchanged content. */
+export function captureVersion(
+  path: string,
+  source: "agent" | "external",
+  group?: string,
+): Promise<void> {
+  return invoke("history_capture", { path: documentPath(path), source, group: group ?? null });
+}
+
+/** Write a version back to the note on disk and return its content. */
+export function restoreVersion(path: string, id: string): Promise<string> {
+  return invoke("history_restore", { path: documentPath(path), id });
+}
+
 export function deleteEntry(path: string): Promise<void> {
   return invoke("delete_entry", { path });
 }

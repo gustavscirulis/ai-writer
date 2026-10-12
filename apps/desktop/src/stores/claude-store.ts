@@ -367,6 +367,12 @@ function finish(run: Run): Promise<void> {
   });
   return task;
 }
+/** History is a secondary record: a failed capture never blocks an AI edit. */
+function captureVersion(path: string, source: "agent" | "external", group?: string) {
+  return tauri
+    .captureVersion(path, source, group)
+    .catch((error) => console.error("[history] Could not record a version", error));
+}
 function notice(run: Run, text: string) {
   updateChat(run.key, (chat) => {
     // Every turn starts a new CLI process that repeats its startup warnings.
@@ -402,6 +408,7 @@ async function beginEdit(run: Run, requestId: string, toolUseId: string | null, 
     if (aliases.filter((entry) => entry.isDirty).length > 1)
       throw new Error("Save or close conflicting aliases of this note first.");
     for (const alias of aliases) await flushSave(alias.path);
+    await captureVersion(key, "external");
     if (!current(run) || run.edit !== edit) return;
     if (own) edit.before ??= (await tauri.readFile(key)).content;
     ready = true;
@@ -465,6 +472,8 @@ async function reloadAfterEdit(run: Run, edit: Edit) {
     }
   }
   if (content !== null) {
+    // Awaited so the AI version is recorded before the unlock lets the user save over it.
+    await captureVersion(edit.key, "agent", run.turnId);
     const failures = await reconcileFeedbackAfterTurn(own ? run.path : edit.key);
     if (failures.size) throw failures.values().next().value;
   }

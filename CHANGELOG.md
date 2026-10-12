@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Go back to earlier versions of a note. Click the clock button at the top right (in the Co-writer header when Co-writer is open), or press ⌘⇧H, to see every version on the right, grouped by day. Versions made by Claude are tagged. Click a version, or use ↑/↓, to preview it with its changes highlighted, then press "Restore this version" to bring it back. ⌘Z undoes a restore. Versions are kept in a hidden `.writer/history` folder in your workspace. Recent versions are all kept, older ones are thinned out to one per hour, day and then week, and Claude's edits are always kept.
+
 - When you send a Chat message, the paragraphs and text you attached leave the message box straight away, the same as your text and files. Before, they stayed there until Claude Code had started. If the message fails to send, they come back.
 
 - While Chat is waiting for you to approve a request, Writer's Dock icon shows a badge with the number of requests waiting, so you can see it from another app. The badge clears once you answer, or when the request is cancelled.

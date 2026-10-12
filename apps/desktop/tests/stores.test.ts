@@ -620,10 +620,12 @@ describe("editor-store", () => {
   });
 
   test("openCompactFile replaces existing tabs with a single file tab", async () => {
-    mockedInvoke
-      .mockResolvedValueOnce({ path: "/a.md", content: "a", modified_at: 1 })
-      .mockResolvedValueOnce({ path: "/b.md", content: "b", modified_at: 2 })
-      .mockResolvedValueOnce({ path: "/c.md", content: "c", modified_at: 3 });
+    mockedInvoke.mockImplementation(async (command, args) => {
+      const path = (args as { path?: string } | undefined)?.path;
+      return command === "read_file"
+        ? { path, content: path?.slice(1, 2), modified_at: 1 }
+        : undefined;
+    });
 
     await useEditorStore.getState().openFile("/a.md");
     await useEditorStore.getState().openFileInNewTab("/b.md");

@@ -21,6 +21,10 @@ wiki links, search, clipboard) instead of the core subset. Tauri calls are
 stubbed to fail, so local images show as broken and link opening / the native
 clipboard menu do nothing; editing and rendering behave as in the app.
 
+Open `http://localhost:1430/?history` to mount the read-only version-history
+preview, which diffs the sample against a hard-coded older version, to QA how
+the inline diff highlights look on top of prosemark decorations.
+
 The editor view is on `window.__view` for scripted checks
 (`agent-browser eval "window.__view.state.doc.toString()"`), and the
 `EditorView` class on `window.__EditorView`, so a script can read facets

@@ -56,6 +56,9 @@ export function useFileWatcher() {
           if (WATCHER_DEBUG) console.debug("[watcher] reload-from-disk", alias);
           editorApi.reloadFromDisk(alias, content.content);
         }
+        void tauri
+          .captureVersion(target, "external")
+          .catch((error) => console.error("[history] Could not record a version", error));
       });
     });
 
