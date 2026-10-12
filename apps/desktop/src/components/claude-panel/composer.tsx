@@ -21,7 +21,7 @@ import {
 } from "@/hooks/use-feedback";
 import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-api";
 import { useActiveFilePath } from "@/hooks/use-tabs";
-import { attachmentLabel } from "@/lib/feedback-anchors";
+import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
 import { documentPath } from "@/lib/agent-turn";
 import { useEditorStore } from "@/stores/editor-store";
 import { FeedbackError, NotesTray } from "./notes-tray";
@@ -30,7 +30,9 @@ const MAX_INPUT_HEIGHT = 180;
 const KBD =
   "inline-block min-w-[18px] rounded bg-[var(--surface-subtle)] px-1 text-center text-[10.5px] font-medium leading-4 text-[var(--text-secondary)]";
 
-function AttachmentChip({ item }: { item: FeedbackItem }) {
+type AttachedItem = FeedbackItem & { anchor: FeedbackAnchor };
+
+function AttachmentChip({ item }: { item: AttachedItem }) {
   const label = attachmentLabel(item.anchor, item.quote, 28);
   return (
     <span
@@ -70,7 +72,13 @@ export function Composer() {
   const status = useChatStatus(path);
   const error = useChatError(path);
   const items = useDocumentFeedback(path);
-  const attached = useMemo(() => items.filter((item) => item.status === "attached"), [items]);
+  const attached = useMemo(
+    () =>
+      items.filter(
+        (item): item is AttachedItem => item.status === "attached" && item.anchor !== null,
+      ),
+    [items],
+  );
   const notes = useMemo(() => items.filter((item) => item.status !== "attached"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -112,7 +120,7 @@ export function Composer() {
     const selected = useEditorStore.getState().activeFilePath;
     if (selected && documentPath(selected) === documentPath(path)) clearAttachmentHighlight();
   };
-  const saveNotes = () => {
+  const queue = () => {
     if (!path || !saveFeedbackNotes(path, text)) return;
     setChatDraft(path, "");
     setTrayOpen(true);
@@ -158,7 +166,9 @@ export function Composer() {
               ? "Open a note to start"
               : attached.length
                 ? "What should change here?"
-                : "Ask about your writing…"
+                : busy
+                  ? "Queue a follow-up…"
+                  : "Ask about your writing…"
           }
           value={text}
           onChange={(event) => path && setChatDraft(path, event.target.value)}
@@ -168,10 +178,11 @@ export function Composer() {
             if (event.nativeEvent.isComposing || !path) return;
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
-              saveNotes();
+              queue();
             } else if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              if (!busy) void send();
+              if (busy) queue();
+              else void send();
             } else if (event.key === "Backspace" && !text && attached.length) {
               event.preventDefault();
               removeFeedback(path, attached[attached.length - 1]!.id);
@@ -186,24 +197,29 @@ export function Composer() {
         />
         <div className="mt-1 flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-[11px] text-[var(--text-muted)]">
-            {attached.length ? (
+            {busy && text.trim() ? (
               <>
-                <kbd className={KBD}>↵</kbd> change now · <kbd className={KBD}>⌘↵</kbd> save note
+                <kbd className={KBD}>↵</kbd> queue for after this reply
+              </>
+            ) : attached.length || text.trim() ? (
+              <>
+                <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
+                <kbd className={KBD}>⌘↵</kbd> queue
               </>
             ) : (
               path && "Select text or ⌥-click a paragraph to point at it"
             )}
           </span>
           <div className="flex shrink-0 items-center gap-1">
-            {attached.length > 0 && (
+            {(attached.length > 0 || text.trim() !== "") && (
               <button
                 type="button"
-                title="Save as a note for the next pass (⌘↵)"
+                title={busy ? "Send after this reply (↵)" : "Add to the queue (⌘↵)"}
                 disabled={!text.trim()}
-                onClick={saveNotes}
+                onClick={queue}
                 className="h-[26px] rounded-full px-[9px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                Save note
+                Queue
               </button>
             )}
             {retryLabel ? (

@@ -191,7 +191,7 @@ function feedbackGutter(getPath: () => string) {
         const length = this.view.state.doc.length;
         const ranges = [];
         for (const item of items) {
-          if (!item.anchor.attached) continue;
+          if (!item.anchor?.attached) continue;
           const { from, to } = attachmentRange(item.anchor, item.quote);
           if (from < to && to <= length) ranges.push(marks[item.status].range(from, to));
         }
@@ -247,7 +247,7 @@ function feedbackGutter(getPath: () => string) {
             };
             const counts = new Map<string, { anchor: FeedbackAnchor; count: number }>();
             for (const item of useFeedbackStore.getState().byPath[getPath()] ?? []) {
-              if (item.status === "attached" || !item.anchor.attached) continue;
+              if (item.status === "attached" || !item.anchor?.attached) continue;
               const entry = counts.get(keyOf(item.anchor));
               if (entry) entry.count++;
               else counts.set(keyOf(item.anchor), { anchor: item.anchor, count: 1 });

@@ -90,6 +90,25 @@ test("attachments dedupe, save as one note each, and can be taken back into the 
   expect(items()).toHaveLength(1);
 });
 
+test("a message without chips queues unanchored, persists, and is sent as a plain message", async () => {
+  expect(store().saveNotes(path, " Also add a summary ")).toBe(1);
+  expect(items()).toEqual([
+    expect.objectContaining({ anchor: null, quote: null, feedback: "Also add a summary" }),
+  ]);
+  await flushFeedbackPersistence(root);
+  await store().load(root, store().generation + 1);
+  const [queued] = items();
+  expect(queued).toMatchObject({ anchor: null, status: "pending" });
+  const prompt = store().prepare(store().begin(path, [queued!.id]), "Paragraph");
+  expect(prompt).toContain(`{"id":"${queued!.id}","message":"Also add a summary"}`);
+});
+
+test("taking back an unanchored message removes it from the queue", () => {
+  store().saveNotes(path, "Plain");
+  expect(store().takeBack(path, items()[0]!.id)).toBe("Plain");
+  expect(items()).toEqual([]);
+});
+
 test("canonical checkpoints map duplicate transactions exactly once", () => {
   create("Target\n\nOther");
   const state = EditorState.create({ doc: "Target\n\nOther" });
@@ -132,7 +151,7 @@ test("a quoted note sends its quote with the block", () => {
   expect(store().prepare(batch, "One two three")).toContain('"quote":"two"');
 });
 
-test.each(["failed", "cancelled", "completed"] as const)(
+test.each(["failed", "cancelled"] as const)(
   "%s without changes keeps feedback pending",
   (status) => {
     const id = create();
@@ -141,6 +160,16 @@ test.each(["failed", "cancelled", "completed"] as const)(
     expect(items()[0]).toMatchObject({ status: "pending", reviewRequired: false });
   },
 );
+
+test("a completed turn clears its items even without document changes", () => {
+  const id = create();
+  store().complete(store().begin(path, [id]), {
+    status: "completed",
+    changed: false,
+    error: null,
+  });
+  expect(items()).toEqual([]);
+});
 
 test("partial writes require explicit review before retry; persisted running passes recover interrupted", async () => {
   const id = create();

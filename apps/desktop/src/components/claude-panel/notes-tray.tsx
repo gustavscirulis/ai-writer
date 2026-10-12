@@ -54,7 +54,7 @@ export function FeedbackError() {
   );
 }
 
-/** Notes saved for the next pass, collapsed above the composer. */
+/** Queued messages and notes, collapsed above the composer; they send after the next clean turn. */
 export function NotesTray({
   path,
   notes,
@@ -88,12 +88,13 @@ export function NotesTray({
             className="shrink-0"
           />
           <span className="truncate">
-            {notes.length} {notes.length === 1 ? "note" : "notes"} for the next pass
+            {notes.length} queued
+            {busy && <span className="text-[var(--text-muted)]"> · sends after this reply</span>}
           </span>
         </button>
         <button
           type="button"
-          title="Have Claude make every saved note in one pass"
+          title="Send everything queued as one message"
           disabled={busy || !ready.length}
           onClick={() =>
             void applyFeedback(
@@ -103,15 +104,17 @@ export function NotesTray({
           }
           className="h-[26px] shrink-0 rounded-full bg-[var(--text-primary)] px-[11px] text-[12px] font-medium text-[var(--bg-base)] transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-20 disabled:active:scale-100"
         >
-          {ready.length > 1 ? "Apply all" : "Apply"}
+          {ready.length > 1 ? "Send all" : "Send"}
         </button>
       </div>
       {open && (
-        <ul aria-label="Saved notes" className="max-h-[220px] overflow-y-auto">
+        <ul aria-label="Queue" className="max-h-[220px] overflow-y-auto">
           {notes.map((item) => (
             <li
               key={item.id}
-              onPointerEnter={() => highlightAttachment(path, item.anchor, item.quote)}
+              onPointerEnter={() =>
+                item.anchor && highlightAttachment(path, item.anchor, item.quote)
+              }
               onPointerLeave={clearAttachmentHighlight}
               className="flex items-start gap-1 border-t border-[var(--line-subtler)] py-[7px] pl-3 pr-1.5 transition-colors duration-150 hover:bg-[var(--item-hover-bg)]"
             >
@@ -123,21 +126,23 @@ export function NotesTray({
                   const text = takeBackFeedback(path, item.id);
                   clearAttachmentHighlight();
                   if (text === null) return;
-                  revealAttachment(path, item.anchor);
+                  if (item.anchor) revealAttachment(path, item.anchor);
                   onTakeBack(text);
                 }}
                 className="flex min-w-0 flex-1 flex-col text-left text-[12.5px] leading-normal text-[var(--text-primary)]"
               >
-                <span className="truncate text-[11px] text-[var(--text-muted)]">
-                  {item.anchor.attached
-                    ? attachmentLabel(item.anchor, item.quote, 48)
-                    : "Text changed · click to re-point"}
-                </span>
+                {item.anchor && (
+                  <span className="truncate text-[11px] text-[var(--text-muted)]">
+                    {item.anchor.attached
+                      ? attachmentLabel(item.anchor, item.quote, 48)
+                      : "Text changed · click to re-point"}
+                  </span>
+                )}
                 <span
                   className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${
                     item.status === "running"
                       ? "chat-thinking-shimmer"
-                      : item.anchor.attached
+                      : (item.anchor?.attached ?? true)
                         ? ""
                         : "opacity-55"
                   }`}
@@ -162,7 +167,7 @@ export function NotesTray({
               )}
               <button
                 type="button"
-                aria-label="Remove note"
+                aria-label="Remove from queue"
                 disabled={item.status === "running"}
                 onClick={() => {
                   removeFeedback(path, item.id);

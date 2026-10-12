@@ -66,8 +66,8 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 | -------------------- | ----------------------------------------------------------------------- |
 | Cmd+L                | Add the selection to the Chat composer (the block at the caret if none) |
 | Alt+click            | Add the clicked block to the Chat composer                              |
-| Enter (composer)     | Send: Claude makes the change now                                       |
-| Cmd+Enter (composer) | Save the draft as notes for the next pass                               |
+| Enter (composer)     | Send now; while Claude is replying, queue it instead                    |
+| Cmd+Enter (composer) | Queue the draft (one item per attachment) for after the next reply      |
 | Backspace (composer) | Remove the last attachment when the draft is empty                      |
 | Escape (composer)    | Clear attachments                                                       |
 | Enter (approval)     | Choose the highlighted option (Yes is highlighted first)                |

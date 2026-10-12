@@ -26,7 +26,12 @@ import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
 import { parseDocument } from "@/lib/frontmatter";
 import { getFileName } from "@/lib/paths";
 import { attachmentRange } from "@/lib/feedback-anchors";
-import { reconcileFeedbackAfterTurn } from "@/stores/feedback-store";
+import {
+  isQueueReady,
+  reconcileFeedbackAfterTurn,
+  useFeedbackStore,
+  type FeedbackBatch,
+} from "@/stores/feedback-store";
 import {
   parseClaudeLine,
   reduceClaudeMessages,
@@ -67,6 +72,8 @@ interface ClaudeState {
   setDraft: (path: string, draft: string) => void;
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
+  /** Sends the queued items (all ready ones by default) together as one turn. */
+  sendQueue: (path: string, ids?: string[]) => Promise<void>;
   stop: (path: string) => Promise<void>;
   stopAll: () => Promise<void>;
   newChat: (path: string) => Promise<void>;
@@ -337,6 +344,8 @@ function finish(run: Run): Promise<void> {
         error: run.error,
       });
       useEditorStore.getState().pruneUnreferencedFiles();
+      // Stop and failures pause the queue until the user sends it.
+      if (!run.cancelled && !run.error) void useClaudeStore.getState().sendQueue(run.path);
     } catch (error) {
       patch(run, {
         error: `Could not reload your note: ${errorText(error)}. Retry reload before editing.`,
@@ -746,6 +755,52 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       });
     run.pendingSend = settled;
     return settled;
+  },
+  sendQueue: async (path, ids) => {
+    const chat = chatForPath(get().chats, path);
+    if (chat.status === "running" || chat.status === "stopping") return;
+    const feedback = useFeedbackStore.getState();
+    const selected =
+      ids ?? (feedback.byPath[path] ?? []).filter(isQueueReady).map((item) => item.id);
+    if (!selected.length) return;
+    let batch: FeedbackBatch;
+    try {
+      batch = feedback.begin(path, selected);
+    } catch (error) {
+      useFeedbackStore.setState((state) => ({
+        turnErrors: { ...state.turnErrors, [path]: errorText(error) },
+      }));
+      return;
+    }
+    let settled = false;
+    const complete: AgentTurnOptions["complete"] = (outcome) => {
+      if (settled) return;
+      settled = true;
+      useFeedbackStore.getState().complete(batch, outcome);
+    };
+    const messages = batch.items.filter((item) => !item.anchor).map((item) => item.feedback);
+    const notes = batch.items.flatMap(({ anchor, quote, feedback: note }) =>
+      anchor ? [{ anchor, quote, note }] : [],
+    );
+    const sent = await get().send(
+      path,
+      messages.join("\n\n") ||
+        (notes.length === 1 ? "Apply this note" : `Apply my ${notes.length} notes`),
+      {
+        turn: {
+          path,
+          prepare: (disk) => useFeedbackStore.getState().prepare(batch, disk),
+          complete,
+        },
+        attachments: notes,
+      },
+    );
+    if (!sent && !settled && chatForPath(get().chats, path).status !== "stopping")
+      complete({
+        status: "failed",
+        changed: false,
+        error: chatForPath(get().chats, path).error ?? "Could not send your queue.",
+      });
   },
   stop: (path) => {
     const run = runs.get(documentPath(path));
