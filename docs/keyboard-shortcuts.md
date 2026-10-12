@@ -70,6 +70,9 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 | Cmd+Enter (composer) | Save the draft as notes for the next pass                               |
 | Backspace (composer) | Remove the last attachment when the draft is empty                      |
 | Escape (composer)    | Clear attachments                                                       |
+| Enter (approval)     | Choose the highlighted option (Yes is highlighted first)                |
+| Up / Down (approval) | Move between Yes and No                                                 |
+| Escape (approval)    | Deny the request                                                        |
 
 ## Editor (inherited from CodeMirror)
 
