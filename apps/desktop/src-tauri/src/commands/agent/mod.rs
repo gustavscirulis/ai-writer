@@ -1,6 +1,9 @@
 pub mod claude;
 
+use crate::state::AppState;
 use serde::Serialize;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::sync::{mpsc, oneshot, watch};
 
 /// Provider transport boundary. The UI consumes provider lines plus common
@@ -72,5 +75,33 @@ impl AgentProcess {
 impl Drop for AgentProcess {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[tauri::command]
+pub fn set_pending_approvals(webview: WebviewWindow, state: State<'_, AppState>, count: u32) {
+    state
+        .get_or_create(webview.label())
+        .pending_approvals
+        .store(count, Ordering::SeqCst);
+    refresh_badge(webview.app_handle(), None);
+}
+
+/// The macOS Dock badge is app-global, so it always reflects every window's
+/// pending approvals rather than whichever window reported last. The update
+/// is routed through a window, so a closing one must be skipped.
+pub fn refresh_badge(app: &AppHandle, closing: Option<&str>) {
+    let total = app.state::<AppState>().pending_approvals_total();
+    let Some(window) = app
+        .webview_windows()
+        .into_values()
+        .find(|window| Some(window.label()) != closing)
+    else {
+        return;
+    };
+    // tao renders `Some(0)` as a "0" label on macOS instead of clearing it.
+    let count = (total > 0).then_some(i64::from(total));
+    if let Err(error) = window.set_badge_count(count) {
+        eprintln!("failed to update Dock badge: {error}");
     }
 }

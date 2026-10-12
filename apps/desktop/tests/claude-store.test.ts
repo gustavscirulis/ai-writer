@@ -782,6 +782,20 @@ test.each([
     await tick();
   },
 );
+test("reports the window's pending approval count for the Dock badge only when it changes", async () => {
+  const reported = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "set_pending_approvals")
+      .map(([, payload]) => (payload as { count: number }).count);
+  await send("Search");
+  requestPermission("first");
+  requestPermission("second");
+  emit({ type: "assistant", message: { id: "reply", content: [{ type: "text", text: "Hi" }] } });
+  expect(reported()).toEqual([1, 2]);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
+  emit({ type: "control_cancel_request", request_id: "second" });
+  expect(reported()).toEqual([1, 2, 1, 0]);
+});
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
   await send("Search");
   requestPermission("first");

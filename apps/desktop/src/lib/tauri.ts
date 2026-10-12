@@ -392,6 +392,9 @@ export function claudeDecidePermission(
 ): Promise<void> {
   return invoke("claude_decide_permission", { processId, requestId, allow, always });
 }
+export function setPendingApprovals(count: number): Promise<void> {
+  return invoke("set_pending_approvals", { count });
+}
 export function claudeEditReady(
   processId: string,
   requestId: string,

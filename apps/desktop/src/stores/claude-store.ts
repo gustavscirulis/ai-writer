@@ -936,6 +936,17 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     await updateChats(root, (records) => rekey(records, from, to, isDir));
   },
 }));
+let reportedApprovals = 0;
+useClaudeStore.subscribe((state, previous) => {
+  if (state.chats === previous.chats) return;
+  let total = 0;
+  for (const chat of Object.values(state.chats)) total += chat.permissions.length;
+  if (total === reportedApprovals) return;
+  reportedApprovals = total;
+  void tauri
+    .setPendingApprovals(total)
+    .catch((error) => console.error("[chat] Could not update the Dock badge", error));
+});
 useWorkspaceStore.subscribe((state, previous) => {
   if (state.workspaceGeneration === previous.workspaceGeneration) return;
   const abandoned = [...runs.values()];
