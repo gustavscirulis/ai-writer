@@ -101,6 +101,7 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
             // drops on the last `Arc` release, unregistering FSEvents/inotify.
             feedback_persistence::remove(&handle, &label);
             handle.state::<AppState>().remove(&label);
+            commands::agent::refresh_badge(&handle, Some(&label));
         }
         _ => {}
     });
@@ -603,6 +604,7 @@ pub fn run() {
             commands::agent::claude::claude_decide_permission,
             commands::agent::claude::claude_edit_ready,
             commands::agent::claude::claude_stop,
+            commands::agent::set_pending_approvals,
             commands::fs::read_directory,
             commands::fs::read_recent_files,
             commands::fs::read_file_entries,

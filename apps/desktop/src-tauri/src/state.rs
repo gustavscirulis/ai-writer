@@ -5,7 +5,7 @@ use notify::RecommendedWatcher;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -19,6 +19,9 @@ pub struct WorkspaceState {
     pub agent_epoch: AtomicU64,
     pub agents: Mutex<HashMap<String, crate::commands::agent::AgentProcess>>,
     pub agent_claims: crate::commands::agent::NoteClaims,
+    /// Agent permission requests this window is showing; summed across
+    /// windows into the app-global Dock badge.
+    pub pending_approvals: AtomicU32,
     pub workspace_root: RwLock<Option<PathBuf>>,
     pub file_index: RwLock<Vec<IndexedFile>>,
     pub file_index_revision: AtomicU64,
@@ -93,6 +96,7 @@ impl Default for WorkspaceState {
             agent_epoch: AtomicU64::new(0),
             agents: Mutex::new(HashMap::new()),
             agent_claims: Default::default(),
+            pending_approvals: AtomicU32::new(0),
             workspace_root: RwLock::new(None),
             file_index: RwLock::new(Vec::new()),
             file_index_revision: AtomicU64::new(0),
@@ -402,6 +406,14 @@ impl AppState {
         state
     }
 
+    pub fn pending_approvals_total(&self) -> u32 {
+        self.windows
+            .read()
+            .values()
+            .map(|state| state.pending_approvals.load(Ordering::SeqCst))
+            .sum()
+    }
+
     /// Find an existing window already hosting or opening `path`. Used to
     /// focus rather than duplicate when the user opens a workspace that's
     /// already open in another window. Pending opens are included so two
@@ -484,6 +496,23 @@ pub fn rebuild_dirs_from_index(files: &[IndexedFile], root: &Path) -> HashSet<Pa
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_approvals_sum_across_open_windows() {
+        let app_state = AppState::new();
+        app_state
+            .get_or_create("main")
+            .pending_approvals
+            .store(2, Ordering::SeqCst);
+        app_state
+            .get_or_create("w-1")
+            .pending_approvals
+            .store(1, Ordering::SeqCst);
+        assert_eq!(app_state.pending_approvals_total(), 3);
+
+        app_state.remove("main");
+        assert_eq!(app_state.pending_approvals_total(), 1);
+    }
 
     #[test]
     fn find_by_workspace_matches_startup_open() {

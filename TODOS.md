@@ -12,6 +12,8 @@
 
 ## Done
 
+- Dock badge for pending Chat approvals. Each window reports how many permission requests it is showing through `set_pending_approvals`. Native code adds up the counts from all windows into the Dock badge, which is shared by the whole app, and recounts when a window closes. Store and native tests, checks, Clippy and formatting pass. Native Tauri QA is pending.
+
 - Scroll a sent Chat message to the top: [`SPECs/chat-scroll-to-sent-message.md`](SPECs/chat-scroll-to-sent-message.md). Sending pins the new user message to the top of the scroller. A spacer keeps it reachable while the reply is short, and the view doesn't follow the stream. Threads with history still open at the bottom.
 
 - Attach files to Chat: [`SPECs/chat-file-attachments.md`](SPECs/chat-file-attachments.md). Files are attached with the paperclip button, by pasting an image, or by dropping files onto the composer, and are sent by path. Claude reads them with its own Read tool, and native code allows exactly those reads for the turn without a prompt. Window drops are now routed by the frontend, so a drop outside Chat still opens the file. 894 frontend tests and 191 native tests pass. The real-CLI probe read a PNG, PDF and CSV from outside the workspace with no prompt. A browser harness covered the picker, paste, drop routing and send. Native GUI QA of drop positions is pending.

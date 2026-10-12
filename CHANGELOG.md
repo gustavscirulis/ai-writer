@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- While Chat is waiting for you to approve a request, Writer's Dock icon shows a badge with the number of requests waiting, so you can see it from another app. The badge clears once you answer, or when the request is cancelled.
+
 - When you send a Chat message, it moves to the top of the conversation and stays there while Claude's reply appears below it, so you can read the reply as it comes in. Before, the conversation kept scrolling as the reply grew.
 
 - The Chat attach button is now a + at the bottom left of the message box, where the "Select text or ⌥-click a paragraph" hint used to be.
