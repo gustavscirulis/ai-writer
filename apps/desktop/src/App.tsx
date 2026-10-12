@@ -7,6 +7,7 @@ import { useFileWatcher } from "./hooks/use-file-watcher";
 import { useKeyboardShortcuts } from "./hooks/use-keyboard-shortcuts";
 import { useMenuEvents } from "./hooks/use-menu-events";
 import { useOpenDrop } from "./hooks/use-open-drop";
+import { useFileDrop } from "./hooks/use-file-drop";
 import "./lib/global-recents";
 import "./lib/standalone-watch";
 import "./App.css";
@@ -18,6 +19,7 @@ function App() {
   useKeyboardShortcuts();
   useMenuEvents();
   useOpenDrop();
+  useFileDrop();
 
   if (!isStartupResolved) {
     return null;

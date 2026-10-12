@@ -5,6 +5,8 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { isAgentEditing, subscribeAgentEditing, documentPath } from "@/lib/agent-turn";
 import { SETTINGS_SCHEMA } from "@/lib/settings-schema";
 import type { ChatAttachment } from "@/lib/claude-stream";
+import { readPastedImage } from "@/lib/pasted-image";
+import * as tauri from "@/lib/tauri";
 export function useHasChatMessages(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).messages.length > 0);
 }
@@ -81,12 +83,58 @@ export function focusChatComposer(path = getActiveFilePath()) {
 export function setChatPanelWidth(width: number) {
   return useSettingsStore.getState().setSetting("appearance.agent-panel-width", width);
 }
-export const sendChat = (path: string, text: string, attachments?: ChatAttachment[]) =>
-  useClaudeStore.getState().send(path, text, { attachments });
+export const sendChat = (
+  path: string,
+  text: string,
+  attachments?: ChatAttachment[],
+  files?: string[],
+) => useClaudeStore.getState().send(path, text, { attachments, files });
 export const stopChat = (path: string) => useClaudeStore.getState().stop(path);
 export const newChat = (path: string) => useClaudeStore.getState().newChat(path);
 export const rewriteChatPaths = (root: string, from: string, to: string, isDir: boolean) =>
   useClaudeStore.getState().rewriteChatPaths(root, from, to, isDir);
+
+export function useChatFiles(path: string | null) {
+  return useClaudeStore((s) => chatForPath(s.chats, path).files);
+}
+export function useChatFileError(path: string | null) {
+  return useClaudeStore((s) => chatForPath(s.chats, path).fileError);
+}
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Resolves picked, pasted or dropped paths; a failure is shown above the composer. */
+export async function attachChatFiles(path: string, paths: string[]) {
+  if (!paths.length) return;
+  const store = useClaudeStore.getState();
+  try {
+    store.addFiles(path, await tauri.resolveChatFiles(paths));
+  } catch (error) {
+    store.setFileError(path, errorText(error));
+  }
+  focusChatComposer(path);
+}
+export async function pickChatFiles(path: string) {
+  try {
+    await attachChatFiles(path, await tauri.pickChatFiles());
+  } catch (error) {
+    useClaudeStore
+      .getState()
+      .setFileError(path, `Could not open the file picker: ${errorText(error)}`);
+  }
+}
+export async function pasteChatImage(path: string, file: File) {
+  const store = useClaudeStore.getState();
+  try {
+    const image = await readPastedImage(file);
+    if (!image.ok) return store.setFileError(path, image.error);
+    store.addFiles(path, [await tauri.saveChatImage(image.imageData, image.format)]);
+  } catch (error) {
+    store.setFileError(path, `Could not paste the image: ${errorText(error)}`);
+  }
+}
+export const removeChatFile = (path: string, file: string) =>
+  useClaudeStore.getState().removeFile(path, file);
+export const dismissChatFileError = (path: string) =>
+  useClaudeStore.getState().setFileError(path, null);
 
 export function useChatDraft(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).draft);

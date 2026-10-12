@@ -67,7 +67,7 @@ pub fn save_clipboard_image_impl(
     })
 }
 
-fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
+pub(crate) fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     // Simple epoch to date conversion (good enough for filenames)
     let days = secs / 86400;
     let time_of_day = secs % 86400;

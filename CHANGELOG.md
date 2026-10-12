@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Attach files to a Chat message: click the paperclip, paste a screenshot, or drop files from Finder onto the message box. Chat can read anything Claude Code can, including images, PDFs, other notes, spreadsheets and code, and files outside the workspace don't need an extra approval. Attached files show above your message and stay in the thread after a restart. Dropping a file anywhere else in the window still opens it.
+
 - Clicking a file opens it in a new tab, or switches to its tab if it's already open. This applies to files in the sidebar, Pinned, Recents, the command palette, links in a note and Chat's tool list. To have files replace the current tab as before, turn off Settings → Tabs → Open Files in New Tab.
 
 - Queue messages for Chat. Press Enter while Claude is replying, or ⌘Enter at any time, to queue a message. You no longer need to point at text first. Queued messages and notes are sent together as soon as Claude finishes a reply. Stop or an error pauses the queue until you press Send all. Saved notes are now part of the same queue: the tray reads "N queued", and a note that Claude handled is cleared even if the note didn't change.

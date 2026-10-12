@@ -63,7 +63,20 @@ async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
         .filter_map(|part| part.parse().ok())
         .collect();
     if !version.status.success() || numbers.as_slice() < [2, 1, 296].as_slice() {
-        return Err(AppError::Io("Parallel note agents require Claude Code 2.1.296 or newer. Update Claude Code in your terminal.".into()));
+        let reported = if version.status.success() {
+            text.trim().to_string()
+        } else {
+            String::from_utf8_lossy(&version.stderr).trim().to_string()
+        };
+        eprintln!(
+            "claude: {} --version failed the check: {reported:?} ({})",
+            env.0.display(),
+            version.status
+        );
+        return Err(AppError::Io(format!(
+            "Parallel note agents require Claude Code 2.1.296 or newer, but {} reports “{reported}”. Update Claude Code in your terminal.",
+            env.0.display()
+        )));
     }
     let _ = CLAUDE_ENV.set(env.clone());
     Ok(env)
@@ -181,6 +194,7 @@ struct Scope {
     approved: HashSet<PathBuf>,
     /// Tools the user always allows in this chat; they skip the host prompt.
     always: HashSet<String>,
+    attached: HashSet<PathBuf>,
     initialized: bool,
     active: bool,
     sent: bool,
@@ -199,6 +213,7 @@ impl Scope {
             claims,
             approved: HashSet::new(),
             always: HashSet::new(),
+            attached: HashSet::new(),
             initialized: false,
             active: false,
             sent: false,
@@ -254,6 +269,27 @@ impl Scope {
             exists,
         })
     }
+    /// A Read of a file the user attached this turn needs no further approval.
+    async fn attached_read(&self, input: &Value) -> Result<bool, String> {
+        let Some(path) = input["file_path"]
+            .as_str()
+            .filter(|_| !self.attached.is_empty())
+        else {
+            return Ok(false);
+        };
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Ok(false);
+        }
+        let resolved = tokio::time::timeout(
+            CONTROL_TIMEOUT,
+            tauri::async_runtime::spawn_blocking(move || path.canonicalize()),
+        )
+        .await
+        .map_err(|_| "Timed out checking an attached file")?
+        .map_err(|e| e.to_string())?;
+        Ok(resolved.is_ok_and(|path| self.attached.contains(&path)))
+    }
     async fn hook(&self, request: &Value) -> Result<Value, String> {
         if request["callback_id"] != HOOK_ID {
             return Err("Unknown Writer scope callback".into());
@@ -267,6 +303,11 @@ impl Scope {
         }
         if !self.active {
             return Ok(denied_hook("No active Writer turn."));
+        }
+        if tool == "Read" && self.attached_read(&input["tool_input"]).await? {
+            return Ok(
+                json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}),
+            );
         }
         if !matches!(tool, "Edit" | "Write") {
             return Ok(json!({}));
@@ -338,6 +379,9 @@ impl Scope {
             .as_object()
             .ok_or("Invalid tool permission input")?;
         if self.always.contains(tool) {
+            return Ok(Some(json!({"behavior": "allow", "updatedInput": input})));
+        }
+        if tool == "Read" && self.attached_read(&request["input"]).await? {
             return Ok(Some(json!({"behavior": "allow", "updatedInput": input})));
         }
         self.permissions
@@ -534,13 +578,13 @@ async fn run_process(
             next = input.recv() => {
                 let Some(next) = next else { kill_group(&mut child); break child.wait().await; };
                 let (line, ack) = match next {
-                    Input::User { line, ack } => {
+                    Input::User { line, files, ack } => {
                         if let Some(scope) = scope.as_mut() {
                             if !scope.initialized || scope.sent {
                                 let _ = ack.send(Err("This note process cannot accept another turn".into())); continue;
                             }
                             if let Err(error) = user_frame(&line) { let _ = ack.send(Err(error)); continue; }
-                            scope.sent = true; scope.active = true;
+                            scope.sent = true; scope.active = true; scope.attached.extend(files);
                         }
                         (line, ack)
                     }
@@ -653,7 +697,7 @@ fn scoped_command(
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Report changes."])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -804,10 +848,22 @@ pub async fn claude_send(
     state: State<'_, AppState>,
     process_id: String,
     line: String,
+    files: Vec<String>,
 ) -> Result<(), AppError> {
     user_frame(&line).map_err(AppError::Io)?;
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    deliver(&workspace, &process_id, |ack| Input::User { line, ack }).await
+    let files = tauri::async_runtime::spawn_blocking(move || {
+        crate::commands::chat_files::resolve_attachments(&files)
+    })
+    .await
+    .map_err(|e| AppError::Io(e.to_string()))?
+    .map_err(AppError::Io)?;
+    deliver(&workspace, &process_id, |ack| Input::User {
+        line,
+        files,
+        ack,
+    })
+    .await
 }
 #[tauri::command]
 pub async fn claude_decide_permission(
@@ -955,6 +1011,7 @@ mod tests {
         let (ack, outcome) = oneshot::channel();
         input
             .send(Input::User {
+                files: Vec::new(),
                 line: "x".repeat(8 * 1024 * 1024),
                 ack,
             })
@@ -1280,6 +1337,57 @@ mod tests {
         assert!(always_allow_set(vec!["mcp__notes__search".into(), "Read".into()]).is_ok());
     }
     #[tokio::test]
+    async fn attached_files_are_readable_this_turn_without_a_prompt() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let note = workspace.path().join("a.md");
+        std::fs::write(&note, "a").unwrap();
+        let attached = outside.path().join("diagram.png");
+        let other = outside.path().join("secret.txt");
+        std::fs::write(&attached, "png").unwrap();
+        std::fs::write(&other, "secret").unwrap();
+        let alias = outside.path().join("alias.png");
+        std::os::unix::fs::symlink(&attached, &alias).unwrap();
+        let read_hook = |path: &Path| json!({"callback_id": HOOK_ID, "input": {"tool_name": "Read", "tool_input": {"file_path": path}}});
+        let read = |path: &Path| json!({"tool_name": "Read", "input": {"file_path": path}});
+
+        let mut scope = test_scope(note.canonicalize().unwrap());
+        scope.active = true;
+        scope.attached.insert(attached.canonicalize().unwrap());
+        for path in [&attached, &alias] {
+            assert_eq!(
+                scope.hook(&read_hook(path)).await.unwrap()["hookSpecificOutput"]
+                    ["permissionDecision"],
+                "allow"
+            );
+        }
+        assert_eq!(
+            scope
+                .permission("attached", &read(&attached))
+                .await
+                .unwrap()
+                .unwrap()["behavior"],
+            "allow"
+        );
+        // Anything else still goes to the CLI's rules and the host prompt.
+        assert_eq!(scope.hook(&read_hook(&other)).await.unwrap(), json!({}));
+        assert!(scope
+            .permission("other", &read(&other))
+            .await
+            .unwrap()
+            .is_none());
+        scope.active = false;
+        assert_eq!(
+            scope.hook(&read_hook(&attached)).await.unwrap()["hookSpecificOutput"]
+                ["permissionDecision"],
+            "deny"
+        );
+
+        let mut next = test_scope(note.canonicalize().unwrap());
+        next.active = true;
+        assert_eq!(next.hook(&read_hook(&attached)).await.unwrap(), json!({}));
+    }
+    #[tokio::test]
     async fn controls_are_native_and_permissions_are_process_local_and_single_use() {
         let mut a = test_scope("/a.md".into());
         let mut b = test_scope("/b.md".into());
@@ -1492,6 +1600,7 @@ mod tests {
         let (ack, sent) = oneshot::channel();
         input
             .send(Input::User {
+                files: Vec::new(),
                 line: json!({"type":"user","message":{"role":"user","content":"use MCP"}})
                     .to_string(),
                 ack,
@@ -1601,6 +1710,7 @@ mod tests {
         let (ack, sent) = oneshot::channel();
         input
             .send(Input::User {
+                files: Vec::new(),
                 line: json!({"type":"user","message":{"role":"user","content":"edit"}}).to_string(),
                 ack,
             })
@@ -1672,6 +1782,7 @@ mod tests {
             let (ack, sent) = oneshot::channel();
             input
                 .send(Input::User {
+                    files: Vec::new(),
                     line: json!({"type":"user","message":{"role":"user","content":"edit"}})
                         .to_string(),
                     ack,
@@ -1812,6 +1923,7 @@ mod tests {
             let (ack, sent) = oneshot::channel();
             input
                 .send(Input::User {
+                    files: Vec::new(),
                     line: json!({"type":"user","message":{"role":"user","content":"edit"}})
                         .to_string(),
                     ack,
@@ -1843,6 +1955,113 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(!dir.path().join("a.md").exists());
         assert!(!dir.path().join("b.md").exists());
+    }
+    /// Explicit manual integration check: attached files outside the workspace
+    /// are read without a host prompt, whatever their type.
+    #[tokio::test]
+    #[ignore = "requires terminal Claude Code sign-in and network"]
+    async fn real_cli_reads_attached_files() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let generated = std::process::Command::new("/usr/bin/python3")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/attachments.py"
+            ))
+            .arg(outside.path())
+            .status()
+            .unwrap();
+        assert!(generated.success());
+        let note = workspace.path().join("note.md");
+        std::fs::write(&note, "Draft").unwrap();
+        let note = note.canonicalize().unwrap();
+        let files: Vec<PathBuf> = ["swatch.png", "brief.pdf", "fruit.csv"]
+            .iter()
+            .map(|name| outside.path().join(name).canonicalize().unwrap())
+            .collect();
+        let (binary, path) = resolve_claude_env().await.unwrap();
+        let child = scoped_command(binary, path, workspace.path(), None)
+            .spawn()
+            .unwrap();
+        let (input, rx) = mpsc::channel(4);
+        let (_cancel, cancel_rx) = watch::channel(false);
+        let (finished, mut done) = watch::channel(false);
+        let (ready, initialized) = oneshot::channel();
+        let frames = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let capture = frames.clone();
+        let decisions = input.clone();
+        let events = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(body) = body {
+                let event: Value = serde_json::from_str(&body).unwrap();
+                if let Some(line) = event["line"].as_str() {
+                    let value: Value = serde_json::from_str(line).unwrap();
+                    if value["type"] == "control_request" {
+                        let id = value["request_id"].as_str().unwrap().to_string();
+                        let tx = decisions.clone();
+                        tokio::spawn(async move {
+                            let (ack, reply) = oneshot::channel();
+                            let _ = tx
+                                .send(Input::Permission {
+                                    request_id: id,
+                                    allow: false,
+                                    always: false,
+                                    ack,
+                                })
+                                .await;
+                            let _ = reply.await;
+                        });
+                    }
+                    capture.lock().unwrap().push(value);
+                }
+            }
+            Ok(())
+        });
+        let task = tokio::spawn(run_process(
+            child,
+            rx,
+            cancel_rx,
+            finished,
+            events,
+            Some(test_scope(note.clone())),
+            Some(ready),
+        ));
+        initialized.await.unwrap().unwrap();
+        let context = json!({"openFile": note, "attachments": [], "files": files});
+        let prompt = format!("<writer_context>{context}</writer_context>\n\nAnswer in one line, without editing anything: the colour of the image, the codename in the PDF, and the fruit in the CSV.");
+        let (ack, sent) = oneshot::channel();
+        input
+            .send(Input::User {
+                line: json!({"type":"user","message":{"role":"user","content":prompt}}).to_string(),
+                files: files.clone(),
+                ack,
+            })
+            .await
+            .unwrap();
+        sent.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(120), async {
+            while !*done.borrow_and_update() {
+                done.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        task.await.unwrap();
+        let frames = frames.lock().unwrap();
+        let prompts: Vec<_> = frames
+            .iter()
+            .filter(|v| v["type"] == "control_request")
+            .collect();
+        assert!(prompts.is_empty(), "Attached reads prompted: {prompts:?}");
+        let answer = frames
+            .iter()
+            .find(|v| v["type"] == "result")
+            .and_then(|v| v["result"].as_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        println!("Claude answered: {answer}");
+        for expected in ["red", "pineapple-42", "mango"] {
+            assert!(answer.contains(expected), "Missing {expected}: {answer}");
+        }
     }
     /// Explicit manual integration check: uses the locally installed, signed-in CLI.
     #[tokio::test]
@@ -1960,6 +2179,7 @@ mod tests {
             let (ack, sent) = oneshot::channel();
             input
                 .send(Input::User {
+                    files: Vec::new(),
                     line: json!({"type":"user","message":{"role":"user","content":prompt}})
                         .to_string(),
                     ack,

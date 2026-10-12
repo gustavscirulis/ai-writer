@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use tauri::menu::MenuItem;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::RunEvent;
-use tauri::{DragDropEvent, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
+use tauri::{Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
 #[cfg(target_os = "macos")]
@@ -48,6 +48,18 @@ fn queue_open_event(app: &tauri::AppHandle, label: &str, payload: PendingOpenPay
     let _ = app.emit_to(label, "open:from-drop", payload);
 }
 
+/// The frontend routes every file drop, so a drop onto Chat attaches instead
+/// of opening; any other drop arrives here and opens the first openable path.
+#[tauri::command]
+fn open_dropped_paths(app: tauri::AppHandle, webview: WebviewWindow, paths: Vec<String>) {
+    for path in paths {
+        if let Some(payload) = resolve_path(Path::new(&path)) {
+            queue_open_event(&app, webview.label(), payload);
+            break;
+        }
+    }
+}
+
 /// Show a window and bring it forward. `set_focus` alone does nothing for a
 /// window the user hid with the last Cmd+W, so every "focus the existing
 /// window" path goes through here.
@@ -56,8 +68,7 @@ fn reveal_window(window: &WebviewWindow) {
     let _ = window.set_focus();
 }
 
-/// Wire up per-window event handlers: drag-drop routes to the window's own
-/// pending-open queue, a close request on the main window hides it instead
+/// Wire up per-window event handlers: a close request on the main window hides it instead
 /// of destroying it (destroying the last window would quit the app; hiding
 /// keeps its state so a Dock click brings it straight back), and the destroy
 /// event tears down the window's `WorkspaceState` (which drops the watcher,
@@ -83,14 +94,6 @@ fn attach_window_handlers(app: &tauri::AppHandle, window: &WebviewWindow) {
         WindowEvent::CloseRequested { api, .. } => {
             if feedback_persistence::request_close(&handle, &label) {
                 api.prevent_close();
-            }
-        }
-        WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) => {
-            for path in paths {
-                if let Some(payload) = resolve_path(path) {
-                    queue_open_event(&handle, &label, payload);
-                    break;
-                }
             }
         }
         WindowEvent::Destroyed => {
@@ -587,7 +590,7 @@ pub fn run() {
                 });
             }
 
-            // Attach drag-drop + close handlers on the main window.
+            // Attach close handlers on the main window.
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 attach_window_handlers(app.handle(), &window);
             }
@@ -635,6 +638,9 @@ pub fn run() {
             commands::search::fuzzy_search,
             commands::search::find_file_by_name,
             commands::images::save_clipboard_image,
+            commands::chat_files::resolve_chat_files,
+            commands::chat_files::save_chat_image,
+            open_dropped_paths,
             commands::settings::get_settings,
             commands::settings::get_setting,
             commands::settings::set_setting,

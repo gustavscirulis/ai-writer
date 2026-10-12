@@ -16,4 +16,6 @@ export interface SendOptions {
   /** A turn whose prompt is prepared from the saved file and whose outcome is reported back. */
   turn?: AgentTurnOptions;
   attachments?: ChatAttachment[];
+  /** Canonical paths of files the user attached; Claude reads them this turn. */
+  files?: string[];
 }

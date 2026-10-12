@@ -160,6 +160,25 @@ export async function pickFile(): Promise<string | null> {
   return selected;
 }
 
+export async function pickChatFiles(): Promise<string[]> {
+  return (await openDialog({ directory: false, multiple: true, title: "Attach Files" })) ?? [];
+}
+
+/** Canonical regular files; rejects folders and missing paths with a message naming them. */
+export function resolveChatFiles(paths: string[]): Promise<string[]> {
+  return invoke("resolve_chat_files", { paths });
+}
+
+/** Saves a pasted image to the app cache and returns its canonical path. */
+export function saveChatImage(imageData: number[], format: string): Promise<string> {
+  return invoke("save_chat_image", { imageData, format });
+}
+
+/** Opens a drop that didn't land on Chat, as a window drop always used to. */
+export function openDroppedPaths(paths: string[]): Promise<void> {
+  return invoke("open_dropped_paths", { paths });
+}
+
 export function getRecentWorkspaces(): Promise<string[]> {
   return invoke("get_recent_workspaces");
 }
@@ -358,8 +377,8 @@ export function claudeStart(
     onEvent,
   });
 }
-export function claudeSend(processId: string, line: string): Promise<void> {
-  return invoke("claude_send", { processId, line });
+export function claudeSend(processId: string, line: string, files: string[]): Promise<void> {
+  return invoke("claude_send", { processId, line, files });
 }
 export function claudeStop(processId: string): Promise<void> {
   return invoke("claude_stop", { processId });

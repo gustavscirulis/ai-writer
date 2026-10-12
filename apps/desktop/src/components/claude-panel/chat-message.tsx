@@ -15,6 +15,7 @@ import type { ChatAttachment, ChatMessage, ChatTool } from "@/lib/claude-stream"
 import { getFileName } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
 import { openLinkedFile } from "@/hooks/editor-api";
+import { FileChip } from "./file-chip";
 import { MarkdownReply } from "./markdown-reply";
 import {
   clearAttachmentHighlight,
@@ -177,6 +178,13 @@ export const UserMessage = memo(function UserMessage({
   const notes = message.attachments?.filter((attachment) => attachment.note !== undefined) ?? [];
   return (
     <article aria-label="You" className="chat-enter flex flex-col items-end gap-1.5">
+      {message.files?.length ? (
+        <div aria-label="Attached files" className="flex max-w-[85%] flex-wrap justify-end gap-1">
+          {message.files.map((file) => (
+            <FileChip key={file} path={file} />
+          ))}
+        </div>
+      ) : null}
       {quotes.map((attachment, index) => (
         <button
           key={index}

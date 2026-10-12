@@ -49,6 +49,10 @@ export interface ChatNotice {
 export interface Chat {
   messages: ChatMessage[];
   draft: string;
+  /** Files attached to the draft, as canonical paths. */
+  files: string[];
+  /** Why the last attempt to attach files failed; cleared by the next attach. */
+  fileError: string | null;
   activity: ClaudeActivity;
   status: "idle" | "running" | "stopping" | "error";
   error: string | null;
@@ -60,6 +64,8 @@ export interface Chat {
 export const EMPTY_CHAT: Chat = {
   messages: [],
   draft: "",
+  files: [],
+  fileError: null,
   activity: null,
   status: "idle",
   error: null,
@@ -70,6 +76,9 @@ export const EMPTY_CHAT: Chat = {
 interface ClaudeState {
   chats: Record<string, Chat>;
   setDraft: (path: string, draft: string) => void;
+  addFiles: (path: string, files: string[]) => void;
+  removeFile: (path: string, file: string) => void;
+  setFileError: (path: string, error: string | null) => void;
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
   /** Sends the queued items (all ready ones by default) together as one turn. */
@@ -567,6 +576,25 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     if (chatForPath(get().chats, path).draft === draft) return;
     set((state) => ({ chats: withChat(state.chats, key, (chat) => ({ ...chat, draft })) }));
   },
+  addFiles: (path, files) => {
+    updateChat(documentPath(path), (chat) => ({
+      ...chat,
+      files: [...new Set([...chat.files, ...files])],
+      fileError: null,
+    }));
+  },
+  removeFile: (path, file) => {
+    updateChat(documentPath(path), (chat) =>
+      chat.files.includes(file)
+        ? { ...chat, files: chat.files.filter((entry) => entry !== file) }
+        : chat,
+    );
+  },
+  setFileError: (path, error) => {
+    updateChat(documentPath(path), (chat) =>
+      chat.fileError === error ? chat : { ...chat, fileError: error },
+    );
+  },
   decidePermission: async (path, id, allow, always = false) => {
     const key = documentPath(path);
     const run = runs.get(key);
@@ -612,7 +640,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         }));
     }
   },
-  send: (path, text, { turn: options, attachments } = {}) => {
+  send: (path, text, { turn: options, attachments, files } = {}) => {
     const key = documentPath(path);
     const workspace = useWorkspaceStore.getState();
     if (!text.trim() || runs.has(key) || resets.has(key) || drains > 0 || isAppClosing())
@@ -680,12 +708,14 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     runs.set(key, run);
     const draft = get().chats[key]?.draft;
     const restore = !options && draft === text ? draft : null;
+    const sentFiles = options ? [] : (files ?? []);
     const message: ChatMessage = {
       id: turnId,
       role: "user",
       text: text.trim(),
       tools: [],
       ...(attachments?.length ? { attachments } : {}),
+      ...(sentFiles.length ? { files: sentFiles } : {}),
     };
     updateChat(key, (chat) => ({
       ...chat,
@@ -695,6 +725,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       error: null,
       permissions: [],
       ...(restore !== null ? { draft: "" } : {}),
+      ...(sentFiles.length
+        ? { files: chat.files.filter((file) => !sentFiles.includes(file)) }
+        : {}),
     }));
     void persistChat(run.root, key, run.workspaceGeneration).catch((error) =>
       console.error("[chat] Could not save the sent message", error),
@@ -729,11 +762,13 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         const context = {
           openFile: key,
           attachments: options ? [] : attachmentContext(path, attachments),
+          ...(sentFiles.length ? { files: sentFiles } : {}),
         };
         const content = `<writer_context>${JSON.stringify(context)}</writer_context>\n\n${prepared}`;
         await tauri.claudeSend(
           id,
           JSON.stringify({ type: "user", message: { role: "user", content } }),
+          sentFiles,
         );
         return true;
       } catch (error) {
@@ -747,6 +782,11 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       .then((ok) => {
         if (!ok && !run.cancelled && restore !== null && current(run))
           updateChat(key, (chat) => (chat.draft === "" ? { ...chat, draft: restore } : chat));
+        if (!ok && !run.cancelled && sentFiles.length && current(run))
+          updateChat(key, (chat) => ({
+            ...chat,
+            files: [...sentFiles.filter((file) => !chat.files.includes(file)), ...chat.files],
+          }));
         return ok;
       })
       .finally(() => {
