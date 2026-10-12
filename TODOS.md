@@ -12,6 +12,8 @@
 
 ## Done
 
+- Clear attached feedback chips from the composer when a message is sent. `claude-store.send` now takes the chips (`feedbackIds`) at the same moment it clears the draft and files, and gives them back through `feedback-store.restore` if delivery fails. Before, the composer only removed them after Claude Code had started. Store tests cover both paths.
+
 - Dock badge for pending Chat approvals. Each window reports how many permission requests it is showing through `set_pending_approvals`. Native code adds up the counts from all windows into the Dock badge, which is shared by the whole app, and recounts when a window closes. Store and native tests, checks, Clippy and formatting pass. Native Tauri QA is pending.
 
 - Scroll a sent Chat message to the top: [`SPECs/chat-scroll-to-sent-message.md`](SPECs/chat-scroll-to-sent-message.md). Sending pins the new user message to the top of the scroller. A spacer keeps it reachable while the reply is short, and the view doesn't follow the stream. Threads with history still open at the bottom.

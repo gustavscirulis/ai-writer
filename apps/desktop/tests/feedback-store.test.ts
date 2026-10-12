@@ -77,7 +77,13 @@ test("attachments dedupe, save as one note each, and can be taken back into the 
     ["First line", "line"],
     ["Second", null],
   ]);
-  store().consume(path, [items()[2]!.id]);
+  const taken = store().take(path, [items()[2]!.id]);
+  expect(taken.map((item) => item.anchor?.text)).toEqual(["Second"]);
+  expect(items()).toHaveLength(2);
+  store().restore(path, taken);
+  store().restore(path, taken);
+  expect(items().map((item) => item.anchor.text)).toEqual(["Second", "First line", "First line"]);
+  store().take(path, [taken[0]!.id]);
   expect(store().saveNotes(path, "  ")).toBe(0);
   expect(store().saveNotes(path, " Tighten ")).toBe(2);
   expect(items().map((item) => [item.status, item.feedback])).toEqual([

@@ -4,7 +4,7 @@ import { useClaudeStore, chatForPath } from "@/stores/claude-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { isAgentEditing, subscribeAgentEditing, documentPath } from "@/lib/agent-turn";
 import { SETTINGS_SCHEMA } from "@/lib/settings-schema";
-import type { ChatAttachment } from "@/lib/claude-stream";
+import type { SendOptions } from "@/lib/agent-request";
 import { readPastedImage } from "@/lib/pasted-image";
 import * as tauri from "@/lib/tauri";
 export function useHasChatMessages(path: string | null) {
@@ -86,9 +86,8 @@ export function setChatPanelWidth(width: number) {
 export const sendChat = (
   path: string,
   text: string,
-  attachments?: ChatAttachment[],
-  files?: string[],
-) => useClaudeStore.getState().send(path, text, { attachments, files });
+  options?: Pick<SendOptions, "attachments" | "feedbackIds" | "files">,
+) => useClaudeStore.getState().send(path, text, options);
 export const stopChat = (path: string) => useClaudeStore.getState().stop(path);
 export const newChat = (path: string) => useClaudeStore.getState().newChat(path);
 export const rewriteChatPaths = (root: string, from: string, to: string, isDir: boolean) =>
