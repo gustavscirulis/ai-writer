@@ -1,15 +1,18 @@
 import { load } from "@tauri-apps/plugin-store";
 
-let storePromise: ReturnType<typeof load> | null = null;
+const PREFERENCES = "preferences.json";
+const stores = new Map<string, ReturnType<typeof load>>();
 
-function getStore() {
-  if (!storePromise) {
-    storePromise = load("preferences.json", {
+function getStore(file = PREFERENCES) {
+  let store = stores.get(file);
+  if (!store) {
+    store = load(file, {
       defaults: {},
       autoSave: true,
     });
+    stores.set(file, store);
   }
-  return storePromise;
+  return store;
 }
 
 export async function getPreference<T>(key: string, fallback: T): Promise<T> {
@@ -39,5 +42,22 @@ export async function readPreferenceStrict<T>(key: string): Promise<T | undefine
 export async function writePreferenceStrict<T>(key: string, value: T): Promise<void> {
   const store = await getStore();
   await store.set(key, value);
+  await store.save();
+}
+
+export async function readStoreEntriesStrict<T>(file: string): Promise<[string, T][]> {
+  return (await getStore(file)).entries<T>();
+}
+
+/** Applies every change before one save; `undefined` deletes the key. */
+export async function writeStoreEntriesStrict<T>(
+  file: string,
+  changes: [string, T | undefined][],
+): Promise<void> {
+  const store = await getStore(file);
+  for (const [key, value] of changes) {
+    if (value === undefined) await store.delete(key);
+    else await store.set(key, value);
+  }
   await store.save();
 }

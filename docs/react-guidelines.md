@@ -84,6 +84,7 @@ This is a Tauri desktop app. Never use `localStorage` or `sessionStorage` for pe
 ### Rules
 
 - **Use `@/lib/preferences.ts`** for reading and writing app preferences. It wraps `@tauri-apps/plugin-store` which persists to a JSON file in the app data directory.
+- **Large user data gets its own store file** through `readStoreEntriesStrict` / `writeStoreEntriesStrict` (e.g. `chats.json`), so it isn't rewritten with every preference.
 - **Stores load preferences eagerly on creation** and persist on change via store actions — not via effects.
 - **Preferences are async.** Initial state uses sensible defaults; the persisted value overrides once loaded.
 - **Keep the inline `<script>` in `index.html` for flash prevention** — it uses system OS preference as default until the store loads.
