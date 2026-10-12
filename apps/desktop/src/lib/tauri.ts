@@ -338,7 +338,7 @@ export type AgentEvent =
   | { type: "started"; processId: string }
   | { type: "claude"; line: string }
   | { type: "stderr"; message: string }
-  | { type: "edit_start"; requestId: string; toolUseId: string | null }
+  | { type: "edit_start"; requestId: string; toolUseId: string | null; path: string }
   | { type: "exit"; code: number | null };
 
 export function claudeStart(

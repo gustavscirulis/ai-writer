@@ -18,6 +18,7 @@ use std::time::Instant;
 pub struct WorkspaceState {
     pub agent_epoch: AtomicU64,
     pub agents: Mutex<HashMap<String, crate::commands::agent::AgentProcess>>,
+    pub agent_claims: crate::commands::agent::NoteClaims,
     pub workspace_root: RwLock<Option<PathBuf>>,
     pub file_index: RwLock<Vec<IndexedFile>>,
     pub file_index_revision: AtomicU64,
@@ -91,6 +92,7 @@ impl Default for WorkspaceState {
         Self {
             agent_epoch: AtomicU64::new(0),
             agents: Mutex::new(HashMap::new()),
+            agent_claims: Default::default(),
             workspace_root: RwLock::new(None),
             file_index: RwLock::new(Vec::new()),
             file_index_revision: AtomicU64::new(0),

@@ -13,6 +13,8 @@ import {
   acquireAgentEditing,
   acquireAgentTurn,
   clearAgentEditing,
+  isAgentEditing,
+  isAgentTurnActive,
   flushPendingEditors,
   clearDocumentPaths,
   reserveAgentReset,
@@ -22,6 +24,7 @@ import {
 } from "@/lib/agent-turn";
 import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
 import { parseDocument } from "@/lib/frontmatter";
+import { getFileName } from "@/lib/paths";
 import { attachmentRange } from "@/lib/feedback-anchors";
 import { reconcileFeedbackAfterTurn } from "@/stores/feedback-store";
 import {
@@ -94,6 +97,8 @@ interface Run {
   releaseTurn: () => void;
 }
 interface Edit {
+  /** Canonical note being edited: the chat's own note or another approved one. */
+  key: string;
   toolUseId: string | null;
   before: string | null;
   release: () => void;
@@ -351,25 +356,40 @@ function notice(run: Run, text: string) {
   });
 }
 /** Lock and save the note only while Claude applies an Edit/Write, then release it to the CLI. */
-async function beginEdit(run: Run, requestId: string, toolUseId: string | null) {
-  if (run.edit) run.edit.toolUseId = toolUseId ?? run.edit.toolUseId;
-  else run.edit = { toolUseId, before: null, release: acquireAgentEditing(run.path), ending: null };
-  const edit = run.edit;
+async function beginEdit(run: Run, requestId: string, toolUseId: string | null, key: string) {
+  const own = key === run.key;
+  let edit = run.edit;
   let ready = false;
   try {
+    // Edits apply one at a time, so the previous note's tool result has already arrived.
+    if (edit && edit.key !== key) {
+      await endEdit(run);
+      if (!current(run)) return;
+      edit = run.edit;
+    }
+    if (edit) edit.toolUseId = toolUseId ?? edit.toolUseId;
+    else if (!own && isAgentTurnActive(key))
+      throw new Error(`Another chat is editing ${getFileName(key)}.`);
+    else {
+      const release = acquireAgentEditing(own ? run.path : key);
+      edit = run.edit = { key, toolUseId, before: null, release, ending: null };
+    }
     // Embedded flushers may have dirtied another display alias synchronously.
     const aliases = [...useEditorStore.getState().openFiles.values()].filter(
-      (entry) => documentPath(entry.path) === run.key,
+      (entry) => documentPath(entry.path) === key,
     );
     if (aliases.filter((entry) => entry.isDirty).length > 1)
       throw new Error("Save or close conflicting aliases of this note first.");
     for (const alias of aliases) await flushSave(alias.path);
     if (!current(run) || run.edit !== edit) return;
-    edit.before ??= (await tauri.readFile(run.key)).content;
+    if (own) edit.before ??= (await tauri.readFile(key)).content;
     ready = true;
   } catch (error) {
     if (current(run))
-      notice(run, `Could not save your note before the AI edit: ${errorText(error)}`);
+      notice(
+        run,
+        `Could not save ${own ? "your note" : getFileName(key)} before the AI edit: ${errorText(error)}`,
+      );
   }
   if (!current(run) || run.edit !== edit || !run.processId) return;
   try {
@@ -396,20 +416,22 @@ function endEdit(run: Run): Promise<void> {
   return edit.ending;
 }
 async function reloadAfterEdit(run: Run, edit: Edit) {
+  const own = edit.key === run.key;
   let content: string | null = null;
   try {
-    content = (await tauri.readFile(run.key)).content;
+    content = (await tauri.readFile(edit.key)).content;
   } catch (error) {
-    if (await tauri.fileExists(run.key)) throw error;
+    if (await tauri.fileExists(edit.key)) throw error;
   }
   if (!current(run)) return;
-  if (content === null) {
+  // A missing other note is an approved new note that was never written.
+  if (own && content === null) {
     run.changed = true;
     run.error = `The file was deleted on disk: ${run.path}`;
-  } else run.changed ||= edit.before !== null && content !== edit.before;
-  // Reconcile every display alias of this document, never another note.
+  } else if (own) run.changed ||= edit.before !== null && content !== edit.before;
+  // Reconcile every display alias of the edited document, never another note.
   for (const [path, file] of useEditorStore.getState().openFiles) {
-    if (documentPath(path) !== run.key) continue;
+    if (documentPath(path) !== edit.key) continue;
     if (content === null) {
       useEditorStore.getState().removePathReferences(path);
       continue;
@@ -422,7 +444,7 @@ async function reloadAfterEdit(run: Run, edit: Edit) {
     }
   }
   if (content !== null) {
-    const failures = await reconcileFeedbackAfterTurn(run.path);
+    const failures = await reconcileFeedbackAfterTurn(own ? run.path : edit.key);
     if (failures.size) throw failures.values().next().value;
   }
 }
@@ -450,7 +472,7 @@ function receive(run: Run, event: tauri.AgentEvent) {
       return;
     }
     if (event.type === "edit_start") {
-      void beginEdit(run, event.requestId, event.toolUseId);
+      void beginEdit(run, event.requestId, event.toolUseId, event.path);
       return;
     }
     const parsed = parseClaudeLine(event.line);
@@ -573,6 +595,10 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       return Promise.resolve(false);
     if (!path || !workspace.root || workspace.workspaceEpoch === null)
       return Promise.resolve(false);
+    if (isAgentEditing(path)) {
+      updateChat(key, (chat) => ({ ...chat, error: "Another chat is editing this note." }));
+      return Promise.resolve(false);
+    }
     if (isPathMutating()) {
       updateChat(key, (chat) => ({
         ...chat,

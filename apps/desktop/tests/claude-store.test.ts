@@ -62,14 +62,18 @@ const emit = (data: unknown, channel = channels[channels.length - 1]) =>
   channel.onmessage({ type: "claude", line: JSON.stringify(data) });
 let edits = 0;
 /** Opens Writer's native edit gate as Claude Code does before applying Edit/Write. */
-async function startEdit(channel = channels[channels.length - 1]) {
+async function startEdit(channel = channels[channels.length - 1], path = "/notes/a.md") {
   const id = `edit-${++edits}`;
-  channel.onmessage({ type: "edit_start", requestId: id, toolUseId: id });
+  channel.onmessage({ type: "edit_start", requestId: id, toolUseId: id, path });
   await tick();
   return id;
 }
-async function claudeEdits(write: () => void, channel = channels[channels.length - 1]) {
-  const id = await startEdit(channel);
+async function claudeEdits(
+  write: () => void,
+  channel = channels[channels.length - 1],
+  path = "/notes/a.md",
+) {
+  const id = await startEdit(channel, path);
   write();
   emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id }] } }, channel);
   await tick();
@@ -1059,6 +1063,75 @@ test("each note keeps its own conversation and resumes its own session", async (
   expect(chatMessages("/notes/a.md")).toEqual([]);
 });
 
+function requestNoteWrite(id: string, path: string, exists: boolean, channel = channels.at(-1)) {
+  emit(
+    {
+      type: "control_request",
+      request_id: id,
+      request: { subtype: "can_use_tool", tool_name: "Write", input: { file_path: path } },
+      writer_target: { path, exists },
+    },
+    channel,
+  );
+}
+const editReplies = () =>
+  mockedInvoke.mock.calls.filter(([command]) => command === "claude_edit_ready").map(([, p]) => p);
+test("an edit to another note saves and locks it only while applied, then reloads it", async () => {
+  disk.set("/notes/b.md", "Before B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  useEditorStore.getState().updateContent("/notes/b.md", "Unsaved B");
+  useEditorStore.getState().setActiveFile("/notes/a.md");
+  await send("Update B");
+  requestNoteWrite("b", "/notes/b.md", true);
+  expect(chatState().permissions[0].target).toEqual({ path: "/notes/b.md", exists: true });
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "b", true);
+  expect(isAgentEditing("/notes/b.md")).toBe(false);
+  const meanwhile: Promise<boolean>[] = [];
+  await claudeEdits(
+    () => {
+      expect(isAgentEditing("/notes/b.md")).toBe(true);
+      expect(isAgentEditing("/notes/a.md")).toBe(false);
+      expect(disk.get("/notes/b.md")).toBe("Unsaved B");
+      meanwhile.push(useClaudeStore.getState().send("/notes/b.md", "Meanwhile"));
+      disk.set("/notes/b.md", "Revised B");
+    },
+    channels.at(-1),
+    "/notes/b.md",
+  );
+  expect(await Promise.all(meanwhile)).toEqual([false]);
+  expect(chatState("/notes/b.md").error).toBe("Another chat is editing this note.");
+  expect(editReplies()).toEqual([{ processId: "process-1", requestId: "edit-1", allow: true }]);
+  expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("Revised B");
+  expect(isAgentEditing()).toBe(false);
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(chatState()).toMatchObject({ status: "idle", error: null });
+  expect(disk.get("/notes/a.md")).toBe("Original");
+});
+test("an approved new note that was never written finishes cleanly", async () => {
+  await send("Create notes");
+  await claudeEdits(
+    () => expect(isAgentEditing("/notes/new.md")).toBe(true),
+    channels.at(-1),
+    "/notes/new.md",
+  );
+  expect(isAgentEditing()).toBe(false);
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(chatState()).toMatchObject({ status: "idle", error: null });
+});
+test("a note another chat is working on can't be edited", async () => {
+  disk.set("/notes/b.md", "Before B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  await send("About B");
+  useEditorStore.getState().setActiveFile("/notes/a.md");
+  await send("Update B");
+  await startEdit(channels[1], "/notes/b.md");
+  expect(editReplies()).toEqual([{ processId: "process-2", requestId: "edit-1", allow: false }]);
+  expect(chatState().notices.at(-1)?.text).toContain("Another chat is editing b.md.");
+  expect(isAgentEditing()).toBe(false);
+});
+
 test("captured feedback path is independent of the active tab and survives tab closure", async () => {
   disk.set("/notes/b.md", "Before B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
@@ -1572,7 +1645,7 @@ test("feedback outcomes remain independent across simultaneous notes", async () 
   await applyFeedback("/notes/a.md", [first]);
   await applyFeedback("/notes/b.md", [second]);
   expect(channels).toHaveLength(2);
-  await claudeEdits(() => disk.set("/notes/b.md", "Revised B"), channels[1]);
+  await claudeEdits(() => disk.set("/notes/b.md", "Revised B"), channels[1], "/notes/b.md");
   emit({ type: "result", is_error: false }, channels[0]);
   emit({ type: "result", is_error: false }, channels[1]);
   await tick();

@@ -14,6 +14,7 @@ import {
 import type { ChatAttachment, ChatMessage, ChatTool } from "@/lib/claude-stream";
 import { getFileName } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
+import { navigateToFile } from "@/hooks/editor-api";
 import { MarkdownReply } from "./markdown-reply";
 import {
   clearAttachmentHighlight,
@@ -35,6 +36,17 @@ const TOOL_KINDS: Record<string, { verb: string; icon: typeof File01Icon }> = {
 
 function toolKind(tool: ChatTool) {
   return TOOL_KINDS[tool.name] ?? { verb: `used ${tool.name}`, icon: Wrench01Icon };
+}
+
+/** Notes Claude wrote can be opened from the tool list, like a link. */
+function opensNote(tool: ChatTool) {
+  return (
+    !!tool.path &&
+    tool.done === true &&
+    !tool.error &&
+    ["Edit", "MultiEdit", "Write"].includes(tool.name) &&
+    /\.(md|markdown)$/i.test(tool.path)
+  );
 }
 
 function summarize(tools: ChatTool[]) {
@@ -120,12 +132,21 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
             />
             <span className={`truncate ${tool.error ? "line-through" : ""}`}>
               {tool.name}
-              {tool.path && (
-                <span className="font-medium text-[var(--text-secondary)]">
-                  {" "}
-                  {getFileName(tool.path)}
-                </span>
-              )}
+              {tool.path && " "}
+              {tool.path &&
+                (opensNote(tool) ? (
+                  <button
+                    type="button"
+                    onClick={() => void navigateToFile(tool.path!)}
+                    className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
+                  >
+                    {getFileName(tool.path)}
+                  </button>
+                ) : (
+                  <span className="font-medium text-[var(--text-secondary)]">
+                    {getFileName(tool.path)}
+                  </span>
+                ))}
             </span>
             <span className="ml-auto shrink-0">
               {tool.error ? "Denied / failed" : tool.done ? "" : "Running"}
