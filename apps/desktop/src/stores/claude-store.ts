@@ -49,6 +49,8 @@ export interface Chat {
   error: string | null;
   notices: ChatNotice[];
   permissions: ToolPermission[];
+  /** Tools the user always allows in this chat. Kept in memory until the app quits. */
+  allowedTools: string[];
 }
 export const EMPTY_CHAT: Chat = {
   messages: [],
@@ -58,11 +60,12 @@ export const EMPTY_CHAT: Chat = {
   error: null,
   notices: [],
   permissions: [],
+  allowedTools: [],
 };
 interface ClaudeState {
   chats: Record<string, Chat>;
   setDraft: (path: string, draft: string) => void;
-  decidePermission: (path: string, id: string, allow: boolean) => Promise<void>;
+  decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
   stop: (path: string) => Promise<void>;
   stopAll: () => Promise<void>;
@@ -555,7 +558,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     if (chatForPath(get().chats, path).draft === draft) return;
     set((state) => ({ chats: withChat(state.chats, key, (chat) => ({ ...chat, draft })) }));
   },
-  decidePermission: async (path, id, allow) => {
+  decidePermission: async (path, id, allow, always = false) => {
     const key = documentPath(path);
     const run = runs.get(key);
     const request = get().chats[key]?.permissions.find((entry) => entry.id === id);
@@ -565,13 +568,25 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       ...chat,
       permissions: chat.permissions.map((entry) => (entry === request ? pending : entry)),
     }));
+    const allowsTool = always && allow;
     try {
-      await tauri.claudeDecidePermission(run.processId, id, allow);
-      if (current(run))
-        updateChat(key, (chat) => ({
-          ...chat,
-          permissions: chat.permissions.filter((entry) => entry !== pending),
-        }));
+      await tauri.claudeDecidePermission(run.processId, id, allow, allowsTool);
+      if (!current(run)) return;
+      updateChat(key, (chat) => ({
+        ...chat,
+        permissions: chat.permissions.filter((entry) => entry !== pending),
+        allowedTools:
+          allowsTool && !chat.allowedTools.includes(request.tool)
+            ? [...chat.allowedTools, request.tool]
+            : chat.allowedTools,
+      }));
+      // Requests already queued before the rule existed still wait for a reply.
+      if (allowsTool)
+        await Promise.all(
+          get()
+            .chats[key]?.permissions.filter((entry) => entry.tool === request.tool)
+            .map((entry) => get().decidePermission(path, entry.id, true)) ?? [],
+        );
     } catch (error) {
       if (current(run))
         updateChat(key, (chat) => ({
@@ -692,6 +707,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           workspace.workspaceEpoch!,
           records[key]?.sessionId ?? null,
           path,
+          chatForPath(get().chats, key).allowedTools,
           channel,
         );
         run.processId = id;

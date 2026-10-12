@@ -64,3 +64,18 @@ export function summarizeToolRequest(
   );
   return { verb: "Use", target: tool, where: preview ?? null, allowLabel: "Allow" };
 }
+
+const ALWAYS_ACTIONS: Record<string, string> = {
+  Read: "read files",
+  Grep: "search files",
+  Glob: "find files",
+  Edit: "edit other notes",
+  Write: "create or replace other notes",
+  WebSearch: "search the web",
+  WebFetch: "fetch web pages",
+};
+
+/** Labels the option that allows every later request for this tool in the chat. */
+export function alwaysAllowLabel(tool: string) {
+  return `Yes, and don't ask again to ${ALWAYS_ACTIONS[tool] ?? `use ${tool}`}`;
+}

@@ -12,6 +12,8 @@
 
 ## Done
 
+- Always allow a tool in Chat approvals: see "Always allow" in [`SPECs/claude-tool-approvals.md`](SPECs/claude-tool-approvals.md). A third option allows every later request for the same tool in that chat until the app quits or New chat. Native `Scope.always` enforces it, and the store passes it to each turn's process. Native and store tests, checks, Clippy and formatting pass. Native Tauri QA is pending.
+
 - Let Chat create new notes and edit other notes: [`SPECs/chat-edit-other-notes.md`](SPECs/chat-edit-other-notes.md). The chat's own note stays automatic; any other Markdown note in the workspace, new or existing, needs one approval per turn ("Create **ideas.md**?"). Each edit goes through the per-edit gate for the note it targets, so that note is saved and locked only while the edit is applied, then reloaded as one undo step. Native scope checks deny paths outside the workspace, hidden folders, non-Markdown files and dangling links. Each window keeps claims so two chats can't edit the same note. Written notes are clickable in the chat's tool list. 902 frontend tests and 187 native tests pass, and the real-CLI probe confirmed that approved creation works and denied creation doesn't. A WebDriver run of the built app with the real CLI passed creating a note, editing an open note (which reloads), and opening a note from the tool list.
 
 - Lock the note only while the AI is editing it: [`SPECs/agent-edit-scoped-lock.md`](SPECs/agent-edit-scoped-lock.md). A native Edit/Write gate saves and locks just before each tool runs and reloads and unlocks on its result, with a wait cursor while locked.

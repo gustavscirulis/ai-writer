@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vite-plus/test";
-import { summarizeToolRequest } from "../src/lib/tool-request-summary";
+import { alwaysAllowLabel, summarizeToolRequest } from "../src/lib/tool-request-summary";
 
 const ROOT = "/Users/sam/Vault";
 
@@ -61,4 +61,12 @@ describe("summarizeToolRequest", () => {
   test("shows absolute paths when no workspace is open", () => {
     expect(summarizeToolRequest("Read", { file_path: "/notes/a.md" }, null).where).toBe("/notes");
   });
+});
+
+describe("alwaysAllowLabel", () => {
+  test.each([
+    ["Read", "Yes, and don't ask again to read files"],
+    ["Write", "Yes, and don't ask again to create or replace other notes"],
+    ["mcp__notes__search", "Yes, and don't ask again to use mcp__notes__search"],
+  ])("%s", (tool, label) => expect(alwaysAllowLabel(tool)).toBe(label));
 });

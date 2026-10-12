@@ -40,6 +40,8 @@ pub enum Input {
     Permission {
         request_id: String,
         allow: bool,
+        /// Allow this tool for the rest of the chat as well.
+        always: bool,
         ack: oneshot::Sender<Result<(), String>>,
     },
     EditReady {

@@ -8,7 +8,7 @@ import {
   useToolPermissions,
 } from "@/hooks/use-claude";
 import type { ToolPermission } from "@/lib/claude-stream";
-import { summarizeToolRequest } from "@/lib/tool-request-summary";
+import { alwaysAllowLabel, summarizeToolRequest } from "@/lib/tool-request-summary";
 
 const KBD =
   "hidden min-w-[22px] rounded bg-[var(--kbd-bg)] px-[5px] text-center text-[10.5px] leading-4 text-[var(--text-muted)] group-focus-within:inline-block";
@@ -45,7 +45,8 @@ function PermissionPrompt({
   const [showInput, setShowInput] = useState(false);
   const [focused, setFocused] = useState(0);
   const summary = summarizeToolRequest(request.tool, request.input, root, request.target);
-  const decide = (allow: boolean) => void decideToolPermission(path, request.id, allow);
+  const decide = (allow: boolean, always = false) =>
+    void decideToolPermission(path, request.id, allow, always);
   // Never steal focus from the editor: a stray Space or Enter would approve.
   const focusDefault = useCallback((node: HTMLButtonElement | null) => {
     const active = document.activeElement;
@@ -68,8 +69,9 @@ function PermissionPrompt({
     ]?.focus();
   };
   const options = [
-    { label: request.pending ? "Sending…" : summary.allowLabel, allow: true },
-    { label: "No, deny this request", allow: false },
+    { label: request.pending ? "Sending…" : summary.allowLabel, allow: true, always: false },
+    { label: alwaysAllowLabel(request.tool), allow: true, always: true },
+    { label: "No, deny this request", allow: false, always: false },
   ];
   return (
     <div className="shrink-0 px-3 pb-3">
@@ -117,13 +119,13 @@ function PermissionPrompt({
         <div role="group" aria-label="Decision" className="mt-2.5 flex flex-col gap-px">
           {options.map((option, index) => (
             <button
-              key={String(option.allow)}
+              key={index}
               type="button"
               data-option
               ref={index === 0 ? focusDefault : undefined}
               disabled={request.pending}
               onFocus={() => setFocused(index)}
-              onClick={() => decide(option.allow)}
+              onClick={() => decide(option.allow, option.always)}
               className="flex h-8 items-center justify-between rounded-[9px] px-2 text-left text-[13px] text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] focus-visible:bg-[var(--surface-subtle-strong)] focus-visible:outline-none forced-colors:focus-visible:outline focus-visible:text-[var(--text-primary)] disabled:opacity-60 disabled:hover:bg-transparent"
             >
               <span className="truncate">{option.label}</span>
