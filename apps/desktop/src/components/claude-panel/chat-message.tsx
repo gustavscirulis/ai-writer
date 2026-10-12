@@ -293,22 +293,44 @@ export const UserMessage = memo(function UserMessage({
   );
 });
 
-/** One reply: every assistant message between two user messages, with all of its tool use folded into a single summary. */
+type TurnSegment =
+  | { kind: "text"; message: ChatMessage }
+  | { kind: "plan"; tool: ChatTool & { plan: string } }
+  | { kind: "tools"; key: string; tools: ChatTool[] };
+
+/** Texts and runs of consecutive tool calls, in the order they happened. Within one message, text precedes its tool calls. */
+function turnSegments(messages: ChatMessage[]) {
+  const segments: TurnSegment[] = [];
+  for (const message of messages) {
+    if (message.text) segments.push({ kind: "text", message });
+    for (const tool of message.tools) {
+      const last = segments[segments.length - 1];
+      if (hasPlan(tool)) segments.push({ kind: "plan", tool });
+      else if (last?.kind === "tools") last.tools.push(tool);
+      else segments.push({ kind: "tools", key: `${tool.id}:tools`, tools: [tool] });
+    }
+  }
+  return segments;
+}
+
+/** One reply: every assistant message between two user messages, with each run of tool use folded into a summary in place. */
 export const AssistantTurn = memo(
   function AssistantTurn({ messages, live }: { messages: ChatMessage[]; live: boolean }) {
-    const all = messages.flatMap((message) => message.tools);
-    const tools = all.filter((tool) => !hasPlan(tool));
-    const plans = all.filter(hasPlan);
-    const texts = messages.filter((message) => message.text);
     return (
       <article aria-label="Assistant" className="chat-enter flex min-w-0 flex-col gap-2.5">
-        {tools.length > 0 && <ToolSummary tools={tools} live={live} />}
-        {plans.map((tool) => (
-          <PlanCard key={tool.id} tool={tool} />
-        ))}
-        {texts.map((message) => (
-          <MarkdownReply key={message.id} id={message.id} text={message.text} />
-        ))}
+        {turnSegments(messages).map((segment) =>
+          segment.kind === "text" ? (
+            <MarkdownReply
+              key={segment.message.id}
+              id={segment.message.id}
+              text={segment.message.text}
+            />
+          ) : segment.kind === "plan" ? (
+            <PlanCard key={segment.tool.id} tool={segment.tool} />
+          ) : (
+            <ToolSummary key={segment.key} tools={segment.tools} live={live} />
+          ),
+        )}
       </article>
     );
   },

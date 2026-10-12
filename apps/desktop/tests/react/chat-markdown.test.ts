@@ -120,6 +120,21 @@ test("assistant integration renders every text step as Markdown while user text 
   expect(user).not.toContain("<strong>");
 });
 
+test("assistant turn keeps tool summaries in chronological order between text steps", () => {
+  const tool = (id: string) => ({ id, name: "Write", done: true });
+  const messages: ChatMessage[] = [
+    { id: "a", role: "assistant", text: "Alpha", tools: [tool("t1")] },
+    { id: "b", role: "assistant", text: "", tools: [tool("t2")] },
+    { id: "c", role: "assistant", text: "Bravo", tools: [] },
+    { id: "d", role: "assistant", text: "", tools: [tool("t3")] },
+  ];
+  const html = renderToStaticMarkup(createElement(AssistantTurn, { messages, live: false }));
+  const order = [...html.matchAll(/Alpha|Bravo|tabular-nums">(\d+)</g)].map(
+    (match) => match[1] ?? match[0],
+  );
+  expect(order).toEqual(["Alpha", "2", "Bravo", "1"]);
+});
+
 test.each([
   "javascript:alert(1)",
   "java\nscript:alert(1)",
