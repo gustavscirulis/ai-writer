@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useAllSettings, useResetSetting, useSetSetting } from "@/hooks/use-settings";
 import { SETTINGS_SCHEMA, type SettingDef } from "@/lib/settings-schema";
 import { SettingControl } from "./setting-control";
 import { ThemesSection } from "./themes-section";
+import { ALLOWED_TOOLS_KEY, AllowedToolsRows, CO_WRITER_CATEGORY } from "./co-writer-section";
 import { EditorScrollContainer } from "@/components/editor-area/editor-scroll-container";
 
 /** Section that renders above the Themes block. The schema-driven section
@@ -20,6 +21,8 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
     for (const def of SETTINGS_SCHEMA) {
       // Theme settings are owned by ThemesSection; keep them out of the generic renderer.
       if (def.category === "Theme") continue;
+      // Native code owns this list; AllowedToolsRows only lists and revokes entries.
+      if (def.key === ALLOWED_TOOLS_KEY) continue;
       const existing = map.get(def.category) ?? [];
       existing.push(def);
       map.set(def.category, existing);
@@ -31,7 +34,7 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
     return JSON.stringify(settings[def.key]) !== JSON.stringify(def.default);
   }
 
-  function renderSection(category: string, defs: SettingDef[]) {
+  function renderSection(category: string, defs: SettingDef[], extra?: ReactNode) {
     return (
       <section key={category} className="mb-10">
         <h2 className="mb-3 text-[13px] font-medium text-[var(--text-muted)]">{category}</h2>
@@ -50,6 +53,7 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
               />
             </div>
           ))}
+          {extra}
         </div>
       </section>
     );
@@ -80,7 +84,13 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
 
           <ThemesSection />
 
-          {afterThemes.map(([cat, defs]) => renderSection(cat, defs))}
+          {afterThemes.map(([cat, defs]) =>
+            renderSection(
+              cat,
+              defs,
+              cat === CO_WRITER_CATEGORY && <AllowedToolsRows isActive={isActive} />,
+            ),
+          )}
         </div>
       </EditorScrollContainer>
     </div>

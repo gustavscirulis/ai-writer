@@ -397,7 +397,6 @@ export function claudeStart(
   epoch: number,
   resumeSessionId: string | null,
   notePath: string,
-  alwaysAllow: string[],
   plan: boolean,
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
 ): Promise<string> {
@@ -406,7 +405,6 @@ export function claudeStart(
     epoch,
     resumeSessionId,
     notePath: documentPath(notePath),
-    alwaysAllow,
     plan,
     onEvent,
   });
@@ -440,6 +438,14 @@ export function claudeAnswer(
   answer: HostAnswer,
 ): Promise<void> {
   return invoke("claude_answer", { processId, requestId, answer });
+}
+/** Tools saved with "don't ask again", in every workspace. */
+export function coWriterAllowedTools(): Promise<string[]> {
+  return invoke("co_writer_allowed_tools");
+}
+/** Returns the tools still allowed. */
+export function revokeCoWriterTool(tool: string): Promise<string[]> {
+  return invoke("co_writer_revoke_tool", { tool });
 }
 export function setPendingApprovals(count: number): Promise<void> {
   return invoke("set_pending_approvals", { count });

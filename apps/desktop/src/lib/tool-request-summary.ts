@@ -79,3 +79,11 @@ const ALWAYS_ACTIONS: Record<string, string> = {
 export function alwaysAllowLabel(tool: string) {
   return `Yes, and don't ask again to ${ALWAYS_ACTIONS[tool] ?? `use ${tool}`}`;
 }
+
+/** Names a tool saved with "don't ask again", as listed in Settings. */
+export function allowedToolLabel(tool: string) {
+  const action = ALWAYS_ACTIONS[tool];
+  if (action) return action[0].toUpperCase() + action.slice(1);
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
+  return mcp ? `Use ${mcp[2]} from ${mcp[1]}` : `Use ${tool}`;
+}

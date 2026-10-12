@@ -939,32 +939,36 @@ test("canceling an approval invalidates its in-flight completion without losing 
   emit({ type: "result", is_error: false });
   await tick();
 });
-test("always allowing a tool approves its queued requests and later turns until a new chat", async () => {
-  const startArgs = () =>
-    mockedInvoke.mock.calls
-      .filter(([command]) => command === "claude_start")
-      .map(([, payload]) => (payload as { alwaysAllow: string[] }).alwaysAllow);
+test("always allowing a tool approves its queued requests in every chat", async () => {
   await send("Search");
-  requestPermission("first");
-  requestPermission("second", "Grep", { pattern: "x" });
-  requestPermission("third");
+  const [a] = channels;
+  disk.set("/notes/b.md", "B");
+  await useEditorStore.getState().openFileInNewTab("/notes/b.md");
+  await send("Search B");
+  const b = channels[channels.length - 1];
+  const ask = (id: string, channel: typeof a, tool = "Read") =>
+    emit(
+      {
+        type: "control_request",
+        request_id: id,
+        request: { subtype: "can_use_tool", tool_name: tool, input: { file_path: "/x.md" } },
+      },
+      channel,
+    );
+  ask("first", a);
+  ask("second", a, "Grep");
+  ask("third", a);
+  ask("other", b);
   await useClaudeStore.getState().decidePermission("/notes/a.md", "first", true, true);
   expect(sentDecisions()).toEqual([
     { processId: "process-1", requestId: "first", allow: true, always: true },
     { processId: "process-1", requestId: "third", allow: true, always: false },
+    { processId: "process-2", requestId: "other", allow: true, always: false },
   ]);
   expect(chatState().permissions.map((entry) => entry.id)).toEqual(["second"]);
-  expect(chatState().allowedTools).toEqual(["Read"]);
-  await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false, true);
-  expect(chatState().allowedTools).toEqual(["Read"]);
-  emit({ type: "result", is_error: false });
-  await tick();
-  await send("Again");
-  expect(startArgs()).toEqual([[], ["Read"]]);
-  emit({ type: "result", is_error: false });
-  await tick();
-  await useClaudeStore.getState().newChat("/notes/a.md");
-  expect(chatState().allowedTools).toEqual([]);
+  expect(chatState("/notes/b.md").permissions).toEqual([]);
+  const startPayload = mockedInvoke.mock.calls.find(([command]) => command === "claude_start")![1];
+  expect(startPayload).not.toHaveProperty("alwaysAllow");
 });
 test("decision transport errors retain a retryable request and the editor lock", async () => {
   await send("Search");

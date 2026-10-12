@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vite-plus/test";
-import { alwaysAllowLabel, summarizeToolRequest } from "../src/lib/tool-request-summary";
+import {
+  allowedToolLabel,
+  alwaysAllowLabel,
+  summarizeToolRequest,
+} from "../src/lib/tool-request-summary";
 
 const ROOT = "/Users/sam/Vault";
 
@@ -69,4 +73,14 @@ describe("alwaysAllowLabel", () => {
     ["Write", "Yes, and don't ask again to create or replace other notes"],
     ["mcp__notes__search", "Yes, and don't ask again to use mcp__notes__search"],
   ])("%s", (tool, label) => expect(alwaysAllowLabel(tool)).toBe(label));
+});
+
+describe("allowedToolLabel", () => {
+  test.each([
+    ["Read", "Read files"],
+    ["WebFetch", "Fetch web pages"],
+    ["Write", "Create or replace other notes"],
+    ["mcp__notes__search_all", "Use search_all from notes"],
+    ["Unknown", "Use Unknown"],
+  ])("%s", (tool, label) => expect(allowedToolLabel(tool)).toBe(label));
 });

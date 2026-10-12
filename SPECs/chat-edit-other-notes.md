@@ -10,7 +10,7 @@ Native code in `commands/agent/claude.rs` resolves every Edit/Write target befor
 - Another Markdown note (`.md`/`.markdown`) inside the workspace: the PreToolUse hook answers `ask`, which overrides the Edit/Write allow rule and sends `can_use_tool` to Writer. Write can target a file that doesn't exist yet; its path is resolved through the nearest existing folder. Edit needs an existing file.
 - Anything else is denied with a reason: relative paths, `..`, paths outside the workspace, hidden folders (for example `.obsidian`), non-Markdown files, and dangling links (Write would create the link target instead).
 
-If the user picked Always allow for Edit or Write in this chat, the prompt is skipped and native code claims the note directly. Denials and claim conflicts still apply.
+If the user has saved Always allow for Edit or Write, the prompt is skipped and native code claims the note directly. Denials and claim conflicts still apply.
 
 The forwarded request carries `writer_target: {path, exists}`, so the UI can name the note and lock it. The decision reply uses the canonical input that native code stored, so the frontend can't change the path.
 
