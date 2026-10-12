@@ -1,4 +1,5 @@
 import { useEditorStore } from "@/stores/editor-store";
+import { useWorkspaceStore } from "@/stores/workspace-store";
 export type { OpenFile, Tab, SessionTab } from "@/stores/editor-store";
 
 export function getOpenFile(path: string) {
@@ -45,8 +46,12 @@ export function reloadFromDisk(path: string, rawContent: string) {
   useEditorStore.getState().reloadFromDisk(path, rawContent);
 }
 
-export function navigateToFile(path: string) {
-  return useEditorStore.getState().navigateToFile(path);
+// Compact windows have no tab strip, so links there keep navigating in place.
+export function openLinkedFile(path: string) {
+  if (useWorkspaceStore.getState().chromeMode === "compact-file") {
+    return useEditorStore.getState().navigateToFile(path);
+  }
+  return useEditorStore.getState().openFile(path);
 }
 
 export function renameOpenFile(oldPath: string, newPath: string) {

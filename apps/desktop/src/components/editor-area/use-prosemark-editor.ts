@@ -52,6 +52,29 @@ function restoreScrollPosition(
   });
 }
 
+/** Scroll to the heading a followed link asked for, if one is pending for
+ *  `filePath`. Returns false when nothing was pending. */
+function scrollToPendingAnchor(
+  view: EditorView,
+  scrollContainer: HTMLElement,
+  filePath: string,
+  isDisposed: () => boolean,
+) {
+  const pendingAnchor = consumePendingAnchor(filePath);
+  if (pendingAnchor === undefined) return false;
+  const heading = findHeadingBySlug(view.state.doc.toString(), pendingAnchor);
+  if (heading) {
+    requestAnimationFrame(() => {
+      if (isDisposed()) return;
+      scrollPosToSafeTop(view, scrollContainer, heading.pos, "auto");
+    });
+  } else {
+    scrollContainer.scrollTo({ top: 0, behavior: "auto" });
+    showEditorNotice(`Heading "#${pendingAnchor}" not found in ${getFileName(filePath)}`);
+  }
+  return true;
+}
+
 export function useProsemarkEditor(
   filePath: string,
   getScrollContainer?: () => HTMLElement | null,
@@ -174,7 +197,13 @@ export function useProsemarkEditor(
 
       const scrollContainer = resolveScrollContainer(el, getScrollContainerRef.current);
       if (scrollContainer) {
-        restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, () => disposedRef.current);
+        const isDisposed = () => disposedRef.current;
+        if (
+          !autoFocusRef.current ||
+          !scrollToPendingAnchor(view, scrollContainer, currentPath, isDisposed)
+        ) {
+          restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, isDisposed);
+        }
 
         const handleScroll = () => {
           editorApi.updateScrollPos(filePathRef.current, scrollContainer.scrollTop);
@@ -256,27 +285,28 @@ export function useProsemarkEditor(
         view.dom.parentElement!,
         getScrollContainerRef.current,
       );
-      if (scrollContainer) {
-        const pendingAnchor = consumePendingAnchor(filePath);
-        if (pendingAnchor !== undefined) {
-          const heading = findHeadingBySlug(content, pendingAnchor);
-          if (heading) {
-            requestAnimationFrame(() => {
-              if (disposedRef.current) return;
-              scrollPosToSafeTop(view, scrollContainer, heading.pos, "auto");
-            });
-          } else {
-            scrollContainer.scrollTo({ top: 0, behavior: "auto" });
-            showEditorNotice(`Heading "#${pendingAnchor}" not found in ${getFileName(filePath)}`);
-          }
-        } else {
-          restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, () => disposedRef.current);
-        }
+      const isDisposed = () => disposedRef.current;
+      if (scrollContainer && !scrollToPendingAnchor(view, scrollContainer, filePath, isDisposed)) {
+        restoreScrollPosition(scrollContainer, file?.scrollPos ?? 0, isDisposed);
       }
     }
 
     advanceViewportParse(view, () => disposedRef.current);
   }, [filePath, reloadVersion, bindView]);
+
+  // A link to a file that is already open focuses its kept-alive tab without
+  // remounting or swapping the editor, so the pending anchor is applied here.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!autoFocus || !view || disposedRef.current) return;
+    const scrollContainer = resolveScrollContainer(
+      view.dom.parentElement!,
+      getScrollContainerRef.current,
+    );
+    if (scrollContainer) {
+      scrollToPendingAnchor(view, scrollContainer, filePathRef.current, () => disposedRef.current);
+    }
+  }, [autoFocus]);
 
   return mountRef;
 }

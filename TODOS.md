@@ -12,6 +12,8 @@
 
 ## Done
 
+- Open files in a new tab: `openFile` switches to the tab already showing the file. Otherwise it fills a launcher tab or appends a new tab, instead of replacing the active file in place. Wiki links, markdown links and Chat tool links go through `openLinkedFile`, which does the same except in compact windows, where links still navigate in place. The new `tabs.open-in-new-tab` setting (Settings → Tabs, on by default) brings back replace-in-place. Pending link anchors are now also applied when the target editor mounts or its kept-alive tab becomes active, because before they only applied on an in-place swap. `vp check`, 906 frontend tests and 187 native tests pass. Native QA in the Tauri app hasn't been done.
+
 - Chat queue: [`SPECs/chat-queue.md`](SPECs/chat-queue.md). Saved notes and queued messages are one queue. ⌘Enter queues, with or without chips. Enter while Claude replies queues. The queue sends as one turn after every clean turn, and Stop or an error pauses it until Send all. A clean finish clears what it sent even without document changes. 909 frontend tests pass, and a WebDriver run of the built app with the real CLI passed three flows: queueing while idle and during a reply, then a merged auto-send; Stop pausing the queue and Send resuming it; and removing and editing queued items.
 
 - Drag to reorder tabs: [`SPECs/tab-drag-reorder.md`](SPECs/tab-drag-reorder.md). Pointer-based drag in the tab strip with live neighbour shifting, edge auto-scroll, Esc to cancel and a settle animation; the order is committed through `moveTab` and persisted with the session.

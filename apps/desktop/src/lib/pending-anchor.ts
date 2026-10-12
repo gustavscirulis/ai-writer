@@ -1,4 +1,4 @@
-// Carries a heading slug across the gap between `navigateToFile` (which
+// Carries a heading slug across the gap between `openLinkedFile` (which
 // triggers an async load + an editor swap) and the editor's first render
 // of the new document. Keyed by absolute file path. Consumed exactly once.
 

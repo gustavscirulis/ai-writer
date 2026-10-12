@@ -5,7 +5,9 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+import { invoke } from "@tauri-apps/api/core";
 import { useEditorStore } from "../src/stores/editor-store";
+import { useWorkspaceStore } from "../src/stores/workspace-store";
 import * as editorApi from "../src/hooks/editor-api";
 
 function makeFileTab(id: string, currentPath: string) {
@@ -125,5 +127,25 @@ describe("editorApi", () => {
     const file = useEditorStore.getState().openFiles.get("/a.md");
     expect(file?.isDirty).toBe(false);
     expect(file?.diskContent).toBe("modified");
+  });
+
+  test.each([
+    ["workspace", ["/a.md", "/b.md"]],
+    ["compact-file", ["/b.md"]],
+  ] as const)("openLinkedFile in %s chrome leaves tabs %j", async (chromeMode, expectedPaths) => {
+    vi.mocked(invoke).mockImplementation(async (_cmd, args) => ({
+      path: (args as { path: string }).path,
+      content: "",
+      modified_at: 1,
+    }));
+    useWorkspaceStore.setState({ chromeMode });
+    await useEditorStore.getState().openFile("/a.md");
+
+    await editorApi.openLinkedFile("/b.md");
+
+    const paths = useEditorStore
+      .getState()
+      .tabs.map((tab) => (tab.location.kind === "file" ? tab.location.path : null));
+    expect(paths).toEqual(expectedPaths);
   });
 });

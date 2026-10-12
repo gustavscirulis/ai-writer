@@ -30,7 +30,7 @@ function scrollSameDocAnchor(view: EditorView, filePath: string, anchor: string)
 }
 
 /** Navigate to `href` as written in the document: same-document anchors
- *  scroll, workspace files open in the tab (with a pending anchor), external
+ *  scroll, workspace files open via `openLinkedFile` (with a pending anchor), external
  *  URLs and other paths hand off to the OS. */
 export async function followLink(href: string | null, view: EditorView, filePath: string) {
   if (!href) return;
@@ -51,7 +51,7 @@ export async function followLink(href: string | null, view: EditorView, filePath
       return;
     }
     if (target.anchor) setPendingAnchor(target.path, target.anchor);
-    await editorApi.navigateToFile(target.path);
+    await editorApi.openLinkedFile(target.path);
     return;
   }
 
