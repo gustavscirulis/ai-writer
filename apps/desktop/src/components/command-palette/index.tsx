@@ -1,4 +1,5 @@
 import { toggleChatPanel } from "@/hooks/use-claude";
+import { toggleVersionHistory } from "@/hooks/use-version-history";
 import { attachFromEditor } from "@/hooks/feedback-api";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -148,6 +149,17 @@ export function CommandPalette() {
         run: () => {
           toggleChatPanel();
           close();
+        },
+      },
+    root &&
+      !isCompactFileMode &&
+      activeFilePath && {
+        id: "toggle-version-history",
+        label: "Show Version History",
+        description: "⌘⇧H",
+        run: () => {
+          close();
+          toggleVersionHistory(activeFilePath);
         },
       },
     root &&

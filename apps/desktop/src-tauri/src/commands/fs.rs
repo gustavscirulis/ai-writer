@@ -395,7 +395,19 @@ pub async fn write_file(
     crate::watcher::record_write(&state, &PathBuf::from(&path));
 
     let write_path = PathBuf::from(&path);
-    let result = blocking(move || write_file_impl(&path, &content)).await?;
+    let history_state = Arc::clone(&state);
+    let history_app = app.clone();
+    let result = blocking(move || {
+        let result = write_file_impl(&path, &content)?;
+        crate::commands::history::record_user_save(
+            &history_app,
+            &history_state,
+            Path::new(&path),
+            &content,
+        );
+        Ok(result)
+    })
+    .await?;
     state.update_index_modified_at(&write_path, result.modified_at);
     let _ = app.emit_to(label, "sidebar:metadata-changed", &result);
     Ok(result)
@@ -702,12 +714,22 @@ pub struct DocumentMove {
     to: String,
 }
 #[tauri::command]
-pub async fn rename_entry(old_path: String, new_path: String) -> Result<DocumentMove, AppError> {
+pub async fn rename_entry(
+    old_path: String,
+    new_path: String,
+    webview: tauri::Webview,
+    app: tauri::AppHandle,
+) -> Result<DocumentMove, AppError> {
+    let state = app.state::<AppState>().get_or_create(webview.label());
     blocking(move || {
-        let from = fs::canonicalize(&old_path)?.to_string_lossy().into_owned();
+        let from = fs::canonicalize(&old_path)?;
         rename_entry_impl(&old_path, &new_path)?;
-        let to = fs::canonicalize(&new_path)?.to_string_lossy().into_owned();
-        Ok(DocumentMove { from, to })
+        let to = fs::canonicalize(&new_path)?;
+        crate::commands::history::move_entry_history(&state, &from, &to);
+        Ok(DocumentMove {
+            from: from.to_string_lossy().into_owned(),
+            to: to.to_string_lossy().into_owned(),
+        })
     })
     .await
 }

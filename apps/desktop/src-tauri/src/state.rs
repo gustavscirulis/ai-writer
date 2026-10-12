@@ -71,6 +71,9 @@ pub struct WorkspaceState {
     /// same file onto the existing window and as the target of the
     /// single-file watcher.
     pub standalone_file: RwLock<Option<PathBuf>>,
+    /// Claude turn that last recorded a version per note (relative path), so
+    /// every edit within one turn coalesces into a single version.
+    pub history_groups: Mutex<HashMap<PathBuf, String>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -113,6 +116,7 @@ impl Default for WorkspaceState {
             startup_open_taken: AtomicBool::new(false),
             pending_open: Mutex::new(VecDeque::new()),
             standalone_file: RwLock::new(None),
+            history_groups: Mutex::new(HashMap::new()),
         }
     }
 }

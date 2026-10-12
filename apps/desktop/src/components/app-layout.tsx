@@ -1,6 +1,10 @@
 import { useActiveFilePath, useActiveTab } from "@/hooks/use-tabs";
 import { pageKind } from "./editor-area/page-kinds";
 import { ClaudePanel, clampChatWidth } from "./claude-panel";
+import { HistoryPanel } from "./version-history/history-panel";
+import { toggleVersionHistory, useHistoryPath } from "@/hooks/use-version-history";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Clock01Icon } from "@hugeicons/core-free-icons";
 import {
   toggleChatPanel,
   useChatPanelVisible,
@@ -50,7 +54,11 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
     clampSidebarWidth(sidebarWidth, maxSidebarWidth),
   );
   const draftSidebarWidthRef = useRef(draftSidebarWidth);
-  const chatVisible = !showWelcome && activeShowsChat && (chatPreferred || permissions.length > 0);
+  const historyPath = useHistoryPath();
+  const historyVisible = !showWelcome && historyPath !== null && historyPath === activeFilePath;
+  const chatVisible =
+    !showWelcome && !historyVisible && activeShowsChat && (chatPreferred || permissions.length > 0);
+  const panelVisible = chatVisible || historyVisible;
   const maxChatWidth = Math.max(
     260,
     Math.min(560, viewportWidth - (isSidebarCollapsed ? 0 : draftSidebarWidth) - 320),
@@ -140,7 +148,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
       className="relative h-screen w-screen overflow-hidden bg-transparent text-text-primary"
       style={
         {
-          "--agent-panel-width": `${chatVisible ? clampChatWidth(chatWidth, maxChatWidth) : 0}px`,
+          "--agent-panel-width": `${panelVisible ? clampChatWidth(chatWidth, maxChatWidth) : 0}px`,
         } as React.CSSProperties
       }
     >
@@ -167,7 +175,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           className="pointer-events-none absolute top-0 z-40"
           style={{
             left: tabChromeLeft,
-            right: chatVisible ? "calc(var(--agent-panel-width) + 12px)" : 70,
+            right: panelVisible ? "calc(var(--agent-panel-width) + 12px)" : 104,
             transition: isSidebarDragging ? "none" : "left 140ms ease-out",
           }}
         >
@@ -176,16 +184,29 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           </div>
         </div>
       )}
-      {!showWelcome && activeShowsChat && !chatVisible && (
-        <button
-          type="button"
-          onClick={toggleChatPanel}
-          aria-label="Open chat panel"
-          title="Open chat panel (⌘⇧L)"
-          className="absolute right-4 top-4 z-50 rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
-        >
-          Chat
-        </button>
+      {!showWelcome && activeShowsChat && !panelVisible && (
+        <div className="absolute right-4 top-4 z-50 flex items-center gap-1">
+          {activeFilePath && (
+            <button
+              type="button"
+              onClick={() => toggleVersionHistory(activeFilePath)}
+              aria-label="Version history"
+              title="Version history (⌘⇧H)"
+              className="grid size-[26px] place-items-center rounded-md text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
+            >
+              <HugeiconsIcon icon={Clock01Icon} size={15} strokeWidth={1.8} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggleChatPanel}
+            aria-label="Open chat panel"
+            title="Open chat panel (⌘⇧L)"
+            className="rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
+          >
+            Chat
+          </button>
+        </div>
       )}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex min-h-0 flex-1">
@@ -214,6 +235,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
             {showWelcome ? <WelcomeScreen /> : <EditorArea />}
           </div>
           {chatVisible && <ClaudePanel maxWidth={maxChatWidth} />}
+          {historyVisible && <HistoryPanel />}
         </div>
       </div>
     </div>

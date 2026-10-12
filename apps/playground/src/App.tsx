@@ -13,18 +13,23 @@ import { headingDecorations } from "@/components/editor-area/heading-decorations
 import { markdownFormatting } from "@/components/editor-area/markdown-formatting";
 import { viewportParsePlugin } from "@/components/editor-area/viewport-parse";
 import { createEditorExtensions } from "@/components/editor-area/editor-extensions";
+import { historyPreviewState } from "@/components/version-history/history-preview-extensions";
 import "@/components/editor-area/prosemark-theme.css";
+import "@/components/version-history/version-history.css";
 
 // `?full` mounts the desktop app's complete extension set (tables, math,
 // Mermaid, HTML blocks, wiki links, search, clipboard) instead of the core
 // subset; its Tauri-backed actions (link opening, native clipboard menu,
 // image file URLs) fail when triggered, but editing and rendering work.
 const FULL = new URLSearchParams(location.search).has("full");
+// `?history` mounts the read-only version-history preview, diffing SAMPLE
+// against HISTORY_ORIGINAL.
+const HISTORY = new URLSearchParams(location.search).has("history");
 
 // Image and wiki-embed widgets call Tauri's `convertFileSrc` while rendering;
 // without a stand-in the throw leaves CodeMirror's view tree broken. The
 // resulting asset:// URLs don't load, so local images show as broken.
-if (FULL) {
+if (FULL || HISTORY) {
   const w = window as unknown as { __TAURI_INTERNALS__?: object };
   w.__TAURI_INTERNALS__ ??= {
     convertFileSrc: (path: string, protocol = "asset") =>
@@ -61,6 +66,19 @@ const SAMPLE = `# List playground
 - jev API (from the core package): an async generator yielding events.
   Candidate shape: id, description, root.
 - shadcn charts: https://ui.shadcn.com/docs/components/chart
+
+Plain paragraph after the list.
+`;
+
+const HISTORY_ORIGINAL = `# List playground
+
+- jev limitations: "Set the key in the gateway."
+- im creating a sub item!!
+- jev API (from the core package): an async generator yielding events.
+  Candidate shape: id, description, root.
+- A removed bullet about charts.
+
+A paragraph that was deleted in the next version.
 
 Plain paragraph after the list.
 `;
@@ -105,18 +123,20 @@ export function App() {
     if (!host.current) return;
     const view = new EditorView({
       parent: host.current,
-      state: EditorState.create({
-        doc: SAMPLE,
-        extensions: [
-          ...editorExtensions(),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged) setDoc(update.state.doc.toString());
-            if (update.docChanged || update.selectionSet) {
-              setHead(update.state.selection.main.head);
-            }
+      state: HISTORY
+        ? historyPreviewState(SAMPLE, HISTORY_ORIGINAL, () => "/playground/note.md")
+        : EditorState.create({
+            doc: SAMPLE,
+            extensions: [
+              ...editorExtensions(),
+              EditorView.updateListener.of((update) => {
+                if (update.docChanged) setDoc(update.state.doc.toString());
+                if (update.docChanged || update.selectionSet) {
+                  setHead(update.state.selection.main.head);
+                }
+              }),
+            ],
           }),
-        ],
-      }),
     });
     // Exposed for browser automation: `window.__view.state.doc.toString()`.
     (window as unknown as { __view: EditorView; __EditorView: typeof EditorView }).__view = view;

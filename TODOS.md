@@ -12,6 +12,8 @@
 
 ## Done
 
+- Version history for notes: [`SPECs/version-history-spec.md`](SPECs/version-history-spec.md). Each version is stored as a plain file under `.writer/history/` in the vault. User saves coalesce, Claude turns are grouped, and older versions are thinned out over time. The panel opens from the clock button or ⌘⇧H, shows a read-only preview with inline diff highlights, flips versions with ↑/↓, and restores as one undoable step. Native, frontend and WebDriver tests pass; the WebDriver test covers an external edit, a typed edit, flipping versions and restoring.
+
 - Dock badge for pending Chat approvals. Each window reports how many permission requests it is showing through `set_pending_approvals`. Native code adds up the counts from all windows into the Dock badge, which is shared by the whole app, and recounts when a window closes. Store and native tests, checks, Clippy and formatting pass. Native Tauri QA is pending.
 
 - Scroll a sent Chat message to the top: [`SPECs/chat-scroll-to-sent-message.md`](SPECs/chat-scroll-to-sent-message.md). Sending pins the new user message to the top of the scroller. A spacer keeps it reachable while the reply is short, and the view doesn't follow the stream. Threads with history still open at the bottom.

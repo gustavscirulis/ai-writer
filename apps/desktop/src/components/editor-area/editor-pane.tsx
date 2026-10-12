@@ -6,6 +6,8 @@ import { EditorSearchOverview } from "./editor-search-overview";
 import { SectionRail } from "./section-rail";
 import { useCloseEditorSearchWhenInactive } from "./use-close-editor-search-when-inactive";
 import { useIsFileLoading } from "@/hooks/use-tabs";
+import { useHistoryPath } from "@/hooks/use-version-history";
+import { HistoryPreview } from "@/components/version-history/history-preview";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -28,6 +30,7 @@ export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPan
   const isLoading = useIsFileLoading(path);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const showsHistory = useHistoryPath() === path && isActive;
   useCloseEditorSearchWhenInactive(isActive);
 
   const getScrollContainer = useCallback(() => scrollContainerRef.current, []);
@@ -53,28 +56,34 @@ export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPan
         isActive ? "relative z-10 h-full" : "absolute inset-0 invisible pointer-events-none"
       }
     >
-      <EditorScrollContainer ref={scrollContainerRef}>
-        <div
-          className="mx-auto w-full"
-          style={{
-            maxWidth: "var(--writer-editor-outer-width)",
-            boxSizing: "border-box",
-            paddingTop: "var(--writer-editor-top-padding)",
-            paddingLeft: "var(--writer-editor-side-padding)",
-            paddingRight: "var(--writer-editor-side-padding)",
-          }}
-        >
-          <FrontmatterPanel filePath={path} />
-        </div>
-        <ProseMarkEditor
-          filePath={path}
-          getScrollContainer={getScrollContainer}
-          autoFocus={isActive}
-          onViewChange={setEditorView}
-        />
-      </EditorScrollContainer>
-      <SectionRail filePath={path} view={editorView} scrollContainerRef={scrollContainerRef} />
+      {/* The window background is translucent, so the preview can't simply cover the editor. */}
+      <div className={showsHistory ? "invisible h-full" : "h-full"}>
+        <EditorScrollContainer ref={scrollContainerRef}>
+          <div
+            className="mx-auto w-full"
+            style={{
+              maxWidth: "var(--writer-editor-outer-width)",
+              boxSizing: "border-box",
+              paddingTop: "var(--writer-editor-top-padding)",
+              paddingLeft: "var(--writer-editor-side-padding)",
+              paddingRight: "var(--writer-editor-side-padding)",
+            }}
+          >
+            <FrontmatterPanel filePath={path} />
+          </div>
+          <ProseMarkEditor
+            filePath={path}
+            getScrollContainer={getScrollContainer}
+            autoFocus={isActive}
+            onViewChange={setEditorView}
+          />
+        </EditorScrollContainer>
+      </div>
+      {!showsHistory && (
+        <SectionRail filePath={path} view={editorView} scrollContainerRef={scrollContainerRef} />
+      )}
       {isActive && <EditorSearchOverview scrollContainerRef={scrollContainerRef} />}
+      {showsHistory && <HistoryPreview path={path} />}
     </div>
   );
 });

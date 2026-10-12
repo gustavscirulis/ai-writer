@@ -1,0 +1,36 @@
+.cm-editor.writer-history-preview {
+  --writer-diff-inserted: color-mix(in srgb, #1f9d55 16%, transparent);
+  --writer-diff-inserted-line: color-mix(in srgb, #1f9d55 5%, transparent);
+  --writer-diff-deleted: color-mix(in srgb, #d6453d 80%, var(--fg-base));
+  --writer-diff-deleted-line: color-mix(in srgb, #d6453d 5%, transparent);
+}
+[data-theme="dark"] .cm-editor.writer-history-preview {
+  --writer-diff-inserted: color-mix(in srgb, #3ccf7a 22%, transparent);
+  --writer-diff-inserted-line: color-mix(in srgb, #3ccf7a 6%, transparent);
+  --writer-diff-deleted: color-mix(in srgb, #ff7a70 75%, var(--fg-base));
+  --writer-diff-deleted-line: color-mix(in srgb, #ff7a70 6%, transparent);
+}
+
+.writer-history-preview .cm-changedLine,
+.writer-history-preview .cm-inlineChangedLine {
+  background-color: var(--writer-diff-inserted-line);
+}
+.writer-history-preview .cm-changedText,
+.writer-history-preview ins.cm-insertedLine {
+  background: var(--writer-diff-inserted);
+  border-radius: 2px;
+  text-decoration: none;
+}
+
+.writer-history-preview .cm-deletedChunk {
+  background-color: var(--writer-diff-deleted-line);
+  padding-left: 0;
+}
+.writer-history-preview .cm-deletedChunk .cm-deletedText,
+.writer-history-preview .cm-deletedChunk del,
+.writer-history-preview .cm-deletedText {
+  background: none;
+  color: var(--writer-diff-deleted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--writer-diff-deleted) 70%, transparent);
+}

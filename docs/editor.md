@@ -217,6 +217,10 @@ Watcher and initial file-load reads capture the target document's I/O revision; 
 
 After confirmed process termination, the turn reads only its canonical target and synchronizes every mounted alias/duplicate view before unlocking. A failed read retains that note's recovery lock and exposes Retry reload. Agent reloads are minimal isolated history transactions, with a frontmatter StateEffect and inverted effects so body and metadata undo/redo together in one step. Ordinary external reloads keep their existing non-history behavior. See [parallel note agents](../SPECs/parallel-note-agents.md).
 
+## Version history preview: a separate read-only view
+
+The history preview (`version-history/history-preview-extensions.ts`) mounts its own `EditorView` instead of reusing the note's editor. It uses only the rendering pieces of `createEditorExtensions`: `writerMarkdown()`, prosemark, headings, tables, math and images. It leaves out store sync, feedback, history and Mermaid, because each of those writes back to the note or the store. It is read-only three ways: `readOnly`, `editable(false)`, and a filter that rejects document changes. The selection is parked on a trailing empty line so that prosemark never reveals markdown syntax. Switching versions calls `view.setState` with a fresh `unifiedMergeView` state, and the original is the previous version.
+
 ## File map
 
 - `mermaid-decorations.ts` — canonical replace-only block widget with in-widget editing. Reference for live position lookup (`findEnclosingFencedCode`) and writing the fence back from a nested editor.

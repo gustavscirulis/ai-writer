@@ -55,7 +55,7 @@ function focusOnRevealExtension(isDisposed: () => boolean): Extension {
   });
 }
 
-const headingWeightHighlight = Prec.highest(
+export const headingWeightHighlight = Prec.highest(
   syntaxHighlighting(
     HighlightStyle.define([
       { tag: tags.strong, fontWeight: "600" },
@@ -101,17 +101,21 @@ function storeSyncExtension(getFilePath: () => string): Extension {
 // ends up with two.
 const htmlTagLanguage = html({ matchClosingTags: false, autoCloseTags: false });
 
+export function writerMarkdown(): Extension {
+  return markdown({
+    codeLanguages: languages,
+    extensions: [GFM, prosemarkMarkdownSyntaxExtensions, htmlBlockParserExtension],
+    htmlTagLanguage,
+  });
+}
+
 export function createEditorExtensions(
   getFilePath: () => string,
   isDisposed: () => boolean,
   historyCompartment: Compartment,
 ): Extension[] {
   return [
-    markdown({
-      codeLanguages: languages,
-      extensions: [GFM, prosemarkMarkdownSyntaxExtensions, htmlBlockParserExtension],
-      htmlTagLanguage,
-    }),
+    writerMarkdown(),
     linkNavigationExtension(getFilePath, isDisposed),
     editorBodyContextMenuExtension(getFilePath, isDisposed),
     // Undo history lives in its own compartment so a tab swap can reset it

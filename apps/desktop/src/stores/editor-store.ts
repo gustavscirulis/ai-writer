@@ -281,6 +281,13 @@ function applyRewriteToTab(tab: Tab, rewrite: (loc: Location) => Location | null
   return { ...tab, location: newLocation, back, forward };
 }
 
+/** Record what's on disk when a note opens, so the state before any edit is kept. */
+function captureBaseline(path: string) {
+  void tauri
+    .captureVersion(path, "external")
+    .catch((error) => console.error("[history] Could not record a version", error));
+}
+
 async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () => EditorState) {
   const existing = get().openFiles.get(path);
   if (existing && !existing.isLoading) return;
@@ -328,6 +335,7 @@ async function ensureFileLoaded(path: string, set: EditorStateSetter, get: () =>
         );
         return { openFiles: files };
       });
+      captureBaseline(path);
     })
     .catch((error) => {
       // An owned reload may already have completed this initial navigation.
@@ -1107,6 +1115,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         activeFilePath: activePath,
       };
     });
+
+    if (seededActive && activePath) captureBaseline(activePath);
 
     // Skip the active path if we already seeded it from the prefetch — the
     // remaining background tabs still get loaded in parallel.

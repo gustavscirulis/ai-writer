@@ -4,6 +4,7 @@ mod config;
 mod dock_menu;
 mod error;
 mod feedback_persistence;
+mod history;
 mod ignore;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -617,6 +618,10 @@ pub fn run() {
             commands::fs::delete_entry,
             commands::fs::file_exists,
             commands::fs::reveal_in_file_manager,
+            commands::history::history_list,
+            commands::history::history_read,
+            commands::history::history_capture,
+            commands::history::history_restore,
             commands::workspace::open_workspace,
             commands::workspace::open_workspace_in_file_manager,
             commands::workspace::close_workspace,

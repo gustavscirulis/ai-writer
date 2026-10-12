@@ -554,6 +554,7 @@ fn run_workspace_bootstrap(
         return;
     };
     drop(displaced);
+    crate::commands::history::prune_workspace_history(&root);
     let _ = handle.emit_to(
         label,
         "index:complete",

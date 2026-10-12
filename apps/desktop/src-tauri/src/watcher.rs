@@ -55,11 +55,17 @@ fn should_ignore(path: &Path, workspace_root: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(workspace_root) else {
         return false;
     };
+    let mut parent_is_writer = false;
     for component in relative.components() {
         let name = component.as_os_str().to_string_lossy();
         if name == ".git" || name == "node_modules" || name == ".DS_Store" {
             return true;
         }
+        // Version history is written by Writer itself and never reloads anything.
+        if parent_is_writer && name == "history" {
+            return true;
+        }
+        parent_is_writer = name == ".writer";
         // Allow .writer directory (workspace config) and .gitignore files —
         // both must be watchable: settings reload on the former, matcher
         // rebuild on the latter.
@@ -860,6 +866,17 @@ mod tests {
         let root = Path::new(ROOT);
         assert!(should_ignore(Path::new("/workspace/.DS_Store"), root));
         assert!(should_ignore(Path::new("/workspace/.hidden/file.md"), root));
+    }
+
+    #[test]
+    fn ignores_version_history_but_not_workspace_config() {
+        let root = Path::new(ROOT);
+        assert!(should_ignore(
+            Path::new("/workspace/.writer/history/a.md/1-user.md"),
+            root
+        ));
+        assert!(!should_ignore(Path::new("/workspace/.writer/config"), root));
+        assert!(!should_ignore(Path::new("/workspace/history/a.md"), root));
     }
 
     #[test]
