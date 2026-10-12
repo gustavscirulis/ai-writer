@@ -44,12 +44,15 @@ export function MessageList() {
   const error = useChatError(path);
   const notices = useChatNotices(path);
   const status = useChatStatus(path);
-  const scrollRef = useConversationScroll();
+  const last = messages[messages.length - 1];
+  const lastId = last?.id;
+  const { scrollRef, spacerRef } = useConversationScroll(
+    last?.role === "user" ? last.id : undefined,
+  );
   const turns = groupTurns(messages, notices);
-  const lastId = messages[messages.length - 1]?.id;
   return (
     <div
-      className="min-h-0 flex-1 overflow-y-auto px-[18px] pb-5 pt-2"
+      className="relative min-h-0 flex-1 overflow-y-auto px-[18px] pb-5 pt-2"
       ref={scrollRef}
       tabIndex={0}
       role="log"
@@ -122,6 +125,7 @@ export function MessageList() {
           </p>
         )}
       </div>
+      <div ref={spacerRef} aria-hidden />
     </div>
   );
 }
