@@ -2,7 +2,7 @@
 
 ## 2026-10-12
 
-- Co-writer remembers “Yes, and don't ask again”. The choice is saved, so it now applies to every chat in every workspace and survives quitting Writer. Before, it reset when you started a new chat or quit. To see what you've allowed, or take something back, open Settings → Co-writer and press Revoke. A revoked tool asks again from your next message.
+- Co-writer remembers “Yes, and don't ask again”. The choice is saved, so it now applies to every chat in every workspace and survives quitting Writer. Before, it reset when you started a new chat or quit. To see what you've allowed, or take something back, open Settings → Co-writer and press Revoke. A revoked tool asks again from your next message. Co-writer's other settings, Show Co-writer and Panel Width, moved there from Appearance.
 
 - Co-writer has a plan mode. Turn on Plan next to + in the message box, or press Shift+Tab there, and Claude looks around and comes back with a plan before changing anything. It can ask you questions along the way. The plan takes the message box's place: choose "Yes, start writing" and Claude carries on in the same reply, or "No, keep planning" and tell it what to change. Plan turns itself off once you approve, and each plan stays in the conversation.
 

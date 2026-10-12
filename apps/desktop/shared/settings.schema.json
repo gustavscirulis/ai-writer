@@ -88,22 +88,6 @@
       "default": "system"
     },
     {
-      "key": "appearance.agent-panel-visible",
-      "label": "Co-writer",
-      "description": "Show the experimental Co-writer panel. Runs your installed Claude Code CLI with its own account and permissions.",
-      "category": "Appearance",
-      "type": "boolean",
-      "default": false
-    },
-    {
-      "key": "appearance.agent-panel-width",
-      "label": "Co-writer Width",
-      "description": "Width of the Co-writer panel in pixels",
-      "category": "Appearance",
-      "type": "number",
-      "default": 340
-    },
-    {
       "key": "appearance.sidebar-width",
       "label": "Sidebar Width",
       "description": "Default sidebar width in pixels",
@@ -422,6 +406,22 @@
       "normalize": "trim",
       "scope": "global",
       "default": ""
+    },
+    {
+      "key": "appearance.agent-panel-visible",
+      "label": "Show Co-writer",
+      "description": "Show the experimental Co-writer panel. Runs your installed Claude Code CLI with its own account and permissions.",
+      "category": "Co-writer",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "appearance.agent-panel-width",
+      "label": "Panel Width",
+      "description": "Width of the Co-writer panel in pixels",
+      "category": "Co-writer",
+      "type": "number",
+      "default": 340
     },
     {
       "key": "co-writer.allowed-tools",

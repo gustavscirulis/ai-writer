@@ -51,6 +51,10 @@ describe("Settings → Co-writer allowed tools", function () {
     await browser.execute((el) => el.scrollIntoView({ block: "center" }), revokeRead);
     await browser.pause(300);
     ok(await $('button[aria-label="Revoke Use search from notes"]').isExisting());
+    const coWriter = '//section[.//h2[normalize-space()="Co-writer"]]';
+    ok(await $(`${coWriter}//*[normalize-space()="Show Co-writer"]`).isExisting());
+    ok(await $(`${coWriter}//*[normalize-space()="Panel Width"]`).isExisting());
+    ok(await $(`${coWriter}//button[@aria-label="Revoke Read files"]`).isExisting());
     ok(
       !(await $(
         '//section[.//h2[normalize-space()="Co-writer"]]//button[normalize-space()="+ Add"]',
