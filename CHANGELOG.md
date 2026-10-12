@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Chat approvals have a new choice: “Yes, and don't ask again”. It allows that kind of request, such as reading files or using one MCP tool, for the rest of the note's chat. It resets when you start a new chat or quit Writer. Chat still can't edit notes outside the workspace or a note another chat is editing.
+
 - Ask Chat to create a new note or update another note. Chat asks first, for example “Create **ideas.md**?”, and only once per note per reply. Its edits to the current note still need no approval. A note is read-only only while Chat applies an edit to it, and you can undo the change in one step. New notes appear in the sidebar, and you can click any note Chat wrote in its tool list to open it. Chat can't write outside the workspace, in hidden folders, or to files other than Markdown notes.
 
 - Keep writing while the AI thinks. Your note now locks only while the AI is applying an edit, and the cursor shows a spinning wait cursor over the editor during that moment. Your latest typing is saved before each AI edit and merged back afterwards.

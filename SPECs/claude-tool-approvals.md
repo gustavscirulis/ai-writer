@@ -1,12 +1,12 @@
 # Claude Code tool approvals
 
-Chat displays native, request-local approvals for Read, Glob, Grep, WebSearch, WebFetch, tool discovery and configured MCP tools when required by CLI permissions. Each note owns its approval queue; a background request updates its tab indicator without switching notes or taking focus. Activating the indicator opens that note's Chat. For the selected note, an approval may open a hidden panel. Inputs remain keyboard-scrollable and available in full before Allow once or Deny.
+Chat displays native, request-local approvals for Read, Glob, Grep, WebSearch, WebFetch, tool discovery and configured MCP tools when required by CLI permissions. Each note owns its approval queue; a background request updates its tab indicator without switching notes or taking focus. Activating the indicator opens that note's Chat. For the selected note, an approval may open a hidden panel. Inputs remain keyboard-scrollable and available in full before Allow once, Always allow or Deny.
 
 ### Prompt design
 
 While a request waits, it takes the composer's place (`permission-request.tsx`, rendered by the panel instead of `Composer`). The draft and attachments live in stores, so they are back when the queue drains. `summarizeToolRequest` turns the tool and input into a plain question, such as "Read **maria.md**?" with `Vault/Research` under it, or "Create **ideas.md**?" for a note outside the chat's own. Paths are shown from the workspace folder down, or as absolute paths when they are outside it. Unknown tools fall back to "Use **Tool**?".
 
-The two options are a keyboard list: "Yes, read it" (worded per tool) is the single Allow once, and "No, deny this request" denies. ↑/↓ move between them, Enter picks the focused one, and Esc denies from anywhere in the prompt. The ↵/esc hints show only while the prompt has focus. "Show request" reveals the raw input, and Stop replaces the composer's stop button. On mount the prompt focuses Yes only when focus is on the page body or already in Chat. It never takes focus from the editor, because a stray Space or Enter would then approve the request.
+The three options are a keyboard list: "Yes, read it" (worded per tool) is Allow once, "Yes, and don't ask again to read files" (`alwaysAllowLabel`) is Always allow, and "No, deny this request" denies. ↑/↓ move between them, Enter picks the focused one, and Esc denies from anywhere in the prompt. The ↵/esc hints show only while the prompt has focus. "Show request" reveals the raw input, and Stop replaces the composer's stop button. On mount the prompt focuses Yes only when focus is on the page body or already in Chat. It never takes focus from the editor, because a stray Space or Enter would then approve the request.
 
 ## Native enforcement
 
@@ -16,7 +16,11 @@ Before delivering the user prompt, native code sends SDK `initialize` and requir
 
 Native startup announces its registered process ID through the started lifecycle event before awaiting SDK initialization, so Chat can Stop a slow MCP/plugin startup. Initialization remains bounded to sixty seconds and prompt delivery still requires successful initialization. The native actor owns stdin and all control replies. `claude_decide_permission` accepts process ID, request ID and a boolean; the retained native request supplies the tool input. Frontend input IPC accepts only a user message, so forged control responses cannot escape scope enforcement. Decisions are single-use and process-local. Stop, terminal results, hook failure and workspace teardown invalidate pending approvals. Failed decision delivery stays visible in that note; transport/hook parsing/reply errors terminate and reap only the affected process. Ownership remains until termination and disk reconciliation succeed.
 
-Unknown or malformed host callbacks fail closed, with bounded initialization, canonicalization and reply deadlines. No permission updates are persisted. Authenticate MCP servers through Claude Code in the terminal; Writer provides no MCP authentication UI. MCP elicitation and interactive question forms remain unsupported. See [MCP tools](chat-mcp-tools.md).
+Unknown or malformed host callbacks fail closed, with bounded initialization, canonicalization and reply deadlines. No permission updates are sent to Claude Code or persisted.
+
+### Always allow
+
+Always allow matches by tool name (`Read`, `WebFetch`, `mcp__server__tool`, `Edit`, `Write`) and lasts for that note's chat until Writer quits; New chat clears it. The store keeps the names in `Chat.allowedTools` (memory only) and passes them to every `claude_start`, because each turn is a new CLI process. `claude_start` rejects names outside the permitted tool set. Native `Scope.always` replies allow to a matching `can_use_tool` without forwarding it, and `claude_decide_permission(..., always)` adds the tool mid-turn. Requests already queued in the UI for that tool are then allowed once by the store. For Edit/Write, Always allow skips only the prompt: the canonical guard, workspace denials and cross-chat claims still apply. Authenticate MCP servers through Claude Code in the terminal; Writer provides no MCP authentication UI. MCP elicitation and interactive question forms remain unsupported. See [MCP tools](chat-mcp-tools.md).
 
 ## Validation
 

@@ -346,6 +346,7 @@ export function claudeStart(
   epoch: number,
   resumeSessionId: string | null,
   notePath: string,
+  alwaysAllow: string[],
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
 ): Promise<string> {
   return invoke("claude_start", {
@@ -353,6 +354,7 @@ export function claudeStart(
     epoch,
     resumeSessionId,
     notePath: documentPath(notePath),
+    alwaysAllow,
     onEvent,
   });
 }
@@ -367,8 +369,9 @@ export function claudeDecidePermission(
   processId: string,
   requestId: string,
   allow: boolean,
+  always: boolean,
 ): Promise<void> {
-  return invoke("claude_decide_permission", { processId, requestId, allow });
+  return invoke("claude_decide_permission", { processId, requestId, allow, always });
 }
 export function claudeEditReady(
   processId: string,

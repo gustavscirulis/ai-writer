@@ -179,11 +179,13 @@ struct Scope {
     owner: String,
     claims: NoteClaims,
     approved: HashSet<PathBuf>,
+    /// Tools the user always allows in this chat; they skip the host prompt.
+    always: HashSet<String>,
     initialized: bool,
     active: bool,
     sent: bool,
     seen: HashSet<String>,
-    permissions: HashMap<String, Value>,
+    permissions: HashMap<String, (String, Value)>,
     // Allowed note edits wait here, as (allow, deny) replies, until the UI has saved and locked.
     edits: HashMap<String, (Value, Value)>,
     targets: HashMap<String, PendingTarget>,
@@ -196,6 +198,7 @@ impl Scope {
             owner,
             claims,
             approved: HashSet::new(),
+            always: HashSet::new(),
             initialized: false,
             active: false,
             sent: false,
@@ -304,7 +307,14 @@ impl Scope {
                 }
                 Target::NeedsApproval { path, exists } => {
                     input["file_path"] = json!(path);
-                    self.permissions.insert(id.into(), input);
+                    if self.always.contains(tool) {
+                        return Ok(Some(if self.claim(path) {
+                            json!({"behavior": "allow", "updatedInput": input})
+                        } else {
+                            json!({"behavior": "deny", "message": NOTE_CLAIMED})
+                        }));
+                    }
+                    self.permissions.insert(id.into(), (tool.into(), input));
                     let tool_use_id = request["tool_use_id"].as_str().map(String::from);
                     self.targets.insert(
                         id.into(),
@@ -327,7 +337,11 @@ impl Scope {
         let input = request["input"]
             .as_object()
             .ok_or("Invalid tool permission input")?;
-        self.permissions.insert(id.into(), json!(input));
+        if self.always.contains(tool) {
+            return Ok(Some(json!({"behavior": "allow", "updatedInput": input})));
+        }
+        self.permissions
+            .insert(id.into(), (tool.into(), json!(input)));
         Ok(None)
     }
     /// Holds an allowed Edit/Write reply; returns the event that asks the UI to prepare.
@@ -393,11 +407,11 @@ impl Scope {
         self.targets.remove(id);
         self.edits.remove(id);
     }
-    fn decision(&mut self, id: &str, allow: bool) -> Result<Decision, String> {
+    fn decision(&mut self, id: &str, allow: bool, always: bool) -> Result<Decision, String> {
         if !self.active {
             return Err("No active Writer turn".into());
         }
-        let input = self
+        let (tool, input) = self
             .permissions
             .remove(id)
             .ok_or("Tool request is no longer pending")?;
@@ -408,33 +422,41 @@ impl Scope {
                 json!({"behavior": "deny", "message": "Denied by the user in Writer."}),
             )));
         }
+        if always {
+            self.always.insert(tool);
+        }
         let allowed = json!({"behavior": "allow", "updatedInput": input});
         let Some(target) = target else {
             return Ok(Decision::Reply(response(id, allowed)));
         };
-        {
-            let mut claims = self.claims.lock();
-            if claims
-                .get(&target.path)
-                .is_some_and(|owner| owner != &self.owner)
-            {
-                return Ok(Decision::Reply(response(
-                    id,
-                    json!({"behavior": "deny", "message": "Another chat is editing this note."}),
-                )));
-            }
-            claims.insert(target.path.clone(), self.owner.clone());
+        if !self.claim(target.path) {
+            return Ok(Decision::Reply(response(
+                id,
+                json!({"behavior": "deny", "message": NOTE_CLAIMED}),
+            )));
         }
-        self.approved.insert(target.path);
         let event = self
             .hold_edit(id, target.tool_use_id, &allowed)
             .ok_or("Approved edit has no allow reply")?;
         Ok(Decision::Hold(event))
     }
+    /// Claims another note for this chat; false when a different chat holds it.
+    fn claim(&mut self, path: PathBuf) -> bool {
+        {
+            let mut claims = self.claims.lock();
+            if claims.get(&path).is_some_and(|owner| owner != &self.owner) {
+                return false;
+            }
+            claims.insert(path.clone(), self.owner.clone());
+        }
+        self.approved.insert(path);
+        true
+    }
     fn release(&self) {
         self.claims.lock().retain(|_, owner| owner != &self.owner);
     }
 }
+const NOTE_CLAIMED: &str = "Another chat is editing this note.";
 fn denied_hook(message: &str) -> Value {
     json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": message}})
 }
@@ -522,8 +544,8 @@ async fn run_process(
                         }
                         (line, ack)
                     }
-                    Input::Permission { request_id, allow, ack } => {
-                        match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.decision(&request_id, allow)) {
+                    Input::Permission { request_id, allow, always, ack } => {
+                        match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.decision(&request_id, allow, always)) {
                             Ok(Decision::Reply(value)) => (value.to_string(), ack),
                             Ok(Decision::Hold(event)) => {
                                 if events.send(event).is_err() { failure = Some("Writer's event channel closed".into()); }
@@ -641,6 +663,21 @@ fn scoped_command(
     command
 }
 
+fn always_allow_set(tools: Vec<String>) -> Result<HashSet<String>, String> {
+    tools
+        .into_iter()
+        .map(|tool| {
+            if matches!(tool.as_str(), "Edit" | "Write") || uses_host_permission(&tool) {
+                Ok(tool)
+            } else {
+                Err(format!("Writer can't always allow {tool}"))
+            }
+        })
+        .collect()
+}
+
+// Tauri maps each argument to an IPC field.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn claude_start(
     webview: WebviewWindow,
@@ -649,8 +686,10 @@ pub async fn claude_start(
     epoch: u64,
     note_path: String,
     resume_session_id: Option<String>,
+    always_allow: Vec<String>,
     on_event: Channel<AgentEvent>,
 ) -> Result<String, AppError> {
+    let always = always_allow_set(always_allow).map_err(AppError::Io)?;
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
     let agent_epoch = workspace
         .agent_epoch
@@ -709,12 +748,10 @@ pub async fn claude_start(
                 cancel_rx,
                 finished_tx,
                 on_event.clone(),
-                Some(Scope::new(
-                    note,
-                    scope_root,
-                    id.clone(),
-                    workspace.agent_claims.clone(),
-                )),
+                Some(Scope {
+                    always,
+                    ..Scope::new(note, scope_root, id.clone(), workspace.agent_claims.clone())
+                }),
                 Some(ready_tx),
             ));
             Ok(id)
@@ -779,11 +816,13 @@ pub async fn claude_decide_permission(
     process_id: String,
     request_id: String,
     allow: bool,
+    always: bool,
 ) -> Result<(), AppError> {
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
     deliver(&workspace, &process_id, |ack| Input::Permission {
         request_id,
         allow,
+        always,
         ack,
     })
     .await
@@ -989,7 +1028,7 @@ mod tests {
             let mut canonical_input = input;
             canonical_input["file_path"] = json!(note.canonicalize().unwrap());
             assert_eq!(reply["updatedInput"], canonical_input);
-            assert!(scope.decision("own-note", true).is_err());
+            assert!(scope.decision("own-note", true, false).is_err());
         }
         let decision = |reply: Value| reply["hookSpecificOutput"]["permissionDecision"].clone();
         let write_hook = |path: &std::path::Path| json!({"callback_id": HOOK_ID, "input": {"tool_name": "Write", "tool_input": {"file_path": path, "content": "new"}}});
@@ -1035,7 +1074,7 @@ mod tests {
                 .unwrap()["behavior"],
             "deny"
         );
-        assert!(scope.decision("write", true).is_err());
+        assert!(scope.decision("write", true, false).is_err());
         assert!(scope.hook(&json!({"callback_id": "forged"})).await.is_err());
         assert!(scope
             .hook(&json!({"callback_id": HOOK_ID, "input": {"tool_name": "Bash"}}))
@@ -1124,7 +1163,7 @@ mod tests {
         assert!(scope.permission("create", &create).await.unwrap().is_none());
         let Ok(Decision::Hold(AgentEvent::EditStart {
             tool_use_id, path, ..
-        })) = scope.decision("create", true)
+        })) = scope.decision("create", true, false)
         else {
             panic!("approved note edit did not wait for the UI");
         };
@@ -1152,7 +1191,8 @@ mod tests {
             .unwrap()
             .is_none());
         assert_eq!(
-            scope.decision("busy", true).unwrap().reply()["response"]["response"]["behavior"],
+            scope.decision("busy", true, false).unwrap().reply()["response"]["response"]
+                ["behavior"],
             "deny"
         );
         assert!(!scope.approved.contains(&root.join("b.md")));
@@ -1162,12 +1202,82 @@ mod tests {
             .unwrap()
             .is_none());
         assert_eq!(
-            scope.decision("denied", false).unwrap().reply()["response"]["response"]["behavior"],
+            scope.decision("denied", false, false).unwrap().reply()["response"]["response"]
+                ["behavior"],
             "deny"
         );
         scope.release();
         assert_eq!(claims.lock().len(), 1);
         assert!(claims.lock().contains_key(&root.join("b.md")));
+    }
+    #[tokio::test]
+    async fn always_allowed_tools_skip_the_prompt_but_not_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        for name in ["a.md", "b.md", "c.md", "d.md"] {
+            std::fs::write(root.join(name), name).unwrap();
+        }
+        let claims = NoteClaims::default();
+        let mut scope = Scope {
+            always: always_allow_set(vec!["Write".into()]).unwrap(),
+            ..Scope::new(root.join("a.md"), root.clone(), "a".into(), claims.clone())
+        };
+        scope.active = true;
+        let read = |path: &str| json!({"tool_name": "Read", "input": {"file_path": path}});
+        let write = |path: PathBuf| json!({"tool_name": "Write", "input": {"file_path": path, "content": "new"}});
+
+        assert!(scope
+            .permission("r1", &read("/x.md"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(scope.decision("r1", true, true).is_ok());
+        assert_eq!(
+            scope
+                .permission("r2", &read("/y.md"))
+                .await
+                .unwrap()
+                .unwrap(),
+            json!({"behavior": "allow", "updatedInput": {"file_path": "/y.md"}})
+        );
+        let grep = json!({"tool_name": "Grep", "input": {"pattern": "x"}});
+        assert!(scope.permission("g", &grep).await.unwrap().is_none());
+
+        let mut request = write(dir.path().join("b.md"));
+        request["tool_use_id"] = json!("toolu_b");
+        let reply = scope.permission("w1", &request).await.unwrap().unwrap();
+        assert_eq!(reply["updatedInput"]["file_path"], json!(root.join("b.md")));
+        assert!(matches!(
+            scope.defer_edit("w1", &request, &reply),
+            Some(AgentEvent::EditStart { path, .. }) if path == root.join("b.md")
+        ));
+        assert_eq!(
+            claims.lock().get(&root.join("b.md")).map(String::as_str),
+            Some("a")
+        );
+
+        claims.lock().insert(root.join("c.md"), "c".into());
+        assert_eq!(
+            scope
+                .permission("w2", &write(root.join("c.md")))
+                .await
+                .unwrap()
+                .unwrap()["behavior"],
+            "deny"
+        );
+        assert_eq!(
+            scope
+                .permission("w3", &write(root.join("b.txt")))
+                .await
+                .unwrap()
+                .unwrap()["behavior"],
+            "deny"
+        );
+        let edit = json!({"tool_name": "Edit", "input": {"file_path": root.join("d.md")}});
+        assert!(scope.permission("e", &edit).await.unwrap().is_none());
+
+        assert!(always_allow_set(vec!["Bash".into()]).is_err());
+        assert!(always_allow_set(vec!["mcp__notes__search".into(), "Read".into()]).is_ok());
     }
     #[tokio::test]
     async fn controls_are_native_and_permissions_are_process_local_and_single_use() {
@@ -1187,13 +1297,13 @@ mod tests {
             .await
             .unwrap()
             .is_none());
-        assert!(b.decision("read-a", true).is_err());
+        assert!(b.decision("read-a", true, false).is_err());
         assert_eq!(
-            a.decision("read-a", true).unwrap().reply()["response"]["response"]["updatedInput"]
-                ["file_path"],
+            a.decision("read-a", true, false).unwrap().reply()["response"]["response"]
+                ["updatedInput"]["file_path"],
             "/context.md"
         );
-        assert!(a.decision("read-a", true).is_err());
+        assert!(a.decision("read-a", true, false).is_err());
         a.active = false;
         assert_eq!(
             a.permission("late", &json!({"tool_name":"Read"}))
@@ -1290,14 +1400,15 @@ mod tests {
             other.active = true;
             assert_eq!(scope.hook(&hook).await.unwrap(), json!({}));
             assert!(scope.permission("allow", &request).await.unwrap().is_none());
-            assert!(other.decision("allow", true).is_err());
-            let reply = scope.decision("allow", true).unwrap().reply();
+            assert!(other.decision("allow", true, false).is_err());
+            let reply = scope.decision("allow", true, false).unwrap().reply();
             assert_eq!(reply["response"]["response"]["behavior"], "allow");
             assert_eq!(reply["response"]["response"]["updatedInput"], input);
-            assert!(scope.decision("allow", true).is_err());
+            assert!(scope.decision("allow", true, false).is_err());
             assert!(scope.permission("deny", &request).await.unwrap().is_none());
             assert_eq!(
-                scope.decision("deny", false).unwrap().reply()["response"]["response"]["behavior"],
+                scope.decision("deny", false, false).unwrap().reply()["response"]["response"]
+                    ["behavior"],
                 "deny"
             );
             assert!(scope
@@ -1334,7 +1445,7 @@ mod tests {
                     .unwrap()["behavior"],
                 "deny"
             );
-            assert!(scope.decision("unsupported", true).is_err());
+            assert!(scope.decision("unsupported", true, false).is_err());
         }
     }
     const INITIALIZED: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"writer-initialize","response":{}}}"#;
@@ -1407,6 +1518,7 @@ mod tests {
                 .send(Input::Permission {
                     request_id: id.into(),
                     allow,
+                    always: false,
                     ack,
                 })
                 .await
@@ -1822,6 +1934,7 @@ mod tests {
                                     .send(Input::Permission {
                                         request_id: id,
                                         allow,
+                                        always: false,
                                         ack,
                                     })
                                     .await;

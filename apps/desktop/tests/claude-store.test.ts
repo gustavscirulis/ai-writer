@@ -741,8 +741,8 @@ test.each([
     await approving;
     await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false);
     expect(sentDecisions()).toEqual([
-      { processId: "process-1", requestId: "first", allow: true },
-      { processId: "process-1", requestId: "second", allow: false },
+      { processId: "process-1", requestId: "first", allow: true, always: false },
+      { processId: "process-1", requestId: "second", allow: false, always: false },
     ]);
     expect(chatState().permissions).toEqual([]);
     expect(chatState().status).toBe("running");
@@ -768,6 +768,33 @@ test("canceling an approval invalidates its in-flight completion without losing 
   expect(sentDecisions()).toHaveLength(1);
   emit({ type: "result", is_error: false });
   await tick();
+});
+test("always allowing a tool approves its queued requests and later turns until a new chat", async () => {
+  const startArgs = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_start")
+      .map(([, payload]) => (payload as { alwaysAllow: string[] }).alwaysAllow);
+  await send("Search");
+  requestPermission("first");
+  requestPermission("second", "Grep", { pattern: "x" });
+  requestPermission("third");
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "first", true, true);
+  expect(sentDecisions()).toEqual([
+    { processId: "process-1", requestId: "first", allow: true, always: true },
+    { processId: "process-1", requestId: "third", allow: true, always: false },
+  ]);
+  expect(chatState().permissions.map((entry) => entry.id)).toEqual(["second"]);
+  expect(chatState().allowedTools).toEqual(["Read"]);
+  await useClaudeStore.getState().decidePermission("/notes/a.md", "second", false, true);
+  expect(chatState().allowedTools).toEqual(["Read"]);
+  emit({ type: "result", is_error: false });
+  await tick();
+  await send("Again");
+  expect(startArgs()).toEqual([[], ["Read"]]);
+  emit({ type: "result", is_error: false });
+  await tick();
+  await useClaudeStore.getState().newChat("/notes/a.md");
+  expect(chatState().allowedTools).toEqual([]);
 });
 test("decision transport errors retain a retryable request and the editor lock", async () => {
   await send("Search");
@@ -1482,7 +1509,9 @@ test("background approvals do not open the panel or change notes and decisions s
   await useClaudeStore.getState().decidePermission("/notes/b.md", "read-a", true);
   expect(sentDecisions()).toHaveLength(0);
   await useClaudeStore.getState().decidePermission("/notes/a.md", "read-a", true);
-  expect(sentDecisions()).toEqual([{ processId: "process-1", requestId: "read-a", allow: true }]);
+  expect(sentDecisions()).toEqual([
+    { processId: "process-1", requestId: "read-a", allow: true, always: false },
+  ]);
   await useClaudeStore.getState().stopAll();
 });
 

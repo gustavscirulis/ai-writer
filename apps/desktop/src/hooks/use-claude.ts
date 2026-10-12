@@ -20,8 +20,8 @@ export function useChatStatus(path: string | null) {
 export function useToolPermissions(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).permissions);
 }
-export const decideToolPermission = (path: string, id: string, allow: boolean) =>
-  useClaudeStore.getState().decidePermission(path, id, allow);
+export const decideToolPermission = (path: string, id: string, allow: boolean, always = false) =>
+  useClaudeStore.getState().decidePermission(path, id, allow, always);
 export function useChatNotices(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).notices);
 }
