@@ -11,7 +11,9 @@ import {
   markAgentReload,
   consumeAgentReload,
   acquireAgentEditing,
+  acquireAgentTurn,
   clearAgentEditing,
+  flushPendingEditors,
   clearDocumentPaths,
   reserveAgentReset,
   documentPath,
@@ -71,7 +73,8 @@ interface Run {
   root: string;
   workspaceGeneration: number;
   options: AgentTurnOptions | null;
-  before: string | null;
+  edit: Edit | null;
+  changed: boolean;
   cancelled: boolean;
   handedOff: boolean;
   ended: boolean;
@@ -88,7 +91,13 @@ interface Run {
   streamingId: string | null;
   streamingBlockIndex: number;
   permissionIds: Set<string>;
+  releaseTurn: () => void;
+}
+interface Edit {
+  toolUseId: string | null;
+  before: string | null;
   release: () => void;
+  ending: Promise<void> | null;
 }
 const runs = new Map<string, Run>();
 const resets = new Map<string, Promise<void>>();
@@ -288,39 +297,7 @@ function finish(run: Run): Promise<void> {
         return;
       }
       if (!current(run)) return;
-      let changed = false;
-      let deleted = false;
-      if (run.handedOff) {
-        let content: tauriReadResult | null = null;
-        try {
-          content = await tauri.readFile(run.key);
-        } catch (error) {
-          if (await tauri.fileExists(run.key)) throw error;
-          deleted = true;
-          changed = true;
-          run.error = `The file was deleted on disk: ${run.path}`;
-        }
-        if (!current(run)) return;
-        changed ||= content !== null && run.before !== null && content.content !== run.before;
-        // Reconcile every display alias of this document, never another note.
-        for (const [path, file] of useEditorStore.getState().openFiles) {
-          if (documentPath(path) !== run.key) continue;
-          if (deleted) {
-            useEditorStore.getState().removePathReferences(path);
-            continue;
-          }
-          if (content && file.diskContent !== content.content) {
-            markAgentReload(path, file.reloadVersion + 1, file.frontmatter);
-            useEditorStore.getState().reloadFromDisk(path, content.content);
-            synchronizeEditorView(path);
-            consumeAgentReload(path, file.reloadVersion + 1);
-          }
-        }
-        if (!deleted) {
-          const failures = await reconcileFeedbackAfterTurn(run.path);
-          if (failures.size) throw failures.values().next().value;
-        }
-      }
+      if (run.edit) await endEdit(run);
       if (run.handedOff) {
         // Only a lost session ID keeps the note locked; a lost transcript is reported.
         const sessionSaved = await (run.sessionWrite ?? Promise.resolve()).then(
@@ -337,7 +314,7 @@ function finish(run: Run): Promise<void> {
       if (!current(run)) return;
       const options = run.options;
       run.options = null;
-      run.release();
+      run.releaseTurn();
       runs.delete(run.key);
       updateChat(run.key, (chat) => ({
         ...chat,
@@ -348,7 +325,7 @@ function finish(run: Run): Promise<void> {
       }));
       options?.complete({
         status: run.cancelled ? "cancelled" : run.error ? "failed" : "completed",
-        changed,
+        changed: run.changed,
         error: run.error,
       });
       useEditorStore.getState().pruneUnreferencedFiles();
@@ -364,7 +341,91 @@ function finish(run: Run): Promise<void> {
   });
   return task;
 }
-type tauriReadResult = Awaited<ReturnType<typeof tauri.readFile>>;
+function notice(run: Run, text: string) {
+  updateChat(run.key, (chat) => {
+    // Every turn starts a new CLI process that repeats its startup warnings.
+    if (chat.notices.some((notice) => notice.text === text)) return chat;
+    const visible = chat.messages.filter(isVisibleMessage);
+    const afterId = visible[visible.length - 1]?.id ?? run.turnId;
+    return { ...chat, notices: [...chat.notices, { afterId, text }].slice(-50) };
+  });
+}
+/** Lock and save the note only while Claude applies an Edit/Write, then release it to the CLI. */
+async function beginEdit(run: Run, requestId: string, toolUseId: string | null) {
+  if (run.edit) run.edit.toolUseId = toolUseId ?? run.edit.toolUseId;
+  else run.edit = { toolUseId, before: null, release: acquireAgentEditing(run.path), ending: null };
+  const edit = run.edit;
+  let ready = false;
+  try {
+    // Embedded flushers may have dirtied another display alias synchronously.
+    const aliases = [...useEditorStore.getState().openFiles.values()].filter(
+      (entry) => documentPath(entry.path) === run.key,
+    );
+    if (aliases.filter((entry) => entry.isDirty).length > 1)
+      throw new Error("Save or close conflicting aliases of this note first.");
+    for (const alias of aliases) await flushSave(alias.path);
+    if (!current(run) || run.edit !== edit) return;
+    edit.before ??= (await tauri.readFile(run.key)).content;
+    ready = true;
+  } catch (error) {
+    if (current(run))
+      notice(run, `Could not save your note before the AI edit: ${errorText(error)}`);
+  }
+  if (!current(run) || run.edit !== edit || !run.processId) return;
+  try {
+    await tauri.claudeEditReady(run.processId, requestId, ready);
+  } catch (error) {
+    console.error("[chat] Could not release the AI edit", error);
+  }
+}
+/** Reload the edited note while it is still locked; a failed reload keeps the lock for retry. */
+function endEdit(run: Run): Promise<void> {
+  const edit = run.edit;
+  if (!edit) return Promise.resolve();
+  edit.ending ??= reloadAfterEdit(run, edit).then(
+    () => {
+      if (run.edit !== edit) return;
+      run.edit = null;
+      edit.release();
+    },
+    (error) => {
+      edit.ending = null;
+      throw error;
+    },
+  );
+  return edit.ending;
+}
+async function reloadAfterEdit(run: Run, edit: Edit) {
+  let content: string | null = null;
+  try {
+    content = (await tauri.readFile(run.key)).content;
+  } catch (error) {
+    if (await tauri.fileExists(run.key)) throw error;
+  }
+  if (!current(run)) return;
+  if (content === null) {
+    run.changed = true;
+    run.error = `The file was deleted on disk: ${run.path}`;
+  } else run.changed ||= edit.before !== null && content !== edit.before;
+  // Reconcile every display alias of this document, never another note.
+  for (const [path, file] of useEditorStore.getState().openFiles) {
+    if (documentPath(path) !== run.key) continue;
+    if (content === null) {
+      useEditorStore.getState().removePathReferences(path);
+      continue;
+    }
+    if (file.diskContent !== content) {
+      markAgentReload(path, file.reloadVersion + 1, file.frontmatter);
+      useEditorStore.getState().reloadFromDisk(path, content);
+      synchronizeEditorView(path);
+      consumeAgentReload(path, file.reloadVersion + 1);
+    }
+  }
+  if (content !== null) {
+    const failures = await reconcileFeedbackAfterTurn(run.path);
+    if (failures.size) throw failures.values().next().value;
+  }
+}
 function receive(run: Run, event: tauri.AgentEvent) {
   if (!current(run)) return;
   if (event.type === "started") {
@@ -385,14 +446,11 @@ function receive(run: Run, event: tauri.AgentEvent) {
     }
     if (event.type === "stderr") {
       const text = event.message.trim();
-      if (text)
-        updateChat(run.key, (chat) => {
-          // Every turn starts a new CLI process that repeats its startup warnings.
-          if (chat.notices.some((notice) => notice.text === text)) return chat;
-          const visible = chat.messages.filter(isVisibleMessage);
-          const afterId = visible[visible.length - 1]?.id ?? run.turnId;
-          return { ...chat, notices: [...chat.notices, { afterId, text }].slice(-50) };
-        });
+      if (text) notice(run, text);
+      return;
+    }
+    if (event.type === "edit_start") {
+      void beginEdit(run, event.requestId, event.toolUseId);
       return;
     }
     const parsed = parseClaudeLine(event.line);
@@ -433,6 +491,17 @@ function receive(run: Run, event: tauri.AgentEvent) {
     } else if (parsed.type === "unsupported_control") {
       throw new Error(`Unsupported interactive request: ${parsed.subtype}`);
     } else if (!run.ended) {
+      const edit = run.edit;
+      if (
+        edit &&
+        parsed.type === "tool_results" &&
+        parsed.results.some((result) => edit.toolUseId === null || result.id === edit.toolUseId)
+      )
+        void endEdit(run).catch((error) =>
+          patch(run, {
+            error: `Could not reload your note: ${errorText(error)}. Stop the chat to retry.`,
+          }),
+        );
       if (parsed.type === "start") {
         run.streamingId = parsed.id;
         run.streamingBlockIndex = 0;
@@ -513,13 +582,12 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     }
     const file = useEditorStore.getState().openFiles.get(path);
     if ((!file && !options) || file?.isLoading) return Promise.resolve(false);
-    const release = acquireAgentEditing(path);
+    flushPendingEditors(path);
     // Embedded flushers may have dirtied another display alias synchronously.
     const aliases = [...useEditorStore.getState().openFiles.values()].filter(
       (entry) => documentPath(entry.path) === key,
     );
     if (aliases.filter((entry) => entry.isDirty).length > 1) {
-      release();
       updateChat(key, (chat) => ({
         ...chat,
         status: "error",
@@ -539,7 +607,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       root: workspace.root,
       workspaceGeneration: workspace.workspaceGeneration,
       options: options ?? null,
-      before: null,
+      edit: null,
+      changed: false,
       cancelled: false,
       handedOff: false,
       ended: false,
@@ -556,7 +625,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       streamingId: null,
       streamingBlockIndex: 0,
       permissionIds: new Set(),
-      release,
+      releaseTurn: acquireAgentTurn(path),
     };
     runs.set(key, run);
     const draft = get().chats[key]?.draft;
@@ -586,7 +655,6 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         if (!current(run) || run.cancelled || run.ended) return false;
         const saved = await tauri.readFile(key);
         if (!current(run) || run.cancelled || run.ended) return false;
-        run.before = saved.content;
         const prepared = options ? await options.prepare(saved.content) : text.trim();
         if (!current(run) || run.cancelled || run.ended) return false;
         const records = await loadChats(run.root);

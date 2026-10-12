@@ -8,7 +8,7 @@ import {
   watchAgentEditing,
 } from "../src/components/editor-area/agent-editing";
 import { acquireAgentEditing, clearAgentEditing } from "../src/lib/agent-turn";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 afterEach(clearAgentEditing);
 function harness(body: string, frontmatter: string | null) {
   let state = EditorState.create({
@@ -83,5 +83,27 @@ test("a reused pane reconfigures readonly and dispatch guards for its current no
   expect(state.readOnly).toBe(true);
   release();
   expect(state.readOnly).toBe(false);
+  unwatch();
+});
+
+test("the editor carries a wait-cursor marker only while its note is locked", () => {
+  const compartment = new Compartment();
+  let state = EditorState.create({
+    doc: "Draft",
+    extensions: [agentEditingExtensions(null, compartment, () => "/a.md")],
+  });
+  const view = {
+    dispatch(spec: TransactionSpec) {
+      state = state.update(spec).state;
+    },
+  } as unknown as EditorView;
+  const marked = () =>
+    state.facet(EditorView.editorAttributes).some((attrs) => "data-agent-editing" in attrs);
+  const unwatch = watchAgentEditing(view, compartment, () => "/a.md");
+  expect(marked()).toBe(false);
+  const release = acquireAgentEditing("/a.md");
+  expect(marked()).toBe(true);
+  release();
+  expect(marked()).toBe(false);
   unwatch();
 });

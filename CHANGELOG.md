@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Keep writing while the AI thinks. Your note now locks only while the AI is applying an edit, and the cursor shows a spinning wait cursor over the editor during that moment. Your latest typing is saved before each AI edit and merged back afterwards.
+
 - Chat conversations are kept when you quit and reopen Writer. Each note's thread comes back and you can carry on where you left off. If Claude Code no longer has an old conversation, Chat says so and keeps the thread visible.
 
 - Feedback notes, pinned files and Chat sessions are no longer wiped on every launch.

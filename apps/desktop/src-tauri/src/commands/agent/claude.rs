@@ -81,6 +81,8 @@ use std::collections::{HashMap, HashSet};
 const INIT_ID: &str = "writer-initialize";
 const HOOK_ID: &str = "writer-note-scope";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
+const EDIT_SAVE_FAILED: &str =
+    "Writer could not save the user's latest edits to this note. Read it again before editing.";
 // Normal CLI startup now includes MCP/plugin connections (typically up to 30s).
 // Keep initialization bounded while allowing those connections to finish.
 const INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -111,6 +113,8 @@ struct Scope {
     sent: bool,
     seen: HashSet<String>,
     permissions: HashMap<String, Value>,
+    // Allowed note edits wait here, as (allow, deny) replies, until the UI has saved and locked.
+    edits: HashMap<String, (Value, Value)>,
 }
 impl Scope {
     fn new(note: PathBuf) -> Self {
@@ -121,6 +125,7 @@ impl Scope {
             sent: false,
             seen: HashSet::new(),
             permissions: HashMap::new(),
+            edits: HashMap::new(),
         }
     }
     async fn hook(&self, request: &Value) -> Result<Value, String> {
@@ -195,6 +200,38 @@ impl Scope {
         self.permissions.insert(id.into(), json!(input));
         Ok(None)
     }
+    /// Holds an allowed Edit/Write reply; returns the event that asks the UI to prepare.
+    fn defer_edit(&mut self, id: &str, request: &Value, reply: &Value) -> Option<AgentEvent> {
+        let tool = request["input"]["tool_name"]
+            .as_str()
+            .or(request["tool_name"].as_str());
+        if !matches!(tool, Some("Edit" | "Write")) {
+            return None;
+        }
+        let deny = if reply["hookSpecificOutput"]["permissionDecision"] == "allow" {
+            denied_hook(EDIT_SAVE_FAILED)
+        } else if reply["behavior"] == "allow" {
+            json!({"behavior": "deny", "message": EDIT_SAVE_FAILED})
+        } else {
+            return None;
+        };
+        self.edits.insert(id.into(), (reply.clone(), deny));
+        let tool_use_id = request["tool_use_id"]
+            .as_str()
+            .or(request["input"]["tool_use_id"].as_str())
+            .map(String::from);
+        Some(AgentEvent::EditStart {
+            request_id: id.into(),
+            tool_use_id,
+        })
+    }
+    fn edit_ready(&mut self, id: &str, allow: bool) -> Result<Value, String> {
+        let (allowed, denied) = self
+            .edits
+            .remove(id)
+            .ok_or("Edit request is no longer pending")?;
+        Ok(response(id, if allow { allowed } else { denied }))
+    }
     fn decision(&mut self, id: &str, allow: bool) -> Result<Value, String> {
         if !self.active {
             return Err("No active Writer turn".into());
@@ -268,7 +305,7 @@ async fn run_process(
             }
         }
     });
-    let initialize = json!({"type": "control_request", "request_id": INIT_ID, "request": {"subtype": "initialize", "hooks": {"PreToolUse": [{"matcher": "^(Read|Glob|Grep|Edit|Write|WebSearch|WebFetch|ToolSearch|WaitForMcpServers|mcp__.*)$", "hookCallbackIds": [HOOK_ID], "timeout": 10}]}}});
+    let initialize = json!({"type": "control_request", "request_id": INIT_ID, "request": {"subtype": "initialize", "hooks": {"PreToolUse": [{"matcher": "^(Read|Glob|Grep|Edit|Write|WebSearch|WebFetch|ToolSearch|WaitForMcpServers|mcp__.*)$", "hookCallbackIds": [HOOK_ID], "timeout": 60}]}}});
     let startup = if scope.is_some() {
         write_line(&mut stdin, &initialize.to_string(), &mut cancel).await
     } else {
@@ -306,6 +343,12 @@ async fn run_process(
                             Err(error) => { let _ = ack.send(Err(error)); continue; }
                         }
                     }
+                    Input::EditReady { request_id, allow, ack } => {
+                        match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.edit_ready(&request_id, allow)) {
+                            Ok(value) => (value.to_string(), ack),
+                            Err(error) => { let _ = ack.send(Err(error)); continue; }
+                        }
+                    }
                 };
                 let write = write_line(&mut stdin, &line, &mut cancel).await;
                 failure = write.as_ref().err().cloned();
@@ -324,7 +367,7 @@ async fn run_process(
                         continue;
                     }
                     if value["type"] == "control_cancel_request" {
-                        if let Some(id) = value["request_id"].as_str() { scope.permissions.remove(id); }
+                        if let Some(id) = value["request_id"].as_str() { scope.permissions.remove(id); scope.edits.remove(id); }
                     }
                     if value["type"] == "control_request" {
                         let Some(id) = value["request_id"].as_str().filter(|id| !id.is_empty()) else { failure = Some("Missing native control request ID".into()); continue; };
@@ -337,6 +380,10 @@ async fn run_process(
                         };
                         match reply {
                             Ok(Some(reply)) => {
+                                if let Some(event) = scope.defer_edit(id, request, &reply) {
+                                    if events.send(event).is_err() { failure = Some("Writer's event channel closed".into()); }
+                                    continue;
+                                }
                                 failure = write_line(&mut stdin, &response(id, reply).to_string(), &mut cancel).await.err();
                                 continue;
                             }
@@ -344,7 +391,7 @@ async fn run_process(
                             Err(error) => { failure = Some(error); continue; }
                         }
                     }
-                    if value["type"] == "result" { scope.active = false; scope.permissions.clear(); }
+                    if value["type"] == "result" { scope.active = false; scope.permissions.clear(); scope.edits.clear(); }
                     if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Writer's event channel closed".into()); continue; }
                     if value["type"] == "result" { kill_group(&mut child); break child.wait().await; }
                 } else if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Writer's event channel closed".into()); }
@@ -533,6 +580,22 @@ pub async fn claude_decide_permission(
 ) -> Result<(), AppError> {
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
     deliver(&workspace, &process_id, |ack| Input::Permission {
+        request_id,
+        allow,
+        ack,
+    })
+    .await
+}
+#[tauri::command]
+pub async fn claude_edit_ready(
+    webview: WebviewWindow,
+    state: State<'_, AppState>,
+    process_id: String,
+    request_id: String,
+    allow: bool,
+) -> Result<(), AppError> {
+    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
+    deliver(&workspace, &process_id, |ack| Input::EditReady {
         request_id,
         allow,
         ack,
@@ -750,6 +813,45 @@ mod tests {
                 .unwrap()["behavior"],
             "deny"
         );
+    }
+    #[tokio::test]
+    async fn allowed_note_edits_wait_for_the_ui_and_denials_reply_immediately() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("a.md");
+        std::fs::write(&note, "old").unwrap();
+        let mut scope = Scope::new(note.canonicalize().unwrap());
+        scope.active = true;
+        let mut hook = edit_hook(&note);
+        hook["tool_use_id"] = json!("toolu_1");
+        let reply = scope.hook(&hook).await.unwrap();
+        let Some(AgentEvent::EditStart {
+            request_id,
+            tool_use_id,
+        }) = scope.defer_edit("edit", &hook, &reply)
+        else {
+            panic!("allowed edit did not wait for the UI");
+        };
+        assert_eq!(
+            (request_id.as_str(), tool_use_id.as_deref()),
+            ("edit", Some("toolu_1"))
+        );
+        assert_eq!(
+            scope.edit_ready("edit", true).unwrap()["response"]["response"],
+            reply
+        );
+        assert!(scope.edit_ready("edit", true).is_err());
+        let request = json!({"tool_name": "Write", "input": {"file_path": note, "content": "new"}});
+        let reply = scope.permission("write", &request).await.unwrap().unwrap();
+        assert!(scope.defer_edit("write", &request, &reply).is_some());
+        assert_eq!(
+            scope.edit_ready("write", false).unwrap()["response"]["response"]["behavior"],
+            "deny"
+        );
+        let other = edit_hook(&dir.path().join("b.md"));
+        let denied = scope.hook(&other).await.unwrap();
+        assert!(scope.defer_edit("other", &other, &denied).is_none());
+        let read = json!({"callback_id": HOOK_ID, "input": {"tool_name": "Read"}});
+        assert!(scope.defer_edit("read", &read, &json!({})).is_none());
     }
     #[tokio::test]
     async fn controls_are_native_and_permissions_are_process_local_and_single_use() {
@@ -1034,6 +1136,77 @@ mod tests {
         );
         assert_eq!(denied["response"]["request_id"], "deny");
         assert_eq!(denied["response"]["response"]["behavior"], "deny");
+    }
+    #[tokio::test]
+    async fn actor_holds_note_edit_until_the_ui_is_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("note.md");
+        std::fs::write(&note, "old").unwrap();
+        let note = note.canonicalize().unwrap();
+        let hook = json!({"type": "control_request", "request_id": "edit", "request": {"subtype": "hook_callback", "callback_id": HOOK_ID, "tool_use_id": "toolu_1", "input": {"tool_name": "Edit", "tool_input": {"file_path": note, "old_string": "old", "new_string": "new"}}}});
+        let script = format!("read init; printf '%s\\n' '{INITIALIZED}'; read user; printf '%s\\n' '{hook}'; read reply; printf '%s\\n' \"$reply\" > reply.json; echo '{{\"type\":\"result\",\"is_error\":false}}'");
+        let child = shell(&script, dir.path());
+        let (input, rx) = mpsc::channel(4);
+        let (_cancel, cancel_rx) = watch::channel(false);
+        let (finished, mut done) = watch::channel(false);
+        let (ready, initialized) = oneshot::channel();
+        let (capture, mut starts) = mpsc::unbounded_channel();
+        let events = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(body) = body {
+                let event: Value = serde_json::from_str(&body).unwrap();
+                if event["type"] == "edit_start" {
+                    let _ = capture.send(event);
+                }
+            }
+            Ok(())
+        });
+        let task = tokio::spawn(run_process(
+            child,
+            rx,
+            cancel_rx,
+            finished,
+            events,
+            Some(Scope::new(note)),
+            Some(ready),
+        ));
+        initialized.await.unwrap().unwrap();
+        let (ack, sent) = oneshot::channel();
+        input
+            .send(Input::User {
+                line: json!({"type":"user","message":{"role":"user","content":"edit"}}).to_string(),
+                ack,
+            })
+            .await
+            .unwrap();
+        sent.await.unwrap().unwrap();
+        let start = tokio::time::timeout(Duration::from_secs(2), starts.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(start["requestId"], "edit");
+        assert_eq!(start["toolUseId"], "toolu_1");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!dir.path().join("reply.json").exists());
+        let (ack, decided) = oneshot::channel();
+        input
+            .send(Input::EditReady {
+                request_id: "edit".into(),
+                allow: true,
+                ack,
+            })
+            .await
+            .unwrap();
+        decided.await.unwrap().unwrap();
+        wait_done(&mut done).await;
+        task.await.unwrap();
+        let reply: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.path().join("reply.json")).unwrap())
+                .unwrap();
+        assert_eq!(reply["response"]["request_id"], "edit");
+        assert_eq!(
+            reply["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
+            "allow"
+        );
     }
     #[tokio::test]
     async fn scoped_protocol_failures_reap_before_releasing_ownership() {

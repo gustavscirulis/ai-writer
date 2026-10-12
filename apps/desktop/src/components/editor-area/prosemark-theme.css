@@ -35,6 +35,14 @@
   border-left-color: var(--text-primary);
 }
 
+/* The note is locked while the AI applies an edit. `*` beats widgets' own cursors. */
+.cm-editor[data-agent-editing],
+.cm-editor[data-agent-editing] *,
+fieldset[data-frontmatter]:disabled,
+fieldset[data-frontmatter]:disabled * {
+  cursor: wait;
+}
+
 /* Selection — dimmed accent. CodeMirror's drawSelection extension paints
    `.cm-selectionBackground` rectangles; the native `::selection` is the
    fallback for text the drawn layer doesn't cover. Override both, and bump

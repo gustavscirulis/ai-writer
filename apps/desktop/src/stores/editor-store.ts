@@ -1,4 +1,9 @@
-import { agentIORevision, registerDocumentPath, isAgentEditing } from "@/lib/agent-turn";
+import {
+  agentIORevision,
+  registerDocumentPath,
+  isAgentEditing,
+  isAgentTurnActive,
+} from "@/lib/agent-turn";
 import { create } from "zustand";
 import type { FileContent } from "@/types/fs";
 import * as tauri from "@/lib/tauri";
@@ -231,7 +236,7 @@ function maybePruneFiles(
   for (const path of candidatePaths) {
     if (referenced.has(path)) continue;
     const file = (files ?? state.openFiles).get(path);
-    if (!file || file.isDirty || isAgentEditing(path)) continue;
+    if (!file || file.isDirty || isAgentTurnActive(path)) continue;
     cancelSave(path);
     if (!files) files = new Map(state.openFiles);
     files.delete(path);
