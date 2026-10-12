@@ -58,8 +58,6 @@ export interface Chat {
   error: string | null;
   notices: ChatNotice[];
   permissions: ToolPermission[];
-  /** Tools the user always allows in this chat. Kept in memory until the app quits. */
-  allowedTools: string[];
   /** The next turn starts in plan mode. Kept in memory; approving a plan turns it off. */
   planMode: boolean;
 }
@@ -73,7 +71,6 @@ export const EMPTY_CHAT: Chat = {
   error: null,
   notices: [],
   permissions: [],
-  allowedTools: [],
   planMode: false,
 };
 interface ClaudeState {
@@ -654,16 +651,13 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       tauri.claudeDecidePermission(processId, id, allow, allowsTool),
     );
     if (!request || !allowsTool) return;
-    updateChat(key, (chat) =>
-      chat.allowedTools.includes(request.tool)
-        ? chat
-        : { ...chat, allowedTools: [...chat.allowedTools, request.tool] },
-    );
-    // Requests already queued before the rule existed still wait for a reply.
+    // Native code saved the tool for every chat; requests already queued still wait for a reply.
     await Promise.all(
-      get()
-        .chats[key]?.permissions.filter((entry) => entry.tool === request.tool)
-        .map((entry) => get().decidePermission(path, entry.id, true)) ?? [],
+      Object.entries(get().chats).flatMap(([chatKey, chat]) =>
+        chat.permissions
+          .filter((entry) => entry.tool === request.tool)
+          .map((entry) => get().decidePermission(chatKey, entry.id, true)),
+      ),
     );
   },
   answer: async (path, id, answer) => {
@@ -788,7 +782,6 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           workspace.workspaceEpoch!,
           records[key]?.sessionId ?? null,
           path,
-          chatForPath(get().chats, key).allowedTools,
           chatForPath(get().chats, key).planMode,
           channel,
         );

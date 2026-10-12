@@ -13,7 +13,7 @@ A real-CLI probe (Claude Code 2.1.296, `--permission-prompts host`) confirmed th
 
 ## Questions
 
-- Native code holds the request like any other host approval. A question is never answered from Always allow, and `claude_start` rejects it as an always-allowed tool.
+- Native code holds the request like any other host approval. A question is never answered from Always allow, and `claude_start` rejects a saved Always allow list that contains it.
 - Native code checks the answer before it is sent. The frontend sends only `{kind: "questions", answers}` through `claude_answer`, and native code keeps the questions it received:
   - The answers must cover exactly the questions Claude asked.
   - Each answer must be 1–2,000 characters.
@@ -32,7 +32,7 @@ A real-CLI probe (Claude Code 2.1.296, `--permission-prompts host`) confirmed th
 ## Plan mode
 
 - The composer has a Plan toggle next to +. Shift+Tab in the message box also toggles it, which replaces backwards focus there. While Plan is on, the placeholder reads "Describe what you want planned…".
-- The toggle is per chat and in memory only, like Always allow. A new chat clears it. `send` passes it to `claude_start` as `plan`, which selects `--permission-mode plan` instead of `manual`.
+- The toggle is per chat and in memory only. A new chat clears it. `send` passes it to `claude_start` as `plan`, which selects `--permission-mode plan` instead of `manual`.
 - Native code (`Scope.planning`) enforces plan mode on top of the CLI's own gate:
   - While planning, Edit/Write are denied, including the chat's own note through the hook. The only exception is a Markdown file directly inside the CLI plans directory, which is allowed without a lock or an edit start.
   - `ExitPlanMode` is denied outside plan mode.

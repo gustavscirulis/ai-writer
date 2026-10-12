@@ -12,6 +12,8 @@
 
 ## Done
 
+- Remember Co-writer "don't ask again" across sessions: see "Always allow" in [`SPECs/claude-tool-approvals.md`](SPECs/claude-tool-approvals.md). The tool names are saved in the global `co-writer.allowed-tools` setting, which only native code reads and writes (`commands/agent/allowed_tools.rs`, under the global settings lock), and every turn loads them. Settings → Co-writer lists them, each with a Revoke button. A one-line list setting now parses as a list. Rust, store, label and render tests pass, along with checks, Clippy and formatting. A WebDriver run of the built app (`e2e/specs/co-writer-allowed-tools.spec.js`) lists saved tools in Settings and revokes them. A real approval with the CLI hasn't been tried in the native app yet.
+
 - Co-writer plan mode and Claude's questions: [`SPECs/chat-plan-mode-and-questions.md`](SPECs/chat-plan-mode-and-questions.md). Claude's questions and plans take the composer's place like approvals, with native answer checks. Plan mode (toggle or Shift+Tab) blocks note edits until you approve the plan, then Claude continues writing in the same reply. Verified with the real CLI (ignored Rust test). Native app QA of the prompts and Dock badge is still pending.
 
 - Keep Chat tool summaries in chronological order. `AssistantTurn` now splits a reply into text steps and runs of consecutive tool calls, and renders each run as its own summary where it happened instead of putting one summary at the top. A React render test covers the order.

@@ -422,6 +422,15 @@
       "normalize": "trim",
       "scope": "global",
       "default": ""
+    },
+    {
+      "key": "co-writer.allowed-tools",
+      "label": "Allowed Without Asking",
+      "description": "Tools Co-writer may use without asking, added when you choose \"don't ask again\" on a request. Applies in every workspace.",
+      "category": "Co-writer",
+      "type": "list",
+      "scope": "global",
+      "default": []
     }
   ]
 }

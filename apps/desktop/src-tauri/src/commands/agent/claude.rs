@@ -1,12 +1,12 @@
-use super::{AgentEvent, AgentProcess, Answer, Input, NoteClaims};
+use super::{allowed_tools, AgentEvent, AgentProcess, Answer, Input, NoteClaims};
 use crate::{error::AppError, state::AppState};
 use std::{
     path::{Path, PathBuf},
     process::Stdio,
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
-use tauri::{ipc::Channel, State, WebviewWindow};
+use tauri::{ipc::Channel, Manager, State, WebviewWindow};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
@@ -250,14 +250,18 @@ enum Target {
     Denied(String),
 }
 
+type Remember = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+
 struct Scope {
     note: PathBuf,
     root: PathBuf,
     owner: String,
     claims: NoteClaims,
     approved: HashSet<PathBuf>,
-    /// Tools the user always allows in this chat; they skip the host prompt.
+    /// Tools the user always allows; they skip the host prompt.
     always: HashSet<String>,
+    /// Saves an always-allowed tool before its request is answered.
+    remember: Option<Remember>,
     attached: HashSet<PathBuf>,
     /// The turn started in plan mode and its plan isn't approved yet.
     planning: bool,
@@ -281,6 +285,7 @@ impl Scope {
             claims,
             approved: HashSet::new(),
             always: HashSet::new(),
+            remember: None,
             attached: HashSet::new(),
             planning: false,
             plans: None,
@@ -567,10 +572,13 @@ impl Scope {
         {
             return Err("This request needs an answer, not an approval".into());
         }
-        let (tool, input) = self
-            .permissions
-            .remove(id)
-            .ok_or("Tool request is no longer pending")?;
+        let pending = "Tool request is no longer pending";
+        let (tool, _) = self.permissions.get(id).ok_or(pending)?;
+        // A failed save leaves the request pending, so the user can retry or allow once.
+        if let (true, true, Some(remember)) = (allow, always, &self.remember) {
+            remember(tool)?;
+        }
+        let (tool, input) = self.permissions.remove(id).ok_or(pending)?;
         let target = self.targets.remove(id);
         if !allow {
             return Ok(Decision::Reply(response(
@@ -878,7 +886,7 @@ fn scoped_command(
     command
 }
 
-fn always_allow_set(tools: Vec<String>) -> Result<HashSet<String>, String> {
+pub(super) fn always_allow_set(tools: Vec<String>) -> Result<HashSet<String>, String> {
     tools
         .into_iter()
         .map(|tool| {
@@ -901,11 +909,18 @@ pub async fn claude_start(
     epoch: u64,
     note_path: String,
     resume_session_id: Option<String>,
-    always_allow: Vec<String>,
     plan: bool,
     on_event: Channel<AgentEvent>,
 ) -> Result<String, AppError> {
-    let always = always_allow_set(always_allow).map_err(AppError::Io)?;
+    let app = webview.app_handle().clone();
+    let label = webview.label().to_string();
+    let always = allowed_tools::with_settings(&app, &label, allowed_tools::load)?;
+    let remember: Remember = Arc::new(move |tool| {
+        allowed_tools::with_settings(&app, &label, |settings| {
+            allowed_tools::allow(settings, tool)
+        })
+        .map_err(|e| e.to_string())
+    });
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
     let agent_epoch = workspace
         .agent_epoch
@@ -970,6 +985,7 @@ pub async fn claude_start(
                 on_event.clone(),
                 Some(Scope {
                     always,
+                    remember: Some(remember),
                     planning: plan,
                     plans,
                     ..Scope::new(note, scope_root, id.clone(), workspace.agent_claims.clone())
@@ -1528,6 +1544,39 @@ mod tests {
 
         assert!(always_allow_set(vec!["Bash".into()]).is_err());
         assert!(always_allow_set(vec!["mcp__notes__search".into(), "Read".into()]).is_ok());
+    }
+    #[tokio::test]
+    async fn always_allow_is_saved_before_the_reply_and_a_failed_save_keeps_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.md"), "a").unwrap();
+        let saved = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+        let fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (log, failing) = (saved.clone(), fail.clone());
+        let mut scope = Scope {
+            remember: Some(Arc::new(move |tool| {
+                if failing.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err("disk full".into());
+                }
+                log.lock().push(tool.into());
+                Ok(())
+            })),
+            ..Scope::new(root.join("a.md"), root, "a".into(), NoteClaims::default())
+        };
+        scope.active = true;
+        let read = json!({"tool_name": "Read", "input": {"file_path": "/x.md"}});
+        assert!(scope.permission("r1", &read).await.unwrap().is_none());
+
+        assert!(matches!(scope.decision("r1", true, true), Err(e) if e == "disk full"));
+        assert!(!scope.always.contains("Read"));
+        fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(scope.decision("r1", true, false).is_ok());
+        assert!(saved.lock().is_empty());
+
+        assert!(scope.permission("r2", &read).await.unwrap().is_none());
+        assert!(scope.decision("r2", true, true).is_ok());
+        assert_eq!(*saved.lock(), vec!["Read"]);
+        assert!(scope.always.contains("Read"));
     }
     #[tokio::test]
     async fn attached_files_are_readable_this_turn_without_a_prompt() {

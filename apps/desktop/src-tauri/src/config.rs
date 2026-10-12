@@ -33,6 +33,13 @@ impl ConfigValue {
             _ => None,
         }
     }
+
+    pub fn as_list(&self) -> Option<&[String]> {
+        match self {
+            ConfigValue::List(items) => Some(items),
+            _ => None,
+        }
+    }
 }
 
 /// Serialize a ConfigValue back to its plain-text representation.
@@ -109,13 +116,11 @@ fn parse_config_with_defaults(
                 };
                 list_keys.insert(key, vec![first, value_str]);
             } else {
-                let value = if matches!(
-                    defaults.and_then(|values| values.get(&key)),
-                    Some(ConfigValue::String(_))
-                ) {
-                    ConfigValue::String(value_str)
-                } else {
-                    parse_value(&value_str)
+                let value = match defaults.and_then(|values| values.get(&key)) {
+                    Some(ConfigValue::String(_)) => ConfigValue::String(value_str),
+                    // A list with one item is a single line.
+                    Some(ConfigValue::List(_)) => ConfigValue::List(vec![value_str]),
+                    _ => parse_value(&value_str),
                 };
                 map.insert(key, value);
             }

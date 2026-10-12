@@ -1,3 +1,4 @@
+pub mod allowed_tools;
 pub mod claude;
 pub mod mcp;
 
@@ -61,7 +62,7 @@ pub enum Input {
 pub enum Answer {
     Tool {
         allow: bool,
-        /// Allow this tool for the rest of the chat as well.
+        /// Save the tool so later requests skip the prompt, in every chat.
         always: bool,
     },
     /// Answers keyed by question text; `None` declines to answer.
