@@ -265,6 +265,34 @@ describe("editor-store", () => {
     expect(state.openFiles.get("/test/file.md")?.content).toBe("Hello");
   });
 
+  test("moveTab reorders tabs, clamps the index and keeps the active tab", () => {
+    useEditorStore.setState({
+      tabs: [makeFileTab("a", "/a.md"), makeFileTab("b", "/b.md"), makeFileTab("c", "/c.md")],
+      activeTabId: "b",
+      activeFilePath: "/b.md",
+    });
+    const ids = () => useEditorStore.getState().tabs.map((tab) => tab.id);
+
+    useEditorStore.getState().moveTab("a", 2);
+    expect(ids()).toEqual(["b", "c", "a"]);
+
+    useEditorStore.getState().moveTab("a", -5);
+    expect(ids()).toEqual(["a", "b", "c"]);
+
+    useEditorStore.getState().moveTab("c", 99);
+    expect(ids()).toEqual(["a", "b", "c"]);
+
+    const before = useEditorStore.getState().tabs;
+    useEditorStore.getState().moveTab("b", 1);
+    useEditorStore.getState().moveTab("missing", 0);
+    expect(useEditorStore.getState().tabs).toBe(before);
+
+    useEditorStore.getState().moveTab("b", 0);
+    expect(ids()).toEqual(["b", "a", "c"]);
+    expect(useEditorStore.getState().activeTabId).toBe("b");
+    expect(useEditorStore.getState().activeFilePath).toBe("/b.md");
+  });
+
   test("openFile derives title from frontmatter and preserves the body verbatim", async () => {
     mockedInvoke.mockResolvedValue({
       path: "/test/file.md",

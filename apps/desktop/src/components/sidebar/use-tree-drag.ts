@@ -7,6 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { DirEntry } from "@/types/fs";
+import { suppressNextClick } from "@/lib/suppress-next-click";
 import type { FlatTreeItem } from "./flatten-tree";
 import { canMoveInto, resolveDropDir, resolveDropRange } from "./tree-move";
 import type { MoveOutcome } from "./use-move-entry";
@@ -92,21 +93,6 @@ function rowPathAtY(container: HTMLElement, y: number): string | null {
     above = row.getAttribute("data-tree-path");
   }
   return above;
-}
-
-/**
- * Swallow the single `click` that the browser fires after a drag completes, so
- * dragging an item never also opens/toggles it. Self-removes after that click
- * (or on the next tick if no click arrives).
- */
-function suppressNextClick() {
-  const handler = (event: MouseEvent) => {
-    event.stopPropagation();
-    event.preventDefault();
-    window.removeEventListener("click", handler, true);
-  };
-  window.addEventListener("click", handler, true);
-  setTimeout(() => window.removeEventListener("click", handler, true), 0);
 }
 
 /**

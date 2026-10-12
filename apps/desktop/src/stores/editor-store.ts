@@ -73,6 +73,7 @@ interface EditorState {
   closeFile: (path: string) => void;
   closeTab: (tabId: string) => void;
   closeActiveTab: () => void;
+  moveTab: (tabId: string, toIndex: number) => void;
   setActiveFile: (path: string) => void;
   setActiveTab: (tabId: string) => void;
   navigateToFile: (path: string) => Promise<void>;
@@ -649,6 +650,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   closeActiveTab: () => {
     const activeTabId = get().activeTabId;
     if (activeTabId) get().closeTab(activeTabId);
+  },
+
+  moveTab: (tabId: string, toIndex: number) => {
+    set((state) => {
+      const fromIndex = getTabIndex(state.tabs, tabId);
+      if (fromIndex === -1) return state;
+      const target = Math.max(0, Math.min(state.tabs.length - 1, toIndex));
+      if (target === fromIndex) return state;
+      const tabs = [...state.tabs];
+      const [moved] = tabs.splice(fromIndex, 1);
+      tabs.splice(target, 0, moved!);
+      return { tabs };
+    });
   },
 
   setActiveFile: (path: string) => {

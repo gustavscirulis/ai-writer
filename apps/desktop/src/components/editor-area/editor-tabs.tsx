@@ -8,6 +8,7 @@ import {
   useCloseTab,
   useFileSaveError,
   useIsFileLoading,
+  useMoveTab,
   useNavigateBack,
   useNavigateForward,
   useOpenNewTab,
@@ -24,10 +25,12 @@ import { pageKind } from "./page-kinds";
 import { buildTabMenuItemsSpec, showNativeContextMenu } from "./editor-context-menu";
 import { useWorkspaceRoot } from "@/hooks/use-workspace";
 import { revealPathInSidebar } from "@/lib/reveal-in-sidebar";
+import { useTabDrag } from "./use-tab-drag";
 
 interface EditorTabButtonProps {
   tab: Tab;
   isActive: boolean;
+  isDragging: boolean;
   onSelect: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onContextMenu?: (event: MouseEvent<HTMLElement>, tab: Tab) => void;
@@ -36,6 +39,7 @@ interface EditorTabButtonProps {
 function EditorTabButton({
   tab,
   isActive,
+  isDragging,
   onSelect,
   onClose,
   onContextMenu,
@@ -67,7 +71,7 @@ function EditorTabButton({
         onContextMenu(event, tab);
       }}
       className={` group relative flex shrink-0 items-center overflow-hidden whitespace-nowrap rounded-[8px] px-3.5 text-[13px] leading-[1.15] select-none cursor-default max-w-[180px] h-[var(--chrome-control-height)] ${
-        isActive
+        isActive || isDragging
           ? "bg-[var(--tab-active-bg)] text-[var(--text-secondary)] backdrop-blur-2xl"
           : "bg-transparent text-[var(--text-muted)] hover:bg-[var(--tab-active-bg)] hover:text-[var(--text-secondary)] hover:backdrop-blur-2xl"
       }`}
@@ -142,6 +146,8 @@ export function EditorTabs({ compact = false }: { compact?: boolean }) {
   const navigateBack = useNavigateBack();
   const navigateForward = useNavigateForward();
   const openNewTab = useOpenNewTab();
+  const moveTab = useMoveTab();
+  const { draggingTabId, beginDrag } = useTabDrag(tabs, moveTab);
   const workspaceRoot = useWorkspaceRoot();
   const [, startTransition] = useTransition();
   useScrollActiveTabIntoView();
@@ -230,12 +236,20 @@ export function EditorTabs({ compact = false }: { compact?: boolean }) {
           <div data-tauri-drag-region className="flex min-w-max items-center gap-1">
             {tabs.map((tab) => {
               const isActive = tab.id === activeTabId;
+              const isDragging = tab.id === draggingTabId;
 
               return (
-                <div key={tab.id} data-tab-id={tab.id} className="flex items-center">
+                <div
+                  key={tab.id}
+                  data-tab-id={tab.id}
+                  data-tab-dragging={isDragging || undefined}
+                  onPointerDown={(event) => beginDrag(event, tab.id)}
+                  className={`flex items-center ${isDragging ? "relative z-10" : ""}`}
+                >
                   <EditorTabButton
                     tab={tab}
                     isActive={isActive}
+                    isDragging={isDragging}
                     onSelect={(tabId) => startTransition(() => setActiveTab(tabId))}
                     onClose={closeTab}
                     onContextMenu={handleTabContextMenu}

@@ -49,6 +49,10 @@ export function useCloseTab() {
   return useEditorStore((s) => s.closeTab);
 }
 
+export function useMoveTab() {
+  return useEditorStore((s) => s.moveTab);
+}
+
 export function useCloseActiveTab() {
   return useEditorStore((s) => s.closeActiveTab);
 }
