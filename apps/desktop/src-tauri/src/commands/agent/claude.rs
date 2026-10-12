@@ -15,7 +15,7 @@ use tokio::{
 
 static CLAUDE_ENV: OnceLock<(PathBuf, String)> = OnceLock::new();
 
-async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
+pub(super) async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
     if let Some(env) = CLAUDE_ENV.get() {
         return Ok(env.clone());
     }
@@ -82,7 +82,7 @@ async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
     Ok(env)
 }
 
-fn kill_group(child: &mut Child) {
+pub(super) fn kill_group(child: &mut Child) {
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         // The child owns a new process group. Kill tools as well as the CLI,
@@ -744,7 +744,7 @@ pub async fn claude_start(
         .map_err(|e| AppError::Io(e.to_string()))?
     {
         return Err(AppError::Io(
-            "Chat startup canceled because the window is closed".into(),
+            "Co-writer startup canceled because the window is closed".into(),
         ));
     }
     let root = PathBuf::from(root);
@@ -763,7 +763,7 @@ pub async fn claude_start(
                 .load(std::sync::atomic::Ordering::SeqCst)
                 != agent_epoch
             {
-                return Err(AppError::Io("Chat startup was canceled".into()));
+                return Err(AppError::Io("Co-writer startup was canceled".into()));
             }
             registry.retain(|_, process| !*process.finished.borrow());
             let mut claims = workspace.agent_claims.lock();
@@ -830,7 +830,7 @@ async fn deliver(
         .agents
         .lock()
         .get(process_id)
-        .ok_or_else(|| AppError::Io("Chat process is no longer active".into()))?
+        .ok_or_else(|| AppError::Io("Co-writer process is no longer active".into()))?
         .input
         .clone();
     let (ack, result) = oneshot::channel();

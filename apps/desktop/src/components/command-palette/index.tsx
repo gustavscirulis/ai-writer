@@ -133,7 +133,7 @@ export function CommandPalette() {
       !isCompactFileMode &&
       activeFilePath && {
         id: "add-to-chat",
-        label: "Add Selection to Chat",
+        label: "Add Selection to Co-writer",
         description: "⌘L · the block at the cursor when nothing is selected",
         run: () => {
           close();
@@ -143,7 +143,7 @@ export function CommandPalette() {
     root &&
       !isCompactFileMode && {
         id: "toggle-chat-panel",
-        label: "Toggle Chat Panel",
+        label: "Toggle Co-writer",
         description: "⌘⇧L",
         run: () => {
           toggleChatPanel();

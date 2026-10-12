@@ -220,7 +220,7 @@ export function Composer() {
                 ? "What should change here?"
                 : busy
                   ? "Queue a follow-up…"
-                  : "Ask about your writing…"
+                  : "Ask anything, or describe a change…"
           }
           value={text}
           onChange={(event) => path && setChatDraft(path, event.target.value)}

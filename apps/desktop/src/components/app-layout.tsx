@@ -180,8 +180,8 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
         <button
           type="button"
           onClick={toggleChatPanel}
-          aria-label="Open chat panel"
-          title="Open chat panel (⌘⇧L)"
+          aria-label="Open Co-writer"
+          title="Open Co-writer (⌘⇧L)"
           className="absolute right-4 top-4 z-50 rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
         >
           Chat

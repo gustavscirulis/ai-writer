@@ -1,17 +1,12 @@
 import { Fragment } from "react";
 import { useConversationScroll } from "./use-conversation-scroll";
-import {
-  sendChat,
-  useChatError,
-  useChatMessages,
-  useChatNotices,
-  useChatStatus,
-} from "@/hooks/use-claude";
+import { useChatError, useChatMessages, useChatNotices, useChatStatus } from "@/hooks/use-claude";
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import { isVisibleMessage, type ChatMessage } from "@/lib/claude-stream";
 import type { ChatNotice } from "@/stores/claude-store";
 import { AssistantTurn, Disclosure, UserMessage } from "./chat-message";
 import { ChatActivity } from "./chat-activity";
+import { EmptyState } from "./empty-state";
 import "./chat-panel.css";
 
 type Turn = { role: ChatMessage["role"]; messages: ChatMessage[]; notices: string[] };
@@ -30,13 +25,6 @@ function groupTurns(messages: ChatMessage[], notices: ChatNotice[]) {
   }
   return turns;
 }
-
-const SUGGESTIONS = [
-  "Tighten the opening paragraph",
-  "Find sentences that repeat an idea",
-  "Suggest three alternative titles",
-  "Check the quotes are accurate",
-];
 
 export function MessageList() {
   const path = useActiveFilePath();
@@ -59,34 +47,9 @@ export function MessageList() {
       aria-label="Conversation"
       aria-live="off"
     >
-      <div>
+      <div className={messages.length === 0 ? "h-full" : undefined}>
         {messages.length === 0 && (
-          <div className="chat-enter pt-7 text-[13px] leading-relaxed">
-            <p className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
-              A second pair of eyes.
-            </p>
-            <p className="mt-1.5 text-[var(--text-muted)]">
-              Ask for feedback or edits to your open note. Select text and press ⌘L, or ⌥-click a
-              paragraph, to point at it.
-            </p>
-            <div className="mt-[18px] flex flex-wrap gap-1.5">
-              {SUGGESTIONS.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  disabled={!path || status === "running" || status === "stopping"}
-                  onClick={() => path && void sendChat(path, suggestion)}
-                  className="rounded-full border border-[var(--line-subtle)] px-[11px] py-1.5 text-[12px] text-[var(--text-secondary)] transition-colors duration-150 hover:border-transparent hover:bg-[var(--surface-subtle)] active:scale-[0.97] disabled:opacity-50"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-            <p className="mt-7 text-[11px] leading-relaxed text-[var(--text-muted)]">
-              Uses your installed Claude Code and its terminal sign-in. It reads workspace context
-              and edits only this note. You can run another agent on a different note.
-            </p>
-          </div>
+          <EmptyState path={path} busy={status === "running" || status === "stopping"} />
         )}
         <div className="flex flex-col gap-5">
           {turns.map((turn) => (
