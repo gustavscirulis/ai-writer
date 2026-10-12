@@ -2,6 +2,8 @@
 
 ## 2026-10-11
 
+- Redesign tool approvals in Chat. While Claude waits on you, the message box becomes the question, for example “Read **maria-chen.md**?” with its folder underneath, and two choices: “Yes, read it” or “No, keep to this note”. Use ↑/↓ and Enter, or press Esc to deny. Show request still reveals the full input, and Stop is right there.
+
 - Select and copy text in your Chat messages and Claude replies, including formatted text, code blocks and tables.
 
 - Run agents on different notes at the same time. Each note keeps its own Chat, approvals, Stop and recovery; other notes stay editable. Tab indicators open the relevant chat, and closing a tab lets its run finish. Agents can read workspace context and edit only their assigned note.

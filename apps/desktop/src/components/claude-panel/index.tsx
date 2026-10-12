@@ -7,6 +7,7 @@ import {
   toggleChatPanel,
   useChatPanelWidth,
   useChatStatus,
+  useToolPermissions,
 } from "@/hooks/use-claude";
 import { useActiveFilePath } from "@/hooks/use-tabs";
 import { PermissionRequest } from "./permission-request";
@@ -24,6 +25,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
   const path = useActiveFilePath();
   const status = useChatStatus(path);
+  const awaitingApproval = useToolPermissions(path).length > 0;
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
   const setDraft = (next: number) =>
@@ -117,8 +119,11 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
         </div>
       </header>
       <MessageList key={`messages:${path}`} />
-      <PermissionRequest key={`permissions:${path}`} />
-      <Composer key={`composer:${path}`} />
+      {awaitingApproval ? (
+        <PermissionRequest key={`permissions:${path}`} />
+      ) : (
+        <Composer key={`composer:${path}`} />
+      )}
     </aside>
   );
 }

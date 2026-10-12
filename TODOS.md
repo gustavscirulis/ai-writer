@@ -12,6 +12,8 @@
 
 ## Done
 
+- Redesign the tool approval prompt: chosen from a three-way prototype (Inline / Composer / Tray) in the playground. The request takes the composer's place as a plain question built by `summarizeToolRequest` (`src/lib/tool-request-summary.ts`, unit-tested), with a Yes/No keyboard list, Esc to deny, Show request and Stop; see [`SPECs/claude-tool-approvals.md`](SPECs/claude-tool-approvals.md) ("Prompt design"). Verified in the browser against the real panel and stores (allow, deny, Esc, arrows, Show request, Stop, light/dark). Checks and 865 tests pass; native Tauri QA is pending.
+
 - Enable Chat text selection and copying: [`SPECs/Agent/worksheet-chat-text-selection.md`](SPECs/Agent/worksheet-chat-text-selection.md) — sent messages and nested Markdown are selectable; browser drag/double-click and Cmd+C paste verified. Checks, 861 tests and desktop build pass; native Tauri QA remains pending.
 
 - Parallel agents per note: [`SPECs/parallel-note-agents.md`](SPECs/parallel-note-agents.md) — implementation complete: independent runs and controls, enforced canonical-note edits, targeted save/lock/reload, tab indicators and recoverable lifecycle drains. Also fixes result-before-delivery-ack ownership. Browser QA and concurrent native CLI edits pass; live macOS hide/reopen remains an environment-blocked manual check. Commit pending because the sandbox cannot write the external worktree Git metadata.
