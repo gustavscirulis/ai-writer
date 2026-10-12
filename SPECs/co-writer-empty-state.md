@@ -4,9 +4,17 @@ Chat is renamed **Co-writer** in every user-visible string (panel header and lab
 
 ## Empty state
 
-Chosen from two prototype rounds. Everything sits at the bottom of the panel, just above the composer, left-aligned: a large "What are we working on?" heading, the subtitle "Ask for research, a first draft or edits to this note.", four plain suggestion rows (icon, label, ↵ on hover) and one footnote line. Clicking a suggestion sends its label as the message.
+Chosen after several prototype rounds. A large heading and subtitle sit at the top of the panel, left-aligned. Four plain suggestion rows (icon, label) and one footnote sit at the bottom, just above the composer. Clicking a suggestion either sends it or, for a starter, fills the composer for the writer to finish.
 
-The footnote reads "Runs on your Claude Code, with the same tools and MCPs.", or "…with the same tools." when no MCP server is connected. It says Co-writer has whatever the user's Claude Code has, rather than counting or naming servers, which the rows already show. Centred layouts, a bordered card, chips and tiles were tried and rejected as too busy.
+|             | Existing note                                          | Blank note (empty, or only headings)                                          |
+| ----------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| Heading     | What are we working on?                                | What are we writing?                                                          |
+| Subtitle    | Ask for research, a first draft or edits to this note. | Start with research, an outline or a first draft.                             |
+| Suggestions | Tasks that send at once, with ↵ on hover               | Starters ending in "…" that fill the composer, e.g. "Draft an outline about " |
+
+The footnote reads "Runs on your Claude Code, with the same tools and MCPs.", or "…with the same tools." when no MCP server is connected. It says Co-writer has whatever the user's Claude Code has, rather than counting or naming servers, which the rows already show.
+
+Rejected along the way: a centred mark with a bordered card, chips, tiles, ruled-paper and inset backgrounds, a tool constellation, everything anchored at the bottom (a blank top), a centred composer, a greeting message, note-derived questions and a fill-in sentence.
 
 The composer placeholder is "Ask anything, or describe a change…" and its hint "Select text or ⌥-click to point at it".
 
@@ -18,7 +26,9 @@ Only `connected` servers count. Servers are shown by display name (`plugin:base:
 
 ## Suggestions
 
-Up to three connected tools from a registry ordered by usefulness to a writer (Glean, Snowflake, Google Drive, Notion, Coda), filled to four with built-in ones: find recent sources on the web, fact-check claims on the web, find related notes in the workspace.
+For an existing note: up to three connected tools from a registry ordered by usefulness to a writer (Glean, Snowflake, Google Drive, Notion, Coda), filled to four with built-in ones: find recent sources on the web, fact-check claims on the web, find related notes in the workspace.
+
+For a blank note: "Draft an outline about…", starters for up to two connected tools ("Brief me from Glean on…", "Pull the numbers from Snowflake on…", "Start from a Google Drive doc about…"), then "Find recent sources on…" and "Pull together my notes on…". The rows wait until the note has loaded, so they never switch sets on open.
 
 The list never changes after it first appears. On the first launch for a workspace, before discovery finishes, the empty state shows no list and no footnote; both fade in once. If discovery fails and nothing is cached, it shows the built-in suggestions and the footnote that mentions MCPs.
 

@@ -11,7 +11,10 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   connectedServers,
   displayName,
+  isBlankNote,
+  newNoteSuggestions,
   serversFootnote,
+  starterText,
   toolSuggestions,
   type McpServer,
 } from "../src/lib/co-writer-suggestions";
@@ -58,6 +61,23 @@ describe("suggestion helpers", () => {
       "workspace",
     ]);
     expect(toolSuggestions(null).map((s) => s.tool)).toEqual(["web", "web", "workspace"]);
+  });
+
+  test("new notes get starters: an outline, two connected tools, then the web", () => {
+    expect(newNoteSuggestions(servers)).toEqual([
+      { label: "Draft an outline about…", tool: "draft", starter: true },
+      { label: "Brief me from Glean on…", tool: "Glean", starter: true },
+      { label: "Pull the numbers from Snowflake on…", tool: "Snowflake", starter: true },
+      { label: "Find recent sources on…", tool: "web", starter: true },
+    ]);
+    expect(newNoteSuggestions(null).map((s) => s.tool)).toEqual(["draft", "web", "workspace"]);
+    expect(starterText("Draft an outline about…")).toBe("Draft an outline about ");
+  });
+
+  test("a note with only headings counts as blank", () => {
+    expect(isBlankNote("")).toBe(true);
+    expect(isBlankNote("# Untitled\n\n")).toBe(true);
+    expect(isBlankNote("# Pricing\n\nFin is $0.99 per resolution.")).toBe(false);
   });
 
   test("footnote mentions MCPs unless none are connected", () => {
