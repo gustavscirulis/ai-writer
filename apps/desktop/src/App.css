@@ -230,11 +230,24 @@ input,
   background-clip: padding-box;
 }
 
-/* While dragging a sidebar item, force the grabbing-hand cursor everywhere so
-   element-specific cursors (text, pointer) don't override it. */
+/* While dragging a sidebar item or tab, force the grabbing-hand cursor
+   everywhere so element-specific cursors (text, pointer) don't override it. */
 body.tree-dragging,
-body.tree-dragging * {
+body.tree-dragging *,
+body.tab-dragging,
+body.tab-dragging * {
   cursor: grabbing !important;
+}
+
+/* Same stuck-`:hover` problem as the tree rows below; tab reordering uses
+   measured positions, not hit-testing. */
+body.tab-dragging [data-tab-id] {
+  pointer-events: none;
+}
+
+/* The active-tab tint is translucent; over bg-base it hides the tab passing beneath. */
+[data-tab-dragging] > [role="button"] {
+  background: linear-gradient(var(--tab-active-bg), var(--tab-active-bg)), var(--bg-base);
 }
 
 /* Freeze tree-row hover states during a drag. WebKit doesn't reliably clear
