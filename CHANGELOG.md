@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Option+` and Option+i now type their characters in the editor instead of doing nothing, for example a backtick on the Latvian keyboard layout.
+
 - CLI notices in Chat now appear once, where they arrived in the conversation, and scroll with it instead of staying pinned to the bottom. Warnings Claude Code repeats on every turn are no longer shown again.
 
 - Show your Chat message in the conversation as soon as you send it, including from an empty thread, while note saving and Claude startup run in the background.

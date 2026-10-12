@@ -12,6 +12,8 @@
 
 ## Done
 
+- Stop the editor swallowing Option+`and Option+i: CodeMirror's default completion keymap bound them to`startCompletion` on macOS; wiki-link autocomplete now installs the same keymap without those two chords.
+
 - Show submitted Chat messages immediately: [`SPECs/chat-immediate-message.md`](SPECs/chat-immediate-message.md) — append once on accepted Send, before saves/Claude startup; preserve drafts, attachments and recovery. Empty-thread Chrome QA with held startup, 890 tests, checks and desktop build pass.
 
 - Enable built-in web search and page fetching in Chat: [`SPECs/chat-web-tools.md`](SPECs/chat-web-tools.md) — WebSearch/WebFetch use existing CLI permissions and Chat approvals; canonical note-edit scope retained. Live search/fetch and 884 frontend tests pass; native agent tests, checks, Clippy and formatting pass.

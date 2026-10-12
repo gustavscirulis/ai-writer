@@ -2,6 +2,7 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   tooltips,
   type ViewUpdate,
   ViewPlugin,
@@ -10,7 +11,11 @@ import {
 import { type EditorState, type Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import {
+  acceptCompletion,
   autocompletion,
+  closeCompletion,
+  moveCompletionSelection,
+  startCompletion,
   type Completion,
   type CompletionContext,
   type CompletionResult,
@@ -438,6 +443,19 @@ export function wikiLinkExtension(
     autocompletion({
       override: [wikiLinkCompletions],
       icons: false,
+      defaultKeymap: false,
     }),
+    // Default keymap minus macOS Alt-`/Alt-i, which swallow characters Option types on some layouts.
+    Prec.highest(
+      keymap.of([
+        { key: "Ctrl-Space", run: startCompletion },
+        { key: "Escape", run: closeCompletion },
+        { key: "ArrowDown", run: moveCompletionSelection(true) },
+        { key: "ArrowUp", run: moveCompletionSelection(false) },
+        { key: "PageDown", run: moveCompletionSelection(true, "page") },
+        { key: "PageUp", run: moveCompletionSelection(false, "page") },
+        { key: "Enter", run: acceptCompletion },
+      ]),
+    ),
   ];
 }
