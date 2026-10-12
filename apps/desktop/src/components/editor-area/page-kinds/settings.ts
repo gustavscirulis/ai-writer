@@ -8,4 +8,5 @@ export const settingsKind = definePageKind<"settings", SettingsLocation>({
   title: () => "Settings",
   description: "App preferences",
   keepAlive: true,
+  showsChat: false,
 });
