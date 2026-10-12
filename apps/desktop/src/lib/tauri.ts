@@ -388,9 +388,6 @@ export function claudeStop(processId: string): Promise<void> {
 export function claudeMcpServers(root: string): Promise<McpServer[]> {
   return invoke("claude_mcp_servers", { root });
 }
-export function claudeSuggest(root: string, systemPrompt: string, prompt: string): Promise<string> {
-  return invoke("claude_suggest", { root, systemPrompt, prompt });
-}
 
 export function claudeDecidePermission(
   processId: string,

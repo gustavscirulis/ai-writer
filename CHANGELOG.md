@@ -10,7 +10,7 @@
 
 - The Chat attach button is now a + at the bottom left of the message box, where the "Select text or ⌥-click a paragraph" hint used to be.
 
-- Chat is now called Co-writer. When a conversation is empty, it suggests things to try for the note you're on, such as researching it in Glean, checking numbers in Snowflake or finding sources on the web. Claude Code's fastest model writes these suggestions from the start of your note and the tools you have connected, so opening Co-writer on a note sends that text to Claude. Until they're ready, you'll see suggestions based on your connected tools. A line at the bottom shows which tools Co-writer can use.
+- Chat is now called Co-writer. When a conversation is empty, it suggests things to try with the tools you have connected, such as researching in Glean, checking numbers in Snowflake or finding sources on the web. A line at the bottom shows which tools Co-writer can use.
 
 - Attach files to a Chat message: click the paperclip, paste a screenshot, or drop files from Finder onto the message box. Chat can read anything Claude Code can, including images, PDFs, other notes, spreadsheets and code, and files outside the workspace don't need an extra approval. Attached files show above your message and stay in the thread after a restart. Dropping a file anywhere else in the window still opens it.
 

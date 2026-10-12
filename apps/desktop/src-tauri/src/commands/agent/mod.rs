@@ -1,5 +1,5 @@
 pub mod claude;
-pub mod suggest;
+pub mod mcp;
 
 use crate::state::AppState;
 use serde::Serialize;

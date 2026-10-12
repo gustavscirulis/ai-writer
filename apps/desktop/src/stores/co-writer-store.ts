@@ -1,30 +1,20 @@
 import { create } from "zustand";
-import { documentPath } from "@/lib/agent-turn";
-import {
-  SUGGESTION_SYSTEM_PROMPT,
-  parseSuggestions,
-  suggestionPrompt,
-  type McpServer,
-  type Suggestion,
-} from "@/lib/co-writer-suggestions";
-import { getRelativePath } from "@/lib/paths";
+import type { McpServer } from "@/lib/co-writer-suggestions";
 import { readPreferenceStrict, writePreferenceStrict } from "@/lib/preferences";
 import * as tauri from "@/lib/tauri";
-import { useEditorStore, type OpenFile } from "@/stores/editor-store";
+
+export type McpServerList = McpServer[] | "unavailable";
 
 interface CoWriterState {
   /** Per workspace root, absent until the cache or Claude Code reports them. */
-  servers: Record<string, McpServer[]>;
-  /** Per canonical note, generated at most once per launch. */
-  suggestions: Record<string, Suggestion[]>;
+  servers: Record<string, McpServerList>;
 }
 
-export const useCoWriterStore = create<CoWriterState>(() => ({ servers: {}, suggestions: {} }));
+export const useCoWriterStore = create<CoWriterState>(() => ({ servers: {} }));
 
 const SERVERS_KEY = "co-writer.mcp-servers";
-const MIN_NOTE_LENGTH = 80;
 
-const setServers = (root: string, servers: McpServer[]) =>
+const setServers = (root: string, servers: McpServerList) =>
   useCoWriterStore.setState((state) => ({ servers: { ...state.servers, [root]: servers } }));
 
 type ServerCache = Record<string, McpServer[]>;
@@ -49,7 +39,7 @@ const discoveries = new Map<string, Promise<McpServer[]>>();
 export function loadMcpServers(root: string) {
   let discovery = discoveries.get(root);
   if (discovery) return discovery;
-  readCache().then(
+  const cached = readCache().then(
     (stored) => {
       if (stored[root] && !useCoWriterStore.getState().servers[root])
         setServers(root, stored[root]);
@@ -61,55 +51,11 @@ export function loadMcpServers(root: string) {
     writeCache(root, servers);
     return servers;
   });
-  discovery.catch((error) => console.error("[co-writer] Could not list MCP servers", error));
+  discovery.catch(async (error) => {
+    console.error("[co-writer] Could not list MCP servers", error);
+    await cached;
+    if (!useCoWriterStore.getState().servers[root]) setServers(root, "unavailable");
+  });
   discoveries.set(root, discovery);
   return discovery;
-}
-
-async function serversFor(root: string) {
-  const discovery = loadMcpServers(root);
-  const known =
-    useCoWriterStore.getState().servers[root] ?? (await readCache().catch(noCache))[root];
-  return known ?? (await discovery.catch(() => []));
-}
-
-export function canSuggestFor(file: OpenFile | undefined) {
-  return !!file && !file.isLoading && file.content.trim().length >= MIN_NOTE_LENGTH;
-}
-
-const attempted = new Set<string>();
-let wanted: { root: string; path: string } | null = null;
-let running = false;
-
-/** One generation at a time; only the latest request waits behind it. */
-export function requestSuggestions(root: string, path: string) {
-  if (attempted.has(documentPath(path))) return;
-  wanted = { root, path };
-  if (!running) void drain();
-}
-
-async function drain() {
-  running = true;
-  while (wanted) {
-    const { root, path } = wanted;
-    wanted = null;
-    const key = documentPath(path);
-    const file = useEditorStore.getState().openFiles.get(path);
-    if (attempted.has(key) || !file || !canSuggestFor(file)) continue;
-    attempted.add(key);
-    try {
-      const servers = await serversFor(root);
-      const prompt = suggestionPrompt(getRelativePath(key, root), file.content, servers);
-      const suggestions = parseSuggestions(
-        await tauri.claudeSuggest(root, SUGGESTION_SYSTEM_PROMPT, prompt),
-        servers,
-      );
-      useCoWriterStore.setState((state) => ({
-        suggestions: { ...state.suggestions, [key]: suggestions },
-      }));
-    } catch (error) {
-      console.error("[co-writer] Could not suggest prompts", error);
-    }
-  }
-  running = false;
 }
