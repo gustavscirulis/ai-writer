@@ -12,6 +12,30 @@ export interface ChatTool {
   path?: string;
   error?: boolean;
   done?: boolean;
+  /** What Claude asked with AskUserQuestion, with the user's answers once given. */
+  questions?: { question: string; answer?: string }[];
+}
+export interface ChatQuestion {
+  question: string;
+  header: string;
+  options: { label: string; description: string }[];
+  multiSelect: boolean;
+}
+/** Requests that wait for the user's answer rather than an allow/deny decision. */
+export function needsAnswer(tool: string) {
+  return tool === "AskUserQuestion";
+}
+/** Questions from an AskUserQuestion input; native code already rejected ones without text. */
+export function readQuestions(input: Record<string, unknown>): ChatQuestion[] {
+  const questions = Array.isArray(input.questions) ? input.questions.map(object) : [];
+  return questions.map((question) => ({
+    question: string(question.question),
+    header: string(question.header),
+    options: (Array.isArray(question.options) ? question.options.map(object) : []).map(
+      (option) => ({ label: string(option.label), description: string(option.description) }),
+    ),
+    multiSelect: question.multiSelect === true,
+  }));
 }
 export interface ChatMessage {
   id: string;
@@ -54,7 +78,10 @@ export type ClaudeEvent =
       snapshotId: string;
       tools: ChatTool[];
     }
-  | { type: "tool_results"; results: { id: string; error: boolean }[] }
+  | {
+      type: "tool_results";
+      results: { id: string; error: boolean; answers?: Record<string, string> }[];
+    }
   | { type: "result"; error: string | null; cost?: number };
 
 function object(value: unknown): Record<string, unknown> {
@@ -147,6 +174,9 @@ export function parseClaudeLine(line: string): ClaudeEvent | null {
             id: string(b.id),
             name: string(b.name),
             path: string(input.file_path) || undefined,
+            ...(b.name === "AskUserQuestion"
+              ? { questions: readQuestions(input).map(({ question }) => ({ question })) }
+              : {}),
           };
         }),
     };
@@ -155,12 +185,21 @@ export function parseClaudeLine(line: string): ClaudeEvent | null {
     const content = object(data.message).content;
     if (Array.isArray(content)) {
       const results = content.map(object).filter((b) => b.type === "tool_result");
+      // The structured result describes the message's only tool result.
+      const answers = object(object(data.tool_use_result).answers);
       if (results.length)
         return {
           type: "tool_results",
           results: results.map((result) => ({
             id: string(result.tool_use_id),
             error: result.is_error === true,
+            ...(results.length === 1 && Object.keys(answers).length
+              ? {
+                  answers: Object.fromEntries(
+                    Object.entries(answers).map(([question, answer]) => [question, string(answer)]),
+                  ),
+                }
+              : {}),
           })),
         };
     }
@@ -193,7 +232,16 @@ export function reduceClaudeMessages(
         ...message,
         tools: message.tools.map((tool) => {
           const result = event.results.find((r) => r.id === tool.id);
-          return result ? { ...tool, done: true, error: result.error } : tool;
+          if (!result) return tool;
+          const answers = result.answers;
+          return {
+            ...tool,
+            done: true,
+            error: result.error,
+            ...(answers && tool.questions
+              ? { questions: tool.questions.map((q) => ({ ...q, answer: answers[q.question] })) }
+              : {}),
+          };
         }),
       };
     });

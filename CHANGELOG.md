@@ -2,6 +2,8 @@
 
 ## 2026-10-12
 
+- Co-writer can ask you questions. When Claude needs to know something, such as which tone you want, the question takes the message box's place with a few options to pick from. You can also type your own answer, or choose not to answer. Use ↑/↓ and Enter, or press a number to pick an option. Your answers stay in the conversation's tool list.
+
 - Go back to earlier versions of a note. Click the clock button at the top right (in the Co-writer header when Co-writer is open), or press ⌘⇧H, to see every version on the right, grouped by day. Versions made by Claude are tagged. Click a version, or use ↑/↓, to preview it with its changes highlighted, then press "Restore this version" to bring it back. ⌘Z undoes a restore. Versions are kept in a hidden `.writer/history` folder in your workspace. Recent versions are all kept, older ones are thinned out to one per hour, day and then week, and Claude's edits are always kept.
 
 - When you send a Chat message, the paragraphs and text you attached leave the message box straight away, the same as your text and files. Before, they stayed there until Claude Code had started. If the message fails to send, they come back.

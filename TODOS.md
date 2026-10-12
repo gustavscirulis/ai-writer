@@ -2,6 +2,8 @@
 
 ## In Progress
 
+- Co-writer plan mode and Claude's questions: [`SPECs/chat-plan-mode-and-questions.md`](SPECs/chat-plan-mode-and-questions.md). Questions are done (Claude's `AskUserQuestion` takes the composer's place like an approval, with native answer checks). Plan mode is next.
+
 - Stream feedback in Chat: [`SPECs/stream-feedback-chat.md`](SPECs/stream-feedback-chat.md). Chosen from the unified feedback/chat prototype ([`SPECs/unified-feedback-chat-prototype.md`](SPECs/unified-feedback-chat-prototype.md)); replaces the separate Feedback column from [`SPECs/paragraph-feedback.md`](SPECs/paragraph-feedback.md).
   - How it works:
     - Select text and press ⌘L (or the "Add to chat" pill / selection context menu), or ⌥-click / use the right-hand button on a block, to attach it to the composer.

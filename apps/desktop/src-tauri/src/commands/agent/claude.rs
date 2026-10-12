@@ -1,4 +1,4 @@
-use super::{AgentEvent, AgentProcess, Input, NoteClaims};
+use super::{AgentEvent, AgentProcess, Answer, Input, NoteClaims};
 use crate::{error::AppError, state::AppState};
 use std::{
     path::{Path, PathBuf},
@@ -95,7 +95,7 @@ pub(super) fn kill_group(child: &mut Child) {
 }
 
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 const INIT_ID: &str = "writer-initialize";
 const HOOK_ID: &str = "writer-note-scope";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
@@ -122,6 +122,50 @@ fn uses_host_permission(tool: &str) -> bool {
                 && !tool.is_empty()
                 && !tool.chars().any(|c| c.is_whitespace() || c.is_control())
         })
+}
+
+/// Tools that wait on the user's answer rather than an allow/deny decision.
+fn interactive_tool(tool: &str) -> bool {
+    tool == "AskUserQuestion"
+}
+
+const ANSWER_LIMIT: usize = 2000;
+const DECLINED_QUESTIONS: &str = "The user chose not to answer.";
+
+fn question_texts(input: &Value) -> Result<BTreeSet<&str>, String> {
+    input["questions"]
+        .as_array()
+        .filter(|questions| !questions.is_empty())
+        .ok_or("Claude asked no questions")?
+        .iter()
+        .map(|question| {
+            question["question"]
+                .as_str()
+                .filter(|text| !text.trim().is_empty())
+                .ok_or_else(|| "Claude asked a question without text".to_string())
+        })
+        .collect()
+}
+
+/// Answers must cover exactly the questions Claude asked, so the UI can't add or rename any.
+fn checked_answers(input: &Value, answers: &BTreeMap<String, String>) -> Result<(), String> {
+    let questions = question_texts(input)?;
+    if !answers
+        .keys()
+        .map(String::as_str)
+        .eq(questions.iter().copied())
+    {
+        return Err("Answers don't match Claude's questions".into());
+    }
+    if answers
+        .values()
+        .any(|answer| answer.trim().is_empty() || answer.chars().count() > ANSWER_LIMIT)
+    {
+        return Err(format!(
+            "Each answer needs between 1 and {ANSWER_LIMIT} characters"
+        ));
+    }
+    Ok(())
 }
 
 /// Resolves an edit target to its canonical path, through the nearest existing
@@ -370,6 +414,19 @@ impl Scope {
                 Target::Denied(reason) => Some(json!({"behavior": "deny", "message": reason})),
             });
         }
+        if interactive_tool(tool) && self.active {
+            let input = request["input"]
+                .as_object()
+                .ok_or("Invalid tool permission input")?;
+            if tool == "AskUserQuestion" && question_texts(&request["input"]).is_err() {
+                return Ok(Some(
+                    json!({"behavior": "deny", "message": "Writer couldn't show these questions to the user."}),
+                ));
+            }
+            self.permissions
+                .insert(id.into(), (tool.into(), json!(input)));
+            return Ok(None);
+        }
         if !self.active || !uses_host_permission(tool) {
             return Ok(Some(
                 json!({"behavior": "deny", "message": "This tool is unavailable outside an active Writer turn or its permitted tool set."}),
@@ -455,6 +512,13 @@ impl Scope {
         if !self.active {
             return Err("No active Writer turn".into());
         }
+        if self
+            .permissions
+            .get(id)
+            .is_some_and(|(tool, _)| interactive_tool(tool))
+        {
+            return Err("This request needs an answer, not an approval".into());
+        }
         let (tool, input) = self
             .permissions
             .remove(id)
@@ -483,6 +547,34 @@ impl Scope {
             .hold_edit(id, target.tool_use_id, &allowed)
             .ok_or("Approved edit has no allow reply")?;
         Ok(Decision::Hold(event))
+    }
+    fn answer(&mut self, id: &str, answer: Answer) -> Result<Decision, String> {
+        let answers = match answer {
+            Answer::Tool { allow, always } => return self.decision(id, allow, always),
+            Answer::Questions { answers } => answers,
+        };
+        let mut input = self.interactive_input(id, "AskUserQuestion")?;
+        let reply = match answers {
+            Some(answers) => {
+                checked_answers(&input, &answers)?;
+                input["answers"] = json!(answers);
+                json!({"behavior": "allow", "updatedInput": input})
+            }
+            None => json!({"behavior": "deny", "message": DECLINED_QUESTIONS}),
+        };
+        self.permissions.remove(id);
+        Ok(Decision::Reply(response(id, reply)))
+    }
+    /// A copy of the retained input; the request stays pending until a valid answer.
+    fn interactive_input(&self, id: &str, expected: &str) -> Result<Value, String> {
+        if !self.active {
+            return Err("No active Writer turn".into());
+        }
+        match self.permissions.get(id) {
+            Some((tool, input)) if tool == expected => Ok(input.clone()),
+            Some(_) => Err("That answer doesn't fit this request".into()),
+            None => Err("Tool request is no longer pending".into()),
+        }
     }
     /// Claims another note for this chat; false when a different chat holds it.
     fn claim(&mut self, path: PathBuf) -> bool {
@@ -588,8 +680,8 @@ async fn run_process(
                         }
                         (line, ack)
                     }
-                    Input::Permission { request_id, allow, always, ack } => {
-                        match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.decision(&request_id, allow, always)) {
+                    Input::Permission { request_id, answer, ack } => {
+                        match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.answer(&request_id, answer)) {
                             Ok(Decision::Reply(value)) => (value.to_string(), ack),
                             Ok(Decision::Hold(event)) => {
                                 if events.send(event).is_err() { failure = Some("Writer's event channel closed".into()); }
@@ -697,7 +789,7 @@ fn scoped_command(
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -877,8 +969,23 @@ pub async fn claude_decide_permission(
     let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
     deliver(&workspace, &process_id, |ack| Input::Permission {
         request_id,
-        allow,
-        always,
+        answer: Answer::Tool { allow, always },
+        ack,
+    })
+    .await
+}
+#[tauri::command]
+pub async fn claude_answer(
+    webview: WebviewWindow,
+    state: State<'_, AppState>,
+    process_id: String,
+    request_id: String,
+    answer: Answer,
+) -> Result<(), AppError> {
+    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
+    deliver(&workspace, &process_id, |ack| Input::Permission {
+        request_id,
+        answer,
         ack,
     })
     .await
@@ -1421,6 +1528,82 @@ mod tests {
             "deny"
         );
     }
+    #[tokio::test]
+    async fn questions_need_answers_to_exactly_the_questions_asked() {
+        let mut scope = test_scope("/a.md".into());
+        scope.active = true;
+        let questions = json!([
+            {"question": "Which tone?", "header": "Tone", "multiSelect": false, "options": [{"label": "Warm", "description": ""}]},
+            {"question": "Which length?", "header": "Length", "multiSelect": false, "options": [{"label": "Short", "description": ""}]}
+        ]);
+        let ask = json!({"tool_name": "AskUserQuestion", "input": {"questions": questions}});
+        let answers = |pairs: &[(&str, &str)]| Answer::Questions {
+            answers: Some(
+                pairs
+                    .iter()
+                    .map(|(q, a)| (q.to_string(), a.to_string()))
+                    .collect(),
+            ),
+        };
+        assert!(scope.permission("ask", &ask).await.unwrap().is_none());
+        assert!(scope.decision("ask", true, false).is_err());
+        for wrong in [
+            answers(&[("Which tone?", "Warm")]),
+            answers(&[("Which tone?", "Warm"), ("Which colour?", "Red")]),
+            answers(&[("Which tone?", "Warm"), ("Which length?", " ")]),
+            answers(&[
+                ("Which tone?", "Warm"),
+                ("Which length?", &"x".repeat(ANSWER_LIMIT + 1)),
+            ]),
+        ] {
+            assert!(scope.answer("ask", wrong).is_err());
+        }
+        let reply = scope
+            .answer(
+                "ask",
+                answers(&[("Which tone?", "Warm"), ("Which length?", "A page or so")]),
+            )
+            .unwrap()
+            .reply();
+        assert_eq!(
+            reply["response"]["response"],
+            json!({"behavior": "allow", "updatedInput": {"questions": questions, "answers": {"Which tone?": "Warm", "Which length?": "A page or so"}}})
+        );
+        assert!(scope
+            .answer("ask", Answer::Questions { answers: None })
+            .is_err());
+
+        assert!(scope.permission("decline", &ask).await.unwrap().is_none());
+        assert_eq!(
+            scope
+                .answer("decline", Answer::Questions { answers: None })
+                .unwrap()
+                .reply()["response"]["response"],
+            json!({"behavior": "deny", "message": DECLINED_QUESTIONS})
+        );
+        assert!(scope
+            .permission(
+                "read",
+                &json!({"tool_name": "Read", "input": {"file_path": "/x.md"}})
+            )
+            .await
+            .unwrap()
+            .is_none());
+        assert!(scope
+            .answer("read", Answer::Questions { answers: None })
+            .is_err());
+        let empty = json!({"tool_name": "AskUserQuestion", "input": {"questions": []}});
+        assert_eq!(
+            scope.permission("empty", &empty).await.unwrap().unwrap()["behavior"],
+            "deny"
+        );
+        assert!(always_allow_set(vec!["AskUserQuestion".into()]).is_err());
+        scope.active = false;
+        assert_eq!(
+            scope.permission("late", &ask).await.unwrap().unwrap()["behavior"],
+            "deny"
+        );
+    }
     #[test]
     fn command_loads_configured_mcps_without_expanding_builtin_tools() {
         let command = scoped_command(
@@ -1446,7 +1629,7 @@ mod tests {
         for pair in [
             [
                 "--tools",
-                "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers",
+                "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion",
             ],
             ["--permission-mode", "manual"],
             ["--permission-prompts", "host"],
@@ -1626,8 +1809,10 @@ mod tests {
             input
                 .send(Input::Permission {
                     request_id: id.into(),
-                    allow,
-                    always: false,
+                    answer: Answer::Tool {
+                        allow,
+                        always: false,
+                    },
                     ack,
                 })
                 .await
@@ -2003,8 +2188,10 @@ mod tests {
                             let _ = tx
                                 .send(Input::Permission {
                                     request_id: id,
-                                    allow: false,
-                                    always: false,
+                                    answer: Answer::Tool {
+                                        allow: false,
+                                        always: false,
+                                    },
                                     ack,
                                 })
                                 .await;
@@ -2152,8 +2339,10 @@ mod tests {
                                 let _ = tx
                                     .send(Input::Permission {
                                         request_id: id,
-                                        allow,
-                                        always: false,
+                                        answer: Answer::Tool {
+                                            allow,
+                                            always: false,
+                                        },
                                         ack,
                                     })
                                     .await;

@@ -428,6 +428,15 @@ export function claudeDecidePermission(
 ): Promise<void> {
   return invoke("claude_decide_permission", { processId, requestId, allow, always });
 }
+/** The user's reply to a question Claude asked; `answers` is keyed by question text, `null` declines. */
+export type HostAnswer = { kind: "questions"; answers: Record<string, string> | null };
+export function claudeAnswer(
+  processId: string,
+  requestId: string,
+  answer: HostAnswer,
+): Promise<void> {
+  return invoke("claude_answer", { processId, requestId, answer });
+}
 export function setPendingApprovals(count: number): Promise<void> {
   return invoke("set_pending_approvals", { count });
 }

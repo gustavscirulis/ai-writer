@@ -2,6 +2,7 @@ import { memo, useState, type ReactNode } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
+  BubbleChatQuestionIcon,
   CommandLineIcon,
   Edit02Icon,
   File01Icon,
@@ -23,7 +24,10 @@ import {
   revealAttachment,
 } from "@/hooks/feedback-api";
 
-const TOOL_KINDS: Record<string, { verb: string; icon: typeof File01Icon }> = {
+const TOOL_KINDS: Record<
+  string,
+  { verb: string; icon: typeof File01Icon; label?: string; running?: string }
+> = {
   Read: { verb: "read", icon: File01Icon },
   Edit: { verb: "edited", icon: Edit02Icon },
   MultiEdit: { verb: "edited", icon: Edit02Icon },
@@ -33,6 +37,12 @@ const TOOL_KINDS: Record<string, { verb: string; icon: typeof File01Icon }> = {
   WebFetch: { verb: "browsed", icon: GlobalIcon },
   WebSearch: { verb: "browsed", icon: GlobalIcon },
   Bash: { verb: "ran commands", icon: CommandLineIcon },
+  AskUserQuestion: {
+    verb: "asked you",
+    icon: BubbleChatQuestionIcon,
+    label: "Asked",
+    running: "Asking you",
+  },
 };
 
 function toolKind(tool: ChatTool) {
@@ -112,7 +122,7 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
         <>
           {running ? (
             <span className="chat-thinking-shimmer truncate">
-              Using {running.name}
+              {toolKind(running).running ?? `Using ${running.name}`}
               {running.path ? ` · ${getFileName(running.path)}` : ""}
             </span>
           ) : (
@@ -124,34 +134,44 @@ function ToolSummary({ tools, live }: { tools: ChatTool[]; live: boolean }) {
     >
       <ul className="flex flex-col gap-1.5">
         {tools.map((tool) => (
-          <li key={tool.id} title={tool.path} className="flex min-w-0 items-center gap-[7px]">
-            <HugeiconsIcon
-              icon={toolKind(tool).icon}
-              size={13}
-              strokeWidth={1.8}
-              className="shrink-0"
-            />
-            <span className={`truncate ${tool.error ? "line-through" : ""}`}>
-              {tool.name}
-              {tool.path && " "}
-              {tool.path &&
-                (opensNote(tool) ? (
-                  <button
-                    type="button"
-                    onClick={() => void openLinkedFile(tool.path!)}
-                    className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
-                  >
-                    {getFileName(tool.path)}
-                  </button>
-                ) : (
-                  <span className="font-medium text-[var(--text-secondary)]">
-                    {getFileName(tool.path)}
-                  </span>
-                ))}
-            </span>
-            <span className="ml-auto shrink-0">
-              {tool.error ? "Denied / failed" : tool.done ? "" : "Running"}
-            </span>
+          <li key={tool.id} title={tool.path} className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-[7px]">
+              <HugeiconsIcon
+                icon={toolKind(tool).icon}
+                size={13}
+                strokeWidth={1.8}
+                className="shrink-0"
+              />
+              <span className={`truncate ${tool.error ? "line-through" : ""}`}>
+                {toolKind(tool).label ?? tool.name}
+                {tool.path && " "}
+                {tool.path &&
+                  (opensNote(tool) ? (
+                    <button
+                      type="button"
+                      onClick={() => void openLinkedFile(tool.path!)}
+                      className="font-medium text-[var(--text-secondary)] underline decoration-[var(--line-subtle)] underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] hover:decoration-current"
+                    >
+                      {getFileName(tool.path)}
+                    </button>
+                  ) : (
+                    <span className="font-medium text-[var(--text-secondary)]">
+                      {getFileName(tool.path)}
+                    </span>
+                  ))}
+              </span>
+              <span className="ml-auto shrink-0">
+                {tool.error ? "Denied / failed" : tool.done ? "" : "Running"}
+              </span>
+            </div>
+            {tool.questions?.map(({ question, answer }) => (
+              <p key={question} className="pl-5 leading-snug">
+                {question}
+                {answer && (
+                  <span className="block font-medium text-[var(--text-secondary)]">{answer}</span>
+                )}
+              </p>
+            ))}
           </li>
         ))}
       </ul>

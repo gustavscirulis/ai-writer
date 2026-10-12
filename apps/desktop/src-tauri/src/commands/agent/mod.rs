@@ -2,7 +2,7 @@ pub mod claude;
 pub mod mcp;
 
 use crate::state::AppState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -45,15 +45,28 @@ pub enum Input {
     },
     Permission {
         request_id: String,
-        allow: bool,
-        /// Allow this tool for the rest of the chat as well.
-        always: bool,
+        answer: Answer,
         ack: oneshot::Sender<Result<(), String>>,
     },
     EditReady {
         request_id: String,
         allow: bool,
         ack: oneshot::Sender<Result<(), String>>,
+    },
+}
+
+/// The user's reply to a pending host request; native code checks it fits the request.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Answer {
+    Tool {
+        allow: bool,
+        /// Allow this tool for the rest of the chat as well.
+        always: bool,
+    },
+    /// Answers keyed by question text; `None` declines to answer.
+    Questions {
+        answers: Option<std::collections::BTreeMap<String, String>>,
     },
 }
 

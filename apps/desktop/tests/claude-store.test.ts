@@ -820,6 +820,63 @@ test("reports the window's pending approval count for the Dock badge only when i
   emit({ type: "control_cancel_request", request_id: "second" });
   expect(reported()).toEqual([1, 2, 1, 0]);
 });
+test("Claude's questions wait for answers, keep a failed reply for retry and show the answers in the thread", async () => {
+  const answers = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_answer")
+      .map(([, payload]) => payload);
+  const questions = [
+    { question: "Which tone?", header: "Tone", multiSelect: false, options: [] },
+    { question: "Which length?", header: "Length", multiSelect: false, options: [] },
+  ];
+  await send("Rewrite it");
+  emit({
+    type: "assistant",
+    message: {
+      id: "ask",
+      content: [
+        { type: "tool_use", id: "toolu_ask", name: "AskUserQuestion", input: { questions } },
+      ],
+    },
+  });
+  requestPermission("ask", "AskUserQuestion", { questions });
+  expect(chatState().permissions.map((entry) => entry.tool)).toEqual(["AskUserQuestion"]);
+  const reply = { "Which tone?": "Warm", "Which length?": "Short" };
+  mockedInvoke.mockImplementationOnce(async () => {
+    throw new Error("Claude Code exited");
+  });
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "ask", { kind: "questions", answers: reply });
+  expect(chatState().permissions[0]).toMatchObject({
+    pending: false,
+    error: "Could not send your reply: Claude Code exited",
+  });
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "ask", { kind: "questions", answers: reply });
+  expect(answers().at(-1)).toEqual({
+    processId: "process-1",
+    requestId: "ask",
+    answer: { kind: "questions", answers: reply },
+  });
+  expect(sentDecisions()).toEqual([]);
+  expect(chatState().permissions).toEqual([]);
+  emit({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_ask" }] },
+    tool_use_result: { questions, answers: reply },
+  });
+  expect(chatState().messages.at(-1)!.tools[0]).toMatchObject({
+    done: true,
+    questions: [
+      { question: "Which tone?", answer: "Warm" },
+      { question: "Which length?", answer: "Short" },
+    ],
+  });
+  emit({ type: "result", is_error: false });
+  await tick();
+});
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
   await send("Search");
   requestPermission("first");
