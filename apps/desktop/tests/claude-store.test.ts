@@ -490,6 +490,30 @@ test("a failed send puts its attached files back in the composer", async () => {
   expect(chatState().files).toEqual(["/tmp/diagram.png", "/tmp/later.pdf"]);
   expect(chatState().error).toContain("Couldn't find diagram.png.");
 });
+test("attached feedback leaves the composer on send and returns only if delivery fails", async () => {
+  const start = deferred<string>();
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_start" ? start.promise : defaultInvoke(command, args),
+  );
+  const feedback = useFeedbackStore.getState();
+  const attached = () => useFeedbackStore.getState().byPath["/notes/a.md"] ?? [];
+  const [target] = feedbackTargets("Original");
+  feedback.attach("/notes/a.md", target!);
+  const ids = attached().map((item) => item.id);
+  const sending = send("Cut this", {
+    attachments: [{ anchor: target!, quote: null }],
+    feedbackIds: ids,
+  });
+  expect(attached()).toEqual([]);
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ text: "Cut this" });
+  start.reject(new Error("Startup failed"));
+  expect(await sending).toBe(false);
+  expect(attached().map((item) => [item.id, item.status])).toEqual([[ids[0], "attached"]]);
+
+  mockedInvoke.mockImplementation(defaultInvoke);
+  expect(await send("Again", { feedbackIds: ids })).toBe(true);
+  expect(attached()).toEqual([]);
+});
 test("save failure does not start Claude or discard the dirty buffer", async () => {
   mockedInvoke.mockImplementation((command, args) =>
     command === "write_file"
