@@ -237,17 +237,39 @@ export const UserMessage = memo(function UserMessage({
   );
 });
 
-/** One reply: every assistant message between two user messages, with all of its tool use folded into a single summary. */
+type TurnSegment =
+  | { kind: "text"; message: ChatMessage }
+  | { kind: "tools"; key: string; tools: ChatTool[] };
+
+/** Texts and runs of consecutive tool calls, in the order they happened. Within one message, text precedes its tool calls. */
+function turnSegments(messages: ChatMessage[]) {
+  const segments: TurnSegment[] = [];
+  for (const message of messages) {
+    if (message.text) segments.push({ kind: "text", message });
+    if (!message.tools.length) continue;
+    const last = segments[segments.length - 1];
+    if (last?.kind === "tools") last.tools.push(...message.tools);
+    else segments.push({ kind: "tools", key: `${message.id}:tools`, tools: [...message.tools] });
+  }
+  return segments;
+}
+
+/** One reply: every assistant message between two user messages, with each run of tool use folded into a summary in place. */
 export const AssistantTurn = memo(
   function AssistantTurn({ messages, live }: { messages: ChatMessage[]; live: boolean }) {
-    const tools = messages.flatMap((message) => message.tools);
-    const texts = messages.filter((message) => message.text);
     return (
       <article aria-label="Assistant" className="chat-enter flex min-w-0 flex-col gap-2.5">
-        {tools.length > 0 && <ToolSummary tools={tools} live={live} />}
-        {texts.map((message) => (
-          <MarkdownReply key={message.id} id={message.id} text={message.text} />
-        ))}
+        {turnSegments(messages).map((segment) =>
+          segment.kind === "text" ? (
+            <MarkdownReply
+              key={segment.message.id}
+              id={segment.message.id}
+              text={segment.message.text}
+            />
+          ) : (
+            <ToolSummary key={segment.key} tools={segment.tools} live={live} />
+          ),
+        )}
       </article>
     );
   },

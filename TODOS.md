@@ -12,6 +12,8 @@
 
 ## Done
 
+- Keep Chat tool summaries in chronological order. `AssistantTurn` now splits a reply into text steps and runs of consecutive tool calls, and renders each run as its own summary where it happened instead of putting one summary at the top. A React render test covers the order.
+
 - Version history for notes: [`SPECs/version-history-spec.md`](SPECs/version-history-spec.md). Each version is stored as a plain file under `.writer/history/` in the vault. User saves coalesce, Claude turns are grouped, and older versions are thinned out over time. The panel opens from the clock button or ⌘⇧H, shows a read-only preview with inline diff highlights, flips versions with ↑/↓, and restores as one undoable step. Native, frontend and WebDriver tests pass; the WebDriver test covers an external edit, a typed edit, flipping versions and restoring.
 
 - Clear attached feedback chips from the composer when a message is sent. `claude-store.send` now takes the chips (`feedbackIds`) at the same moment it clears the draft and files, and gives them back through `feedback-store.restore` if delivery fails. Before, the composer only removed them after Claude Code had started. Store tests cover both paths.
