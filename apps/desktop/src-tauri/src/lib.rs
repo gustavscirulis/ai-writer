@@ -26,6 +26,7 @@ use tauri::menu::MenuItem;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::RunEvent;
 use tauri::{DragDropEvent, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
 #[cfg(target_os = "macos")]
 const CLI_MENU_INSTALL_LABEL: &str = "Install 'writer' Command Line Tool…";
@@ -509,7 +510,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_store::Builder::default().build());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        // VISIBLE stays off so the frontend still reveals windows after
+        // hydration. Every window maps to one entry: new windows open at the
+        // last-left size and the state file never grows per `w-<uuid>` label.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .map_label(|_| MAIN_WINDOW_LABEL)
+                .build(),
+        );
 
     // Embed a W3C WebDriver server when built with `--features e2e` so the
     // local E2E suite can drive the WKWebView via `tauri-webdriver`. Never
