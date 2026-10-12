@@ -8,7 +8,7 @@ These shortcuts are handled by the global `useKeyboardShortcuts` hook and work r
 
 | Shortcut        | Action                                                             |
 | --------------- | ------------------------------------------------------------------ |
-| Cmd+Shift+L     | Toggle experimental Chat panel                                     |
+| Cmd+Shift+L     | Toggle experimental Co-writer panel                                |
 | Cmd+P           | File search (command palette)                                      |
 | Cmd+O           | Go to file                                                         |
 | Cmd+N           | Create new note                                                    |
@@ -60,12 +60,12 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 | Cmd+Alt+1 ... Cmd+Alt+6 | Heading 1-6               |
 | Cmd+Alt+0               | Paragraph (strip heading) |
 
-## Chat
+## Co-writer
 
 | Shortcut             | Action                                                                          |
 | -------------------- | ------------------------------------------------------------------------------- |
-| Cmd+L                | Add the selection to the Chat composer (the block at the caret if none)         |
-| Alt+click            | Add the clicked block to the Chat composer                                      |
+| Cmd+L                | Add the selection to the Co-writer composer (the block at the caret if none)    |
+| Alt+click            | Add the clicked block to the Co-writer composer                                 |
 | Enter (composer)     | Send now; while Claude is replying, queue it instead                            |
 | Cmd+Enter (composer) | Queue the draft (one item per attachment); on an empty composer, send the queue |
 | Backspace (composer) | Remove the last attachment when the draft is empty                              |

@@ -130,7 +130,7 @@ export function chatForPath(chats: Record<string, Chat>, path: string | null) {
   return path ? (chats[documentPath(path)] ?? EMPTY_CHAT) : EMPTY_CHAT;
 }
 const EXPIRED_SESSION =
-  "This conversation can't be continued in Claude Code any more. Start a new chat to keep going.";
+  "This conversation can't be continued in Claude Code any more. Start a new conversation to keep going.";
 
 /** One record per canonical note path, so the visible thread and its session can't drift. */
 interface ChatRecord {

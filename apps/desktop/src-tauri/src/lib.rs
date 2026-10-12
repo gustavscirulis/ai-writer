@@ -605,6 +605,8 @@ pub fn run() {
             commands::agent::claude::claude_edit_ready,
             commands::agent::claude::claude_stop,
             commands::agent::set_pending_approvals,
+            commands::agent::suggest::claude_mcp_servers,
+            commands::agent::suggest::claude_suggest,
             commands::fs::read_directory,
             commands::fs::read_recent_files,
             commands::fs::read_file_entries,

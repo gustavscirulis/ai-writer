@@ -1885,7 +1885,7 @@ test("the sent message is saved before Claude starts, and New chat and moves rew
   expect(savedChats().at(-1)).toEqual(["/notes\0/notes/c.md", undefined]);
 });
 
-test("an expired Claude Code session keeps the restored thread and says to start a new chat", async () => {
+test("an expired Claude Code session keeps the restored thread and says to start a new conversation", async () => {
   await reopenWithSavedChat({
     sessionId: "gone",
     messages: [{ id: "u1", role: "user", text: "Earlier", tools: [] }],
@@ -1898,7 +1898,7 @@ test("an expired Claude Code session keeps the restored thread and says to start
   });
   await tick();
   expect(chatState().error).toBe(
-    "This conversation can't be continued in Claude Code any more. Start a new chat to keep going.",
+    "This conversation can't be continued in Claude Code any more. Start a new conversation to keep going.",
   );
   expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["Earlier", "Again"]);
 });
