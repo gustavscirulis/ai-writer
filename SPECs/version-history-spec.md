@@ -2,7 +2,7 @@
 
 ## Summary
 
-Every workspace note gets durable version history, in the style of Google Docs. A clock button next to Chat (or ⌘⇧H, or "Show Version History" in the command palette) opens a list of versions on the right. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ↑/↓ flips between versions, Esc closes, and "Restore this version" brings an earlier version back as a new "Restored" version.
+Every workspace note gets durable version history, in the style of Google Docs. A clock button at the top right, which moves into the Chat header while Chat is open (or ⌘⇧H, or "Show Version History" in the command palette) opens a list of versions on the right. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ↑/↓ flips between versions, Esc closes, and "Restore this version" brings an earlier version back as a new "Restored" version.
 
 ## Storage
 
