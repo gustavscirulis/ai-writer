@@ -33,7 +33,7 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
         </p>
         {loaded && (
           <div
-            className="co-writer-enter mt-[22px] flex w-full flex-col rounded-xl p-1 text-left shadow-[inset_0_0_0_1px_var(--line-subtler)]"
+            className="co-writer-enter mt-[22px] flex w-full flex-col rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--line-subtler)]"
             style={stagger(3)}
           >
             {toolSuggestions(servers).map((suggestion) => (
@@ -42,7 +42,7 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
                 type="button"
                 disabled={!path || busy}
                 onClick={() => path && void sendChat(path, suggestion.label)}
-                className="co-writer-suggestion relative flex min-h-[34px] items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left text-[13px] leading-snug text-[var(--text-secondary)] transition-colors duration-150 hover:enabled:bg-[var(--item-hover-bg)] hover:enabled:text-[var(--text-primary)] active:enabled:scale-[0.99] disabled:opacity-50"
+                className="co-writer-suggestion relative flex min-h-[34px] items-center justify-center gap-2 rounded-lg px-7 py-[7px] text-center text-[13px] leading-snug text-[var(--text-secondary)] transition-colors duration-150 hover:enabled:bg-[var(--item-hover-bg)] hover:enabled:text-[var(--text-primary)] active:enabled:scale-[0.99] disabled:opacity-50"
               >
                 <span className="grid text-[var(--text-icon-muted)]">
                   <HugeiconsIcon
@@ -51,7 +51,7 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
                     strokeWidth={1.8}
                   />
                 </span>
-                <span className="min-w-0 flex-1 pr-4 [text-wrap:pretty]">{suggestion.label}</span>
+                <span className="min-w-0 [text-wrap:pretty]">{suggestion.label}</span>
                 <span className="co-writer-suggestion-enter absolute right-2.5 grid text-[var(--text-muted)]">
                   <HugeiconsIcon icon={ArrowTurnBackwardIcon} size={13} strokeWidth={1.8} />
                 </span>
