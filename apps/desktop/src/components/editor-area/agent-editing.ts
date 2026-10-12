@@ -9,7 +9,7 @@ import {
 import { invertedEffects, isolateHistory } from "@codemirror/commands";
 import { isAgentEditing, subscribeAgentEditing } from "@/lib/agent-turn";
 import { textDiff } from "@/lib/text-diff";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 export const agentFrontmatter = StateEffect.define<string | null>();
 export const agentFrontmatterField = StateField.define<string | null>({
@@ -19,6 +19,12 @@ export const agentFrontmatterField = StateField.define<string | null>({
     return value;
   },
 });
+
+function agentLock(path: string): Extension {
+  return isAgentEditing(path)
+    ? [EditorState.readOnly.of(true), EditorView.editorAttributes.of({ "data-agent-editing": "" })]
+    : EditorState.readOnly.of(false);
+}
 
 export function agentEditingExtensions(
   frontmatter: string | null,
@@ -32,7 +38,7 @@ export function agentEditingExtensions(
         ? [agentFrontmatter.of(tr.startState.field(agentFrontmatterField))]
         : [],
     ),
-    compartment.of(EditorState.readOnly.of(isAgentEditing(path()))),
+    compartment.of(agentLock(path())),
     // readOnly alone does not reject explicit dispatches by widgets or menus.
     EditorState.transactionFilter.of((tr) =>
       isAgentEditing(path()) &&
@@ -44,13 +50,9 @@ export function agentEditingExtensions(
   ];
 }
 export function watchAgentEditing(view: EditorView, compartment: Compartment, path: () => string) {
-  view.dispatch({
-    effects: compartment.reconfigure(EditorState.readOnly.of(isAgentEditing(path()))),
-  });
+  view.dispatch({ effects: compartment.reconfigure(agentLock(path())) });
   return subscribeAgentEditing(() =>
-    view.dispatch({
-      effects: compartment.reconfigure(EditorState.readOnly.of(isAgentEditing(path()))),
-    }),
+    view.dispatch({ effects: compartment.reconfigure(agentLock(path())) }),
   );
 }
 export function agentReloadTransaction(before: string, after: string, frontmatter: string | null) {

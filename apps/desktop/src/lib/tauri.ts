@@ -338,6 +338,7 @@ export type AgentEvent =
   | { type: "started"; processId: string }
   | { type: "claude"; line: string }
   | { type: "stderr"; message: string }
+  | { type: "edit_start"; requestId: string; toolUseId: string | null }
   | { type: "exit"; code: number | null };
 
 export function claudeStart(
@@ -368,4 +369,11 @@ export function claudeDecidePermission(
   allow: boolean,
 ): Promise<void> {
   return invoke("claude_decide_permission", { processId, requestId, allow });
+}
+export function claudeEditReady(
+  processId: string,
+  requestId: string,
+  allow: boolean,
+): Promise<void> {
+  return invoke("claude_edit_ready", { processId, requestId, allow });
 }

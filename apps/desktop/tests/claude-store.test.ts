@@ -39,6 +39,7 @@ import { useSettingsStore } from "../src/stores/settings-store";
 import {
   agentIORevision,
   isAgentEditing,
+  isAgentTurnActive,
   beginPathMutation,
   registerPendingEditorFlush,
   setAppClosing,
@@ -59,6 +60,20 @@ function deferred<T>() {
 }
 const emit = (data: unknown, channel = channels[channels.length - 1]) =>
   channel.onmessage({ type: "claude", line: JSON.stringify(data) });
+let edits = 0;
+/** Opens Writer's native edit gate as Claude Code does before applying Edit/Write. */
+async function startEdit(channel = channels[channels.length - 1]) {
+  const id = `edit-${++edits}`;
+  channel.onmessage({ type: "edit_start", requestId: id, toolUseId: id });
+  await tick();
+  return id;
+}
+async function claudeEdits(write: () => void, channel = channels[channels.length - 1]) {
+  const id = await startEdit(channel);
+  write();
+  emit({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id }] } }, channel);
+  await tick();
+}
 const chatState = (path = "/notes/a.md") => chatForPath(useClaudeStore.getState().chats, path);
 const send = (
   text: string,
@@ -110,6 +125,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   vi.mocked(writePreferenceStrict).mockResolvedValue(undefined);
   channels.length = 0;
+  edits = 0;
   disk = new Map([["/notes/a.md", "Original"]]);
   mockedInvoke.mockImplementation(defaultInvoke);
   useWorkspaceStore.setState((s) => ({
@@ -248,12 +264,12 @@ test("a result retains ownership until its delivery acknowledgement settles", as
   emit({ type: "result", is_error: false });
   useClaudeStore.getState().setDraft("/notes/a.md", "Second");
   expect(await send("Second")).toBe(false);
-  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
   delivery.reject(new Error("Late failure"));
   expect(await first).toBe(false);
   await tick();
   expect(chatState().draft).toBe("Second");
-  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(false);
   mockedInvoke.mockImplementation(defaultInvoke);
   expect(await send("Second")).toBe(true);
 });
@@ -356,26 +372,66 @@ test("empty and busy sends leave the composer draft intact", async () => {
   expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["First"]);
 });
 
-test("saves and locks the target before starting, leaving other notes editable", async () => {
+test("saves the target before starting and locks it only while an edit is applied", async () => {
   useEditorStore.getState().updateContent("/notes/a.md", "Latest draft");
   const revision = agentIORevision();
   const sending = send("Tighten this");
-  expect(isAgentEditing()).toBe(true);
-  useEditorStore.getState().updateContent("/notes/a.md", "Forbidden");
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
   expect(await sending).toBe(true);
   expect(disk.get("/notes/a.md")).toBe("Latest draft");
+  useEditorStore.getState().updateContent("/notes/a.md", "Typed while thinking");
   disk.set("/notes/b.md", "Before B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
-  disk.set("/notes/a.md", "Revised A");
-  useEditorStore.getState().updateContent("/notes/b.md", "User edit B");
-  await tick();
+  await claudeEdits(() => {
+    expect(isAgentEditing("/notes/a.md")).toBe(true);
+    expect(disk.get("/notes/a.md")).toBe("Typed while thinking");
+    useEditorStore.getState().updateContent("/notes/a.md", "Forbidden");
+    disk.set("/notes/a.md", "Revised A");
+    useEditorStore.getState().updateContent("/notes/b.md", "User edit B");
+  });
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_edit_ready")).toEqual([
+    ["claude_edit_ready", { processId: "process-1", requestId: "edit-1", allow: true }],
+  ]);
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
   expect(disk.get("/notes/b.md")).toBe("User edit B");
   emit({ type: "result", is_error: false });
   await tick();
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
   expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("User edit B");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(agentIORevision()).toBeGreaterThan(revision);
+});
+test("Stop during an edit reloads the note and releases the lock", async () => {
+  await send("Edit");
+  await startEdit();
+  disk.set("/notes/a.md", "Partly revised");
+  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  await useClaudeStore.getState().stop("/notes/a.md");
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Partly revised");
+});
+test("a failed save before an edit denies it and keeps the note editable", async () => {
+  await send("Edit");
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "write_file"
+      ? Promise.reject(new Error("Disk full"))
+      : defaultInvoke(command, args),
+  );
+  useEditorStore.getState().updateContent("/notes/a.md", "Unsaved");
+  await claudeEdits(() => {});
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_edit_ready").at(-1)?.[1]).toEqual({
+    processId: "process-1",
+    requestId: "edit-1",
+    allow: false,
+  });
+  expect(chatState().notices.at(-1)?.text).toContain("Disk full");
+  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Unsaved");
+  mockedInvoke.mockImplementation(defaultInvoke);
+  await useClaudeStore.getState().stop("/notes/a.md");
 });
 test("attachments reach Claude as saved-file lines and stay on the user message", async () => {
   disk.set("/notes/a.md", "---\ntitle: A\n---\nIntro\n\nOne two three");
@@ -408,7 +464,7 @@ test("save failure does not start Claude or discard the dirty buffer", async () 
   expect(await send("Edit")).toBe(false);
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_start")).toBe(false);
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Unsaved");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
 });
 test("failed Stop keeps process ownership and lock until termination retry succeeds", async () => {
   await send("Edit");
@@ -419,9 +475,9 @@ test("failed Stop keeps process ownership and lock until termination retry succe
       : defaultInvoke(command, args),
   );
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
   expect(stops).toHaveLength(2);
   expect(stops[0][1]).toEqual(stops[1][1]);
@@ -440,14 +496,14 @@ test("Stop waits for deferred startup despite a duplicate Send and retries faile
   await tick();
   expect(await send("Duplicate")).toBe(false);
   const stop = useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   start.resolve("late-process");
   await sending;
   await stop;
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   expect(mockedInvoke.mock.calls.some(([c]) => c === "claude_send")).toBe(false);
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
 });
 test("old process callbacks cannot finish a newer turn", async () => {
   await send("First");
@@ -459,7 +515,7 @@ test("old process callbacks cannot finish a newer turn", async () => {
   emit({ type: "result", is_error: false }, old);
   await tick();
   expect(chatState().status).toBe("running");
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop").at(-1)?.[1]).toEqual({
     processId: "process-2",
@@ -483,7 +539,7 @@ test.each(["before Stop", "after Stop"])(
     if (timing === "after Stop") started();
     await stopping;
     expect(await sending).toBe(false);
-    expect(isAgentEditing()).toBe(false);
+    expect(isAgentTurnActive()).toBe(false);
     expect(chatState().error).toBeNull();
     expect(chatMessages("/notes/a.md")).toEqual([message]);
     expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop")).toEqual([
@@ -508,21 +564,21 @@ test("failed startup cancellation retains ownership for an immediate Stop retry"
   const stopping = useClaudeStore.getState().stop("/notes/a.md");
   channels[0].onmessage({ type: "started", processId: "starting-process" });
   await stopping;
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   expect(chatState().error).toContain("Could not stop");
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(await sending).toBe(false);
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
   expect(stops).toHaveLength(2);
   expect(stops[0][1]).toEqual(stops[1][1]);
 });
 test("deleting an open file reports deletion without leaving all notes locked", async () => {
   await send("Delete this note");
-  disk.delete("/notes/a.md");
+  await claudeEdits(() => disk.delete("/notes/a.md"));
   emit({ type: "result", is_error: false });
   await tick();
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(chatState().error).toContain("deleted on disk");
   expect(useEditorStore.getState().openFiles.has("/notes/a.md")).toBe(false);
 });
@@ -543,7 +599,7 @@ test("a delayed navigation read for another note is independent of the target re
   stale.resolve({ path: "/notes/b.md", content: "Old B", modified_at: 1 });
   await loading;
   expect(useEditorStore.getState().openFiles.get("/notes/b.md")?.content).toBe("Old B");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
 });
 
 test("New chat stop failure rejects sends until termination is confirmed", async () => {
@@ -573,9 +629,9 @@ test("a rejected navigation read for another note cannot affect the running note
   await expect(useEditorStore.getState().openFileInNewTab("/notes/b.md")).rejects.toThrow(
     "Failed to open",
   );
-  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
   expect(chatState().status).toBe("running");
-  disk.set("/notes/a.md", "Revised A");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised A"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
@@ -585,7 +641,7 @@ test("malformed protocol data stops the process and preserves the visible error"
   await send("Edit");
   channels[channels.length - 1].onmessage({ type: "claude", line: "invalid JSON" });
   await tick();
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(chatState().error).toContain("Invalid Claude stream:");
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_stop")).toBe(true);
 });
@@ -603,7 +659,7 @@ test("CLI warnings remain inspectable after success without becoming turn errors
   const firstTurn = chatState().messages[0].id;
   expect(chatState().notices).toEqual([{ afterId: firstTurn, text: warning }]);
   expect(chatState().error).toBeNull();
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   await send("Second");
   channels[channels.length - 1].onmessage({ type: "stderr", message: warning });
   expect(chatState().notices).toEqual([{ afterId: firstTurn, text: warning }]);
@@ -675,7 +731,7 @@ test.each([
       input,
     });
     expect(useSettingsStore.getState().settings["appearance.agent-panel-visible"]).toBe(true);
-    expect(isAgentEditing()).toBe(true);
+    expect(isAgentTurnActive()).toBe(true);
     const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
     await useClaudeStore.getState().decidePermission("/notes/a.md", "first", false);
     await approving;
@@ -722,7 +778,7 @@ test("decision transport errors retain a retryable request and the editor lock",
     pending: false,
     error: expect.stringContaining("Pipe unavailable"),
   });
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   mockedInvoke.mockImplementation(defaultInvoke);
   await useClaudeStore.getState().decidePermission("/notes/a.md", "request", false);
   expect(chatState().permissions).toEqual([]);
@@ -775,7 +831,7 @@ test("unexpected interactive requests terminate with a visible protocol error", 
   emit({ type: "control_request", request_id: "unsupported", request: { subtype: "elicitation" } });
   await tick();
   expect(chatState().error).toContain("Unsupported interactive request");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(sentDecisions()).toEqual([]);
 });
 
@@ -807,11 +863,11 @@ test("protocol failures keep recovery locked when native Stop fails", async () =
   );
   emit({ type: "control_request", request_id: "bad", request: { subtype: "elicitation" } });
   await tick();
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   expect(chatState().error).toContain("IPC unavailable");
   mockedInvoke.mockImplementation(defaultInvoke);
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(chatState().error).toContain("Unsupported interactive request");
 });
 
@@ -1019,7 +1075,7 @@ test("captured feedback path is independent of the active tab and survives tab c
   expect(payload.line).toContain('openFile\\\":\\\"/notes/a.md');
   expect(payload.line).toContain("Feedback for A:");
   useEditorStore.getState().closeFile("/notes/a.md");
-  disk.set("/notes/a.md", "Revised A");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised A"));
   disk.set("/notes/b.md", "Revised B");
   emit({ type: "result", is_error: false });
   await tick();
@@ -1049,7 +1105,7 @@ test("successive feedback turns settle their own request; unrelated changes are 
   await useClaudeStore.getState().send("/notes/a.md", "Second", {
     turn: { path: "/notes/a.md", prepare: () => "Second", complete: second },
   });
-  disk.set("/notes/a.md", "Revised");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(second).toHaveBeenCalledExactlyOnceWith({
@@ -1084,6 +1140,7 @@ test("partial changes survive failed Stop and require cancelled completion after
   await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
     turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
   });
+  await startEdit();
   disk.set("/notes/a.md", "Partly revised");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
@@ -1106,6 +1163,7 @@ test("reconciliation failure cannot resolve feedback; retry settles only after r
   await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
     turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
   });
+  await startEdit();
   disk.set("/notes/a.md", "Revised");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
@@ -1116,7 +1174,7 @@ test("reconciliation failure cannot resolve feedback; retry settles only after r
   emit({ type: "result", is_error: false });
   await tick();
   expect(complete).not.toHaveBeenCalled();
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(complete).toHaveBeenCalledTimes(1);
   expect(complete.mock.calls[0]![0]).toMatchObject({ status: "cancelled", changed: true });
@@ -1153,7 +1211,7 @@ test("an in-flight relocation rejects an agent handoff and a handoff rejects new
     release();
   }
   await send("Feedback");
-  expect(() => beginPathMutation()).toThrow("AI editing");
+  expect(() => beginPathMutation()).toThrow("AI to finish");
   await useClaudeStore.getState().stop("/notes/a.md");
 });
 
@@ -1162,12 +1220,12 @@ test("deleted captured feedback file is a terminal failure and releases its note
   await useClaudeStore.getState().send("/notes/a.md", "Feedback", {
     turn: { path: "/notes/a.md", prepare: () => "Prepared", complete },
   });
-  disk.delete("/notes/a.md");
+  await claudeEdits(() => disk.delete("/notes/a.md"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(complete).toHaveBeenCalledTimes(1);
   expect(complete.mock.calls[0]![0]).toMatchObject({ status: "failed", changed: true });
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
   expect(useEditorStore.getState().openFiles.has("/notes/a.md")).toBe(false);
 });
 
@@ -1194,7 +1252,7 @@ test("applying one note resolves only that note after closed-file reconciliation
   await applyFeedback("/notes/a.md", [first]);
   expect(feedbackItems().map((x) => x.status)).toEqual(["running", "pending"]);
   useEditorStore.getState().closeFile("/notes/a.md");
-  disk.set("/notes/a.md", "Revised\n\nSecond");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised\n\nSecond"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems().map((x) => x.status)).toEqual(["pending"]);
@@ -1204,6 +1262,7 @@ test("applying one note resolves only that note after closed-file reconciliation
 test("real batch does not resolve when the feedback reconciliation read fails", async () => {
   const id = createFeedback("Original");
   await applyFeedback("/notes/a.md", [id]);
+  await startEdit();
   disk.set("/notes/a.md", "Revised");
   let reads = 0;
   mockedInvoke.mockImplementation((command, args) =>
@@ -1215,11 +1274,11 @@ test("real batch does not resolve when the feedback reconciliation read fails", 
   await tick();
   expect(reads).toBe(2);
   expect(feedbackItems()[0]!.status).toBe("running");
-  expect(isAgentEditing()).toBe(true);
+  expect(isAgentTurnActive()).toBe(true);
   expect(chatState().error).toContain("Feedback reconciliation failed");
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(feedbackItems()[0]).toMatchObject({ status: "pending", reviewRequired: true });
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
 });
 
 test("real batch success clears request errors; a no-op and Stop stay pending", async () => {
@@ -1234,7 +1293,7 @@ test("real batch success clears request errors; a no-op and Stop stay pending", 
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(feedbackItems()[0]!.status).toBe("pending");
   await applyFeedback("/notes/a.md", [id]);
-  disk.set("/notes/a.md", "Revised");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems()).toEqual([]);
@@ -1255,7 +1314,7 @@ test("cancelled shutdown retains a real completion and permits retry without wor
   const rejected = expect(closing).rejects.toThrow("Disk full");
   await tick();
   expect(() => beginPathMutation()).toThrow("before closing");
-  disk.set("/notes/a.md", "Revised\n\nSecond");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised\n\nSecond"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(feedbackItems().map((x) => x.id)).toEqual([second]);
@@ -1288,8 +1347,8 @@ test("two notes interleave starts, streams and delivery acknowledgements indepen
   const second = useClaudeStore.getState().send("/notes/b.md", "B prompt");
   await tick();
   expect(channels).toHaveLength(2);
-  expect(isAgentEditing("/notes/a.md")).toBe(true);
-  expect(isAgentEditing("/notes/b.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/b.md")).toBe(true);
   expect(await useClaudeStore.getState().send("/notes/a.md", "duplicate")).toBe(false);
   emit(
     { type: "stream_event", event: { type: "message_start", message: { id: "a" } } },
@@ -1312,7 +1371,7 @@ test("two notes interleave starts, streams and delivery acknowledgements indepen
     );
   expect(chatMessages("/notes/a.md").at(-1)?.text).toBe("A answer");
   expect(chatMessages("/notes/b.md").at(-1)?.text).toBe("B answer");
-  disk.set("/notes/a.md", "Revised A");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised A"), channels[0]);
   emit({ type: "result", is_error: false }, channels[0]);
   b.resolve(null);
   expect(await second).toBe(true);
@@ -1321,8 +1380,8 @@ test("two notes interleave starts, streams and delivery acknowledgements indepen
   a.resolve(null);
   expect(await first).toBe(true);
   await tick();
-  expect(isAgentEditing("/notes/a.md")).toBe(false);
-  expect(isAgentEditing("/notes/b.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(false);
+  expect(isAgentTurnActive("/notes/b.md")).toBe(true);
   useEditorStore.getState().updateContent("/notes/a.md", "A manual edit");
   await tick();
   expect(disk.get("/notes/a.md")).toBe("A manual edit");
@@ -1360,7 +1419,7 @@ test("New chat reserves sends and moves throughout its asynchronous session rese
   vi.mocked(writeStoreEntriesStrict).mockImplementation(() => reset.promise);
   const resetting = useClaudeStore.getState().newChat("/notes/a.md");
   expect(await send("Race")).toBe(false);
-  expect(() => beginPathMutation()).toThrow("AI editing");
+  expect(() => beginPathMutation()).toThrow("AI to finish");
   await tick();
   expect(chatState().status).toBe("stopping");
   reset.resolve();
@@ -1374,10 +1433,10 @@ test("session persistence failure recovers on retry without leaving the note loc
   vi.mocked(writeStoreEntriesStrict).mockRejectedValue(new Error("Disk full"));
   emit({ type: "system", subtype: "init", session_id: "session-a" });
   await tick();
-  expect(isAgentEditing("/notes/a.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
   vi.mocked(writeStoreEntriesStrict).mockResolvedValue(undefined);
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(isAgentEditing("/notes/a.md")).toBe(false);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(false);
   expect(chatState().error).toContain("Could not save chat session");
   expect(await send("Resume")).toBe(true);
   expect(
@@ -1403,11 +1462,11 @@ test("stopAll retains only failed-note recovery and blocks new actions while dra
   await useClaudeStore.getState().newChat("/notes/b.md");
   stop.reject(new Error("Stop failed"));
   await rejected;
-  expect(isAgentEditing("/notes/a.md")).toBe(true);
-  expect(isAgentEditing("/notes/b.md")).toBe(false);
+  expect(isAgentTurnActive("/notes/a.md")).toBe(true);
+  expect(isAgentTurnActive("/notes/b.md")).toBe(false);
   mockedInvoke.mockImplementation(defaultInvoke);
   await useClaudeStore.getState().stopAll();
-  expect(isAgentEditing()).toBe(false);
+  expect(isAgentTurnActive()).toBe(false);
 });
 
 test("close admission blocks New chat and Send through persistence", async () => {
@@ -1437,7 +1496,7 @@ test("closing and reopening during preparation retains the flushed target buffer
   preparation.resolve("Prepared");
   expect(await sending).toBe(true);
   expect(await send("Duplicate")).toBe(false);
-  disk.set("/notes/a.md", "Revised");
+  await claudeEdits(() => disk.set("/notes/a.md", "Revised"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised");
@@ -1472,7 +1531,7 @@ test("aliases share ownership and pending widget writes are drained before start
   const sending = useClaudeStore.getState().send("/notes/a.md", "A");
   expect(chatState(alias).messages.map((message) => message.text)).toEqual(["A"]);
   await tick();
-  expect(isAgentEditing(alias)).toBe(true);
+  expect(isAgentTurnActive(alias)).toBe(true);
   expect(await useClaudeStore.getState().send(alias, "Duplicate")).toBe(false);
   expect(chatState(alias).messages.map((message) => message.text)).toEqual(["A"]);
   expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_start")).toBe(false);
@@ -1480,7 +1539,7 @@ test("aliases share ownership and pending widget writes are drained before start
   write.resolve({ path: "/notes/a.md", modified_at: 2 });
   expect(await sending).toBe(true);
   unregister();
-  disk.set("/notes/a.md", "Agent revision");
+  await claudeEdits(() => disk.set("/notes/a.md", "Agent revision"));
   emit({ type: "result", is_error: false });
   await tick();
   expect(useEditorStore.getState().openFiles.get(alias)?.content).toBe("Agent revision");
@@ -1513,7 +1572,7 @@ test("feedback outcomes remain independent across simultaneous notes", async () 
   await applyFeedback("/notes/a.md", [first]);
   await applyFeedback("/notes/b.md", [second]);
   expect(channels).toHaveLength(2);
-  disk.set("/notes/b.md", "Revised B");
+  await claudeEdits(() => disk.set("/notes/b.md", "Revised B"), channels[1]);
   emit({ type: "result", is_error: false }, channels[0]);
   emit({ type: "result", is_error: false }, channels[1]);
   await tick();

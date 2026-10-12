@@ -18,6 +18,13 @@ pub enum AgentEvent {
     Stderr {
         message: String,
     },
+    /// An allowed Edit/Write waits for the UI to save and lock the note.
+    EditStart {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "toolUseId")]
+        tool_use_id: Option<String>,
+    },
     Exit {
         code: Option<i32>,
     },
@@ -29,6 +36,11 @@ pub enum Input {
         ack: oneshot::Sender<Result<(), String>>,
     },
     Permission {
+        request_id: String,
+        allow: bool,
+        ack: oneshot::Sender<Result<(), String>>,
+    },
+    EditReady {
         request_id: String,
         allow: bool,
         ack: oneshot::Sender<Result<(), String>>,

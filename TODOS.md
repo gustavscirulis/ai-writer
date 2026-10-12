@@ -12,6 +12,8 @@
 
 ## Done
 
+- Lock the note only while the AI is editing it: [`SPECs/agent-edit-scoped-lock.md`](SPECs/agent-edit-scoped-lock.md). A native Edit/Write gate saves and locks just before each tool runs and reloads and unlocks on its result, with a wait cursor while locked.
+
 - Persist Chat across restarts: [`SPECs/persist-chat-history.md`](SPECs/persist-chat-history.md) — each note's thread and Claude Code session are saved together in `chats.json` and restored on workspace open; stopped deleting `preferences.json` on startup. Store tests, checks and Rust suite pass (one flaky agent actor test).
 
 - Remember window size and position across launches: `tauri-plugin-window-state` with SIZE | POSITION | MAXIMIZED (not VISIBLE, so the frontend still reveals windows after hydration); every window maps to one shared entry, and secondary windows keep their random scatter position.

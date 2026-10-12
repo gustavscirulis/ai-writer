@@ -42,6 +42,7 @@ export function reserveAgentReset() {
   };
 }
 const locks = new Map<string, symbol>();
+const turns = new Map<string, Set<symbol>>();
 const revisions = new Map<string, number>();
 let appClosing = false;
 export function isAppClosing() {
@@ -63,7 +64,7 @@ export function isPathMutating() {
 /** Relocation and an agent handoff acquire mutually exclusive synchronous ownership. */
 export function beginPathMutation() {
   if (appClosing) throw new Error("Writer is saving feedback before closing.");
-  if (isAgentEditing()) throw new Error("Wait for AI editing to finish before moving files.");
+  if (isAgentTurnActive()) throw new Error("Wait for the AI to finish before moving files.");
   pathMutations++;
   let released = false;
   return () => {
@@ -89,6 +90,22 @@ const listeners = new Set<() => void>();
 const reloads = new Map<string, { version: number; frontmatter: string | null }>();
 export function isAgentEditing(path?: string) {
   return path === undefined ? locks.size > 0 || resets > 0 : locks.has(documentPath(path));
+}
+/** A turn spans thinking and tools; the note is locked only while an edit is applied. */
+export function isAgentTurnActive(path?: string) {
+  if (path === undefined) return turns.size > 0 || isAgentEditing();
+  const key = documentPath(path);
+  return turns.has(key) || locks.has(key);
+}
+export function acquireAgentTurn(path: string) {
+  const key = documentPath(path);
+  const owner = Symbol(key);
+  const owners = turns.get(key) ?? new Set();
+  turns.set(key, owners.add(owner));
+  return () => {
+    const current = turns.get(key);
+    if (current?.delete(owner) && !current.size) turns.delete(key);
+  };
 }
 export function agentIORevision(path?: string) {
   return path === undefined ? revision : (revisions.get(documentPath(path)) ?? 0);
@@ -117,6 +134,7 @@ export function acquireAgentEditing(path: string) {
   };
 }
 export function clearAgentEditing() {
+  turns.clear();
   for (const path of locks.keys()) {
     locks.delete(path);
     changed(path);
