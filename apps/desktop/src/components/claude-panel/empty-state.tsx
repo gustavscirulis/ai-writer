@@ -33,7 +33,7 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
         </p>
         {loaded && (
           <div
-            className="co-writer-enter mt-[22px] flex w-full flex-col rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--line-subtler)]"
+            className="co-writer-enter mt-[22px] flex w-fit max-w-full flex-col rounded-xl p-1 shadow-[inset_0_0_0_1px_var(--line-subtler)]"
             style={stagger(3)}
           >
             {toolSuggestions(servers).map((suggestion) => (
