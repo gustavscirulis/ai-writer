@@ -126,7 +126,22 @@ fn uses_host_permission(tool: &str) -> bool {
 
 /// Tools that wait on the user's answer rather than an allow/deny decision.
 fn interactive_tool(tool: &str) -> bool {
-    tool == "AskUserQuestion"
+    matches!(tool, "AskUserQuestion" | "ExitPlanMode")
+}
+
+const PLANNING: &str =
+    "Plan mode: present your plan with ExitPlanMode and wait for the user's approval before editing notes.";
+const KEEP_PLANNING: &str = "The user wants to keep planning. Revise the plan before editing.";
+const FEEDBACK_LIMIT: usize = 4000;
+
+/// Claude Code writes plan-mode plans to `plans/` in its config folder.
+fn plans_dir() -> Option<PathBuf> {
+    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude")))?;
+    resolve_target(&config.join("plans"))
+        .ok()
+        .map(|(path, _)| path)
 }
 
 const ANSWER_LIMIT: usize = 2000;
@@ -226,7 +241,12 @@ enum Decision {
 
 enum Target {
     Allowed(PathBuf),
-    NeedsApproval { path: PathBuf, exists: bool },
+    /// Claude Code's own plan file, the only file it may write while planning.
+    PlanFile,
+    NeedsApproval {
+        path: PathBuf,
+        exists: bool,
+    },
     Denied(String),
 }
 
@@ -239,6 +259,10 @@ struct Scope {
     /// Tools the user always allows in this chat; they skip the host prompt.
     always: HashSet<String>,
     attached: HashSet<PathBuf>,
+    /// The turn started in plan mode and its plan isn't approved yet.
+    planning: bool,
+    /// Canonical folder of Claude Code's plan files, while planning.
+    plans: Option<PathBuf>,
     initialized: bool,
     active: bool,
     sent: bool,
@@ -258,6 +282,8 @@ impl Scope {
             approved: HashSet::new(),
             always: HashSet::new(),
             attached: HashSet::new(),
+            planning: false,
+            plans: None,
             initialized: false,
             active: false,
             sent: false,
@@ -297,6 +323,16 @@ impl Scope {
             "[note-scope] target={canonical:?} assigned={:?} exists={exists}",
             self.note
         );
+        if self.planning {
+            let plan_file = self.plans.as_deref().is_some_and(|plans| {
+                canonical.parent() == Some(plans) && crate::open_target::is_markdown(&canonical)
+            });
+            return Ok(if plan_file {
+                Target::PlanFile
+            } else {
+                Target::Denied(PLANNING.into())
+            });
+        }
         if canonical == self.note || self.approved.contains(&canonical) {
             return Ok(Target::Allowed(canonical));
         }
@@ -362,6 +398,8 @@ impl Scope {
                 updated["file_path"] = json!(path);
                 json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated}})
             }
+            // Claude Code's plan mode decides its own plan file.
+            Target::PlanFile => json!({}),
             // Asking overrides the Edit/Write allow rule and routes to the host prompt.
             Target::NeedsApproval { .. } => {
                 json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask"}})
@@ -411,6 +449,7 @@ impl Scope {
                     );
                     None
                 }
+                Target::PlanFile => Some(json!({"behavior": "allow", "updatedInput": input})),
                 Target::Denied(reason) => Some(json!({"behavior": "deny", "message": reason})),
             });
         }
@@ -418,6 +457,11 @@ impl Scope {
             let input = request["input"]
                 .as_object()
                 .ok_or("Invalid tool permission input")?;
+            if tool == "ExitPlanMode" && !self.planning {
+                return Ok(Some(
+                    json!({"behavior": "deny", "message": "Plan mode is off, so there is no plan to approve. Carry on with the task."}),
+                ));
+            }
             if tool == "AskUserQuestion" && question_texts(&request["input"]).is_err() {
                 return Ok(Some(
                     json!({"behavior": "deny", "message": "Writer couldn't show these questions to the user."}),
@@ -465,6 +509,10 @@ impl Scope {
         tool_use_id: Option<String>,
         reply: &Value,
     ) -> Option<AgentEvent> {
+        // While planning, the only allowed write is the plan file, which isn't a note.
+        if self.planning {
+            return None;
+        }
         let (deny, input) = if reply["hookSpecificOutput"]["permissionDecision"] == "allow" {
             (
                 denied_hook(EDIT_SAVE_FAILED),
@@ -552,6 +600,7 @@ impl Scope {
         let answers = match answer {
             Answer::Tool { allow, always } => return self.decision(id, allow, always),
             Answer::Questions { answers } => answers,
+            Answer::Plan { approve, feedback } => return self.plan_decision(id, approve, feedback),
         };
         let mut input = self.interactive_input(id, "AskUserQuestion")?;
         let reply = match answers {
@@ -561,6 +610,35 @@ impl Scope {
                 json!({"behavior": "allow", "updatedInput": input})
             }
             None => json!({"behavior": "deny", "message": DECLINED_QUESTIONS}),
+        };
+        self.permissions.remove(id);
+        Ok(Decision::Reply(response(id, reply)))
+    }
+    fn plan_decision(
+        &mut self,
+        id: &str,
+        approve: bool,
+        feedback: Option<String>,
+    ) -> Result<Decision, String> {
+        let input = self.interactive_input(id, "ExitPlanMode")?;
+        let feedback = feedback
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        if feedback.is_some_and(|text| text.chars().count() > FEEDBACK_LIMIT) {
+            return Err(format!(
+                "Feedback can be at most {FEEDBACK_LIMIT} characters"
+            ));
+        }
+        let reply = if approve {
+            self.planning = false;
+            json!({"behavior": "allow", "updatedInput": input})
+        } else {
+            let message = match feedback {
+                Some(feedback) => format!("{KEEP_PLANNING} Their feedback: {feedback}"),
+                None => KEEP_PLANNING.into(),
+            };
+            json!({"behavior": "deny", "message": message})
         };
         self.permissions.remove(id);
         Ok(Decision::Reply(response(id, reply)))
@@ -786,10 +864,11 @@ fn scoped_command(
     path: String,
     root: &std::path::Path,
     resume_session_id: Option<String>,
+    plan: bool,
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", "manual", "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -823,6 +902,7 @@ pub async fn claude_start(
     note_path: String,
     resume_session_id: Option<String>,
     always_allow: Vec<String>,
+    plan: bool,
     on_event: Channel<AgentEvent>,
 ) -> Result<String, AppError> {
     let always = always_allow_set(always_allow).map_err(AppError::Io)?;
@@ -841,8 +921,12 @@ pub async fn claude_start(
     }
     let root = PathBuf::from(root);
     let paths = (root.clone(), PathBuf::from(note_path));
-    let (scope_root, note) = tauri::async_runtime::spawn_blocking(move || {
-        Ok::<_, std::io::Error>((paths.0.canonicalize()?, paths.1.canonicalize()?))
+    let (scope_root, note, plans) = tauri::async_runtime::spawn_blocking(move || {
+        Ok::<_, std::io::Error>((
+            paths.0.canonicalize()?,
+            paths.1.canonicalize()?,
+            plan.then(plans_dir).flatten(),
+        ))
     })
     .await
     .map_err(|e| AppError::Io(e.to_string()))??;
@@ -862,7 +946,7 @@ pub async fn claude_start(
             if claims.contains_key(&note) {
                 return Err(AppError::Io("An agent is already editing this note".into()));
             }
-            let mut command = scoped_command(binary, path, &root, resume_session_id);
+            let mut command = scoped_command(binary, path, &root, resume_session_id, plan);
             let child = command.spawn()?;
             let (tx, rx) = mpsc::channel(1);
             let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -886,6 +970,8 @@ pub async fn claude_start(
                 on_event.clone(),
                 Some(Scope {
                     always,
+                    planning: plan,
+                    plans,
                     ..Scope::new(note, scope_root, id.clone(), workspace.agent_claims.clone())
                 }),
                 Some(ready_tx),
@@ -1611,6 +1697,7 @@ mod tests {
             "/bin".into(),
             std::path::Path::new("/vault"),
             Some("session".into()),
+            false,
         );
         let args: Vec<_> = command
             .as_std()
@@ -1629,7 +1716,7 @@ mod tests {
         for pair in [
             [
                 "--tools",
-                "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion",
+                "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode",
             ],
             ["--permission-mode", "manual"],
             ["--permission-prompts", "host"],
@@ -1645,6 +1732,106 @@ mod tests {
             command.as_std().get_current_dir().unwrap(),
             std::path::Path::new("/vault")
         );
+        let planning = scoped_command(
+            "/claude".into(),
+            "/bin".into(),
+            std::path::Path::new("/vault"),
+            None,
+            true,
+        );
+        assert!(planning
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_str().unwrap())
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|args| args == ["--permission-mode", "plan"]));
+    }
+    #[tokio::test]
+    async fn plan_mode_blocks_note_edits_until_the_user_approves_the_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let note = root.join("a.md");
+        std::fs::write(&note, "old").unwrap();
+        let plans = root.join(".claude/plans");
+        let mut scope = Scope {
+            planning: true,
+            plans: Some(plans.clone()),
+            ..test_scope(note.clone())
+        };
+        scope.active = true;
+        let decision = |reply: Value| reply["hookSpecificOutput"]["permissionDecision"].clone();
+        let write_hook = |path: &std::path::Path| json!({"callback_id": HOOK_ID, "input": {"tool_name": "Write", "tool_input": {"file_path": path, "content": "plan"}}});
+        assert_eq!(
+            decision(scope.hook(&edit_hook(&note)).await.unwrap()),
+            "deny"
+        );
+        assert_eq!(
+            decision(scope.hook(&write_hook(&root.join("b.md"))).await.unwrap()),
+            "deny"
+        );
+        let own = json!({"tool_name": "Edit", "input": {"file_path": note, "old_string": "old", "new_string": "new"}});
+        assert_eq!(
+            scope.permission("own", &own).await.unwrap().unwrap()["message"],
+            PLANNING
+        );
+        // Claude Code writes its plan file itself; it is neither a note nor held for the UI.
+        let plan_file = plans.join("calm-otter.md");
+        let hook = write_hook(&plan_file);
+        let reply = scope.hook(&hook).await.unwrap();
+        assert_eq!(reply, json!({}));
+        let request =
+            json!({"tool_name": "Write", "input": {"file_path": plan_file, "content": "plan"}});
+        let reply = scope
+            .permission("plan-file", &request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(reply["behavior"], "allow");
+        assert!(scope.defer_edit("plan-file", &request, &reply).is_none());
+        for path in [plans.join("nested/x.md"), plans.join("x.txt")] {
+            assert_eq!(
+                decision(scope.hook(&write_hook(&path)).await.unwrap()),
+                "deny"
+            );
+        }
+
+        let exit = json!({"tool_name": "ExitPlanMode", "input": {"plan": "# Plan", "planFilePath": plan_file}});
+        let plan = |approve, feedback: Option<&str>| Answer::Plan {
+            approve,
+            feedback: feedback.map(String::from),
+        };
+        assert!(scope.permission("exit", &exit).await.unwrap().is_none());
+        assert!(scope.decision("exit", true, false).is_err());
+        assert!(scope
+            .answer("exit", Answer::Questions { answers: None })
+            .is_err());
+        assert!(scope
+            .answer("exit", plan(false, Some(&"x".repeat(FEEDBACK_LIMIT + 1))))
+            .is_err());
+        assert_eq!(
+            scope
+                .answer("exit", plan(false, Some("  Make it a poem. ")))
+                .unwrap()
+                .reply()["response"]["response"],
+            json!({"behavior": "deny", "message": format!("{KEEP_PLANNING} Their feedback: Make it a poem.")})
+        );
+        assert!(scope.planning);
+        assert!(scope.permission("exit-2", &exit).await.unwrap().is_none());
+        assert_eq!(
+            scope.answer("exit-2", plan(true, None)).unwrap().reply()["response"]["response"],
+            json!({"behavior": "allow", "updatedInput": exit["input"]})
+        );
+        assert!(!scope.planning);
+        assert_eq!(
+            decision(scope.hook(&edit_hook(&note)).await.unwrap()),
+            "allow"
+        );
+        assert_eq!(
+            scope.permission("late-exit", &exit).await.unwrap().unwrap()["behavior"],
+            "deny"
+        );
+        assert!(always_allow_set(vec!["ExitPlanMode".into()]).is_err());
     }
     #[tokio::test]
     async fn read_web_mcp_and_discovery_permissions_preserve_inputs_and_note_scope() {
@@ -2165,7 +2352,7 @@ mod tests {
             .map(|name| outside.path().join(name).canonicalize().unwrap())
             .collect();
         let (binary, path) = resolve_claude_env().await.unwrap();
-        let child = scoped_command(binary, path, workspace.path(), None)
+        let child = scoped_command(binary, path, workspace.path(), None, false)
             .spawn()
             .unwrap();
         let (input, rx) = mpsc::channel(4);
@@ -2250,6 +2437,152 @@ mod tests {
             assert!(answer.contains(expected), "Missing {expected}: {answer}");
         }
     }
+    #[tokio::test]
+    #[ignore = "requires terminal Claude Code sign-in and network"]
+    async fn real_cli_plan_mode_asks_plans_and_edits_after_approval() {
+        let workspace = tempfile::tempdir().unwrap();
+        let note = workspace.path().join("trip.md");
+        std::fs::write(
+            &note,
+            "# Trip\n\nWe went to Riga. It rained. We ate soup.\n",
+        )
+        .unwrap();
+        let note = note.canonicalize().unwrap();
+        let original = std::fs::read_to_string(&note).unwrap();
+        let (binary, path) = resolve_claude_env().await.unwrap();
+        let child = scoped_command(binary, path, workspace.path(), None, true)
+            .spawn()
+            .unwrap();
+        let (input, rx) = mpsc::channel(4);
+        let (_cancel, cancel_rx) = watch::channel(false);
+        let (finished, mut done) = watch::channel(false);
+        let (ready, initialized) = oneshot::channel();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let capture = seen.clone();
+        let replies = input.clone();
+        let watched = note.clone();
+        let unchanged = original.clone();
+        let events = Channel::new(move |body| {
+            let tauri::ipc::InvokeResponseBody::Json(body) = body else {
+                return Ok(());
+            };
+            let event: Value = serde_json::from_str(&body).unwrap();
+            let tx = replies.clone();
+            if event["type"] == "edit_start" {
+                let request_id = event["requestId"].as_str().unwrap().to_string();
+                capture.lock().unwrap().push("edit".into());
+                tokio::spawn(async move {
+                    let (ack, _) = oneshot::channel();
+                    let _ = tx
+                        .send(Input::EditReady {
+                            request_id,
+                            allow: true,
+                            ack,
+                        })
+                        .await;
+                });
+                return Ok(());
+            }
+            let Some(line) = event["line"].as_str() else {
+                return Ok(());
+            };
+            let value: Value = serde_json::from_str(line).unwrap();
+            if value["type"] != "control_request" {
+                return Ok(());
+            }
+            let request = &value["request"];
+            let tool = request["tool_name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            let answer = match tool.as_str() {
+                "AskUserQuestion" => Answer::Questions {
+                    answers: Some(
+                        request["input"]["questions"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|q| {
+                                let label = q["options"][0]["label"].as_str().unwrap_or("Any");
+                                (
+                                    q["question"].as_str().unwrap().to_string(),
+                                    label.to_string(),
+                                )
+                            })
+                            .collect(),
+                    ),
+                },
+                "ExitPlanMode" => {
+                    assert!(request["input"]["plan"]
+                        .as_str()
+                        .is_some_and(|p| !p.is_empty()));
+                    assert_eq!(std::fs::read_to_string(&watched).unwrap(), unchanged);
+                    Answer::Plan {
+                        approve: true,
+                        feedback: None,
+                    }
+                }
+                _ => Answer::Tool {
+                    allow: false,
+                    always: false,
+                },
+            };
+            capture.lock().unwrap().push(tool);
+            let request_id = value["request_id"].as_str().unwrap().to_string();
+            tokio::spawn(async move {
+                let (ack, _) = oneshot::channel();
+                let _ = tx
+                    .send(Input::Permission {
+                        request_id,
+                        answer,
+                        ack,
+                    })
+                    .await;
+            });
+            Ok(())
+        });
+        let task = tokio::spawn(run_process(
+            child,
+            rx,
+            cancel_rx,
+            finished,
+            events,
+            Some(Scope {
+                planning: true,
+                plans: plans_dir(),
+                ..test_scope(note.clone())
+            }),
+            Some(ready),
+        ));
+        initialized.await.unwrap().unwrap();
+        let context = json!({"openFile": note, "attachments": []});
+        let prompt = format!("<writer_context>{context}</writer_context>\n\nTurn this note into a short story with sections. First ask me one question about the tone with AskUserQuestion, then plan it and present the plan for approval.");
+        let (ack, sent) = oneshot::channel();
+        input
+            .send(Input::User {
+                line: json!({"type":"user","message":{"role":"user","content":prompt}}).to_string(),
+                files: Vec::new(),
+                ack,
+            })
+            .await
+            .unwrap();
+        sent.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(240), async {
+            while !*done.borrow_and_update() {
+                done.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        task.await.unwrap();
+        let seen = seen.lock().unwrap();
+        println!("Host requests: {seen:?}");
+        let exit = seen.iter().position(|tool| tool == "ExitPlanMode");
+        assert!(exit.is_some(), "Claude never presented a plan: {seen:?}");
+        assert!(seen.iter().any(|tool| tool == "AskUserQuestion"));
+        assert!(seen[exit.unwrap()..].iter().any(|tool| tool == "edit"));
+        assert_ne!(std::fs::read_to_string(&note).unwrap(), original);
+    }
     /// Explicit manual integration check: uses the locally installed, signed-in CLI.
     #[tokio::test]
     #[ignore = "requires terminal Claude Code sign-in, network and permitted session plugins"]
@@ -2280,7 +2613,7 @@ mod tests {
             let note = dir.path().join(format!("{name}.md"));
             std::fs::write(&note, "Original").unwrap();
             let canonical = note.canonicalize().unwrap();
-            let child = scoped_command(binary.clone(), path.clone(), dir.path(), None)
+            let child = scoped_command(binary.clone(), path.clone(), dir.path(), None, false)
                 .args(["--plugin-dir", plugin.to_str().unwrap()])
                 .spawn()
                 .unwrap();

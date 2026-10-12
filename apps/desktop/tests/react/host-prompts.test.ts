@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), Channel: class {} }));
 
+import { PlanPrompt } from "../../src/components/claude-panel/plan-prompt";
 import { QuestionPrompt } from "../../src/components/claude-panel/question-prompt";
 
 test("a question shows its header, options with descriptions, a free answer and its position", () => {
@@ -46,4 +47,26 @@ test("a question shows its header, options with descriptions, a free answer and 
   ])
     expect(html).toContain(text);
   expect(html).not.toContain("Back");
+});
+
+test("a plan shows its markdown and asks before Claude starts writing", () => {
+  const html = renderToStaticMarkup(
+    createElement(PlanPrompt, {
+      path: "/notes/a.md",
+      queued: 1,
+      request: {
+        id: "plan",
+        tool: "ExitPlanMode",
+        input: { plan: "## Steps\n\n1. Merge the **intro**", planFilePath: "/p/a.md" },
+      },
+    }),
+  );
+  for (const text of [
+    'aria-label="Plan approval"',
+    "Ready to start writing?",
+    "<strong>intro</strong>",
+    "Yes, start writing",
+    "No, keep planning",
+  ])
+    expect(html).toContain(text);
 });

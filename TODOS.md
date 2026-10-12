@@ -2,8 +2,6 @@
 
 ## In Progress
 
-- Co-writer plan mode and Claude's questions: [`SPECs/chat-plan-mode-and-questions.md`](SPECs/chat-plan-mode-and-questions.md). Questions are done (Claude's `AskUserQuestion` takes the composer's place like an approval, with native answer checks). Plan mode is next.
-
 - Stream feedback in Chat: [`SPECs/stream-feedback-chat.md`](SPECs/stream-feedback-chat.md). Chosen from the unified feedback/chat prototype ([`SPECs/unified-feedback-chat-prototype.md`](SPECs/unified-feedback-chat-prototype.md)); replaces the separate Feedback column from [`SPECs/paragraph-feedback.md`](SPECs/paragraph-feedback.md).
   - How it works:
     - Select text and press ⌘L (or the "Add to chat" pill / selection context menu), or ⌥-click / use the right-hand button on a block, to attach it to the composer.
@@ -13,6 +11,8 @@
 - Reveal-in-sidebar + residual external-watcher misses: [`SPECs/reveal-in-sidebar-and-external-watcher-spec.md`](SPECs/reveal-in-sidebar-and-external-watcher-spec.md) — keep the explicit tab-context-menu "Reveal in sidebar" action working, leave ordinary file opens from expanding the Everything tree, and characterize the remaining external-file-watcher miss cases through a logging + manual-repro pass before patching further.
 
 ## Done
+
+- Co-writer plan mode and Claude's questions: [`SPECs/chat-plan-mode-and-questions.md`](SPECs/chat-plan-mode-and-questions.md). Claude's questions and plans take the composer's place like approvals, with native answer checks. Plan mode (toggle or Shift+Tab) blocks note edits until you approve the plan, then Claude continues writing in the same reply. Verified with the real CLI (ignored Rust test). Native app QA of the prompts and Dock badge is still pending.
 
 - Version history for notes: [`SPECs/version-history-spec.md`](SPECs/version-history-spec.md). Each version is stored as a plain file under `.writer/history/` in the vault. User saves coalesce, Claude turns are grouped, and older versions are thinned out over time. The panel opens from the clock button or ⌘⇧H, shows a read-only preview with inline diff highlights, flips versions with ↑/↓, and restores as one undoable step. Native, frontend and WebDriver tests pass; the WebDriver test covers an external edit, a typed edit, flipping versions and restoring.
 

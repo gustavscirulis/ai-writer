@@ -68,6 +68,11 @@ pub enum Answer {
     Questions {
         answers: Option<std::collections::BTreeMap<String, String>>,
     },
+    /// Approving a plan ends plan mode; otherwise Claude keeps planning, with any feedback.
+    Plan {
+        approve: bool,
+        feedback: Option<String>,
+    },
 }
 
 /// Canonical notes that a running agent may edit, keyed to its process id.

@@ -14,6 +14,8 @@ export interface ChatTool {
   done?: boolean;
   /** What Claude asked with AskUserQuestion, with the user's answers once given. */
   questions?: { question: string; answer?: string }[];
+  /** The plan Claude presented with ExitPlanMode; an error result means the user kept planning. */
+  plan?: string;
 }
 export interface ChatQuestion {
   question: string;
@@ -23,7 +25,7 @@ export interface ChatQuestion {
 }
 /** Requests that wait for the user's answer rather than an allow/deny decision. */
 export function needsAnswer(tool: string) {
-  return tool === "AskUserQuestion";
+  return tool === "AskUserQuestion" || tool === "ExitPlanMode";
 }
 /** Questions from an AskUserQuestion input; native code already rejected ones without text. */
 export function readQuestions(input: Record<string, unknown>): ChatQuestion[] {
@@ -176,6 +178,9 @@ export function parseClaudeLine(line: string): ClaudeEvent | null {
             path: string(input.file_path) || undefined,
             ...(b.name === "AskUserQuestion"
               ? { questions: readQuestions(input).map(({ question }) => ({ question })) }
+              : {}),
+            ...(b.name === "ExitPlanMode" && string(input.plan)
+              ? { plan: string(input.plan) }
               : {}),
           };
         }),

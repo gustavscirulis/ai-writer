@@ -26,6 +26,13 @@ export const decideToolPermission = (path: string, id: string, allow: boolean, a
   useClaudeStore.getState().decidePermission(path, id, allow, always);
 export const answerRequest = (path: string, id: string, answer: tauri.HostAnswer) =>
   useClaudeStore.getState().answer(path, id, answer);
+export function usePlanMode(path: string | null) {
+  return useClaudeStore((s) => chatForPath(s.chats, path).planMode);
+}
+export function togglePlanMode(path: string) {
+  const store = useClaudeStore.getState();
+  store.setPlanMode(path, !chatForPath(store.chats, path).planMode);
+}
 export function useChatNotices(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).notices);
 }

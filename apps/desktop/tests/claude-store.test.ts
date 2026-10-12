@@ -877,6 +877,49 @@ test("Claude's questions wait for answers, keep a failed reply for retry and sho
   emit({ type: "result", is_error: false });
   await tick();
 });
+test("plan mode starts the turn in plan mode, and approving the plan turns it off", async () => {
+  const starts = () =>
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_start")
+      .map(([, payload]) => (payload as { plan: boolean }).plan);
+  useClaudeStore.getState().setPlanMode("/notes/a.md", true);
+  await send("Restructure it");
+  expect(starts()).toEqual([true]);
+  const input = { plan: "1. Merge the intro", planFilePath: "/home/.claude/plans/a.md" };
+  emit({
+    type: "assistant",
+    message: {
+      id: "plan",
+      content: [{ type: "tool_use", id: "toolu_plan", name: "ExitPlanMode", input }],
+    },
+  });
+  expect(chatState().messages.at(-1)!.tools[0]).toMatchObject({ plan: "1. Merge the intro" });
+  requestPermission("plan", "ExitPlanMode", input);
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "plan", { kind: "plan", approve: false, feedback: "Keep the intro" });
+  expect(chatState().planMode).toBe(true);
+  requestPermission("plan-2", "ExitPlanMode", input);
+  await useClaudeStore
+    .getState()
+    .answer("/notes/a.md", "plan-2", { kind: "plan", approve: true, feedback: null });
+  expect(
+    mockedInvoke.mock.calls
+      .filter(([command]) => command === "claude_answer")
+      .map(([, payload]) => (payload as { answer: unknown }).answer),
+  ).toEqual([
+    { kind: "plan", approve: false, feedback: "Keep the intro" },
+    { kind: "plan", approve: true, feedback: null },
+  ]);
+  expect(chatState().planMode).toBe(false);
+  expect(chatState().permissions).toEqual([]);
+  emit({ type: "result", is_error: false });
+  await tick();
+  await send("Now tighten it");
+  expect(starts()).toEqual([true, false]);
+  emit({ type: "result", is_error: false });
+  await tick();
+});
 test("canceling an approval invalidates its in-flight completion without losing another request", async () => {
   await send("Search");
   requestPermission("first");

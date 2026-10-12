@@ -13,10 +13,12 @@ import {
   useFocusDefault,
   type PromptProps,
 } from "./prompt-shell";
+import { PlanPrompt } from "./plan-prompt";
 import { QuestionPrompt } from "./question-prompt";
 
 const PROMPTS: Partial<Record<string, (props: PromptProps) => ReactNode>> = {
   AskUserQuestion: QuestionPrompt,
+  ExitPlanMode: PlanPrompt,
 };
 
 /** Takes the composer's place while Claude waits on a decision. */

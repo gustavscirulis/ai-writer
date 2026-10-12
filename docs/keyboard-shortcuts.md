@@ -71,9 +71,14 @@ These shortcuts are handled by the `markdownFormatting` CodeMirror extension and
 | Cmd+Enter (composer) | Queue the draft (one item per attachment); on an empty composer, send the queue |
 | Backspace (composer) | Remove the last attachment when the draft is empty                              |
 | Escape (composer)    | Clear attachments                                                               |
+| Shift+Tab (composer) | Turn plan mode on or off (replaces moving focus backwards out of the composer)  |
 | Enter (approval)     | Choose the highlighted option (Yes is highlighted first)                        |
 | Up / Down (approval) | Move between Yes and No                                                         |
 | Escape (approval)    | Deny the request                                                                |
+| 1-9 (question)       | Pick that option                                                                |
+| Left (question)      | Back to the previous question                                                   |
+| Escape (question)    | Don't answer; in the typed answer field, close the field                        |
+| Escape (plan)        | Keep planning; in the feedback field, close the field                           |
 
 ## Editor (inherited from CodeMirror)
 

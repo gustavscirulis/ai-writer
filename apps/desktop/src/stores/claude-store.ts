@@ -60,6 +60,8 @@ export interface Chat {
   permissions: ToolPermission[];
   /** Tools the user always allows in this chat. Kept in memory until the app quits. */
   allowedTools: string[];
+  /** The next turn starts in plan mode. Kept in memory; approving a plan turns it off. */
+  planMode: boolean;
 }
 export const EMPTY_CHAT: Chat = {
   messages: [],
@@ -72,6 +74,7 @@ export const EMPTY_CHAT: Chat = {
   notices: [],
   permissions: [],
   allowedTools: [],
+  planMode: false,
 };
 interface ClaudeState {
   chats: Record<string, Chat>;
@@ -82,6 +85,7 @@ interface ClaudeState {
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
   /** Replies to a request that needs the user's answer, such as Claude's questions. */
   answer: (path: string, id: string, answer: tauri.HostAnswer) => Promise<void>;
+  setPlanMode: (path: string, planMode: boolean) => void;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
   /** Sends the queued items (all ready ones by default) together as one turn. */
   sendQueue: (path: string, ids?: string[]) => Promise<void>;
@@ -663,7 +667,15 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     );
   },
   answer: async (path, id, answer) => {
-    await reply(documentPath(path), id, (processId) => tauri.claudeAnswer(processId, id, answer));
+    const key = documentPath(path);
+    const request = await reply(key, id, (processId) => tauri.claudeAnswer(processId, id, answer));
+    // Native code has left plan mode for the rest of this turn.
+    if (request && answer.kind === "plan" && answer.approve) get().setPlanMode(path, false);
+  },
+  setPlanMode: (path, planMode) => {
+    updateChat(documentPath(path), (chat) =>
+      chat.planMode === planMode ? chat : { ...chat, planMode },
+    );
   },
   send: (path, text, { turn: options, attachments, feedbackIds, files } = {}) => {
     const key = documentPath(path);
@@ -777,6 +789,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           records[key]?.sessionId ?? null,
           path,
           chatForPath(get().chats, key).allowedTools,
+          chatForPath(get().chats, key).planMode,
           channel,
         );
         run.processId = id;
