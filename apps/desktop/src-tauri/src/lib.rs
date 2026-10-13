@@ -609,7 +609,7 @@ pub fn run() {
             commands::agent::set_pending_approvals,
             commands::agent::allowed_tools::co_writer_allowed_tools,
             commands::agent::allowed_tools::co_writer_revoke_tool,
-            commands::agent::mcp::claude_mcp_servers,
+            commands::agent::capabilities::claude_capabilities,
             commands::fs::read_directory,
             commands::fs::read_recent_files,
             commands::fs::read_file_entries,

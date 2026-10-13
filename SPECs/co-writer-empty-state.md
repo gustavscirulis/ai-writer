@@ -20,7 +20,7 @@ The composer placeholder is "Ask anything, or describe a change…" and its hint
 
 ## MCP servers
 
-`claude_mcp_servers(root)` starts Claude Code in the workspace with normal MCP discovery, sends the SDK `initialize` and `mcp_status` control requests, reads the server list (name, status) and kills the process group. No prompt is sent, so there's no model call. It takes about 6s and runs once per root per launch. The last list is cached in `preferences.json` (`co-writer.mcp-servers`, keyed by root) so the suggestions and footnote show immediately on later launches.
+`claude_capabilities(root)` starts Claude Code in the workspace with normal MCP discovery, sends the SDK `initialize` and `mcp_status` control requests, reads the server list (name, status) and the [skills](chat-skills.md), and kills the process group. No prompt is sent, so there's no model call. It takes about 6s and runs once per root per launch. The last result is cached in `preferences.json` (`co-writer.capabilities`, keyed by root) so the suggestions and footnote show immediately on later launches.
 
 Only `connected` servers count. Servers are shown by display name (`plugin:base:glean` → Glean, `claude.ai Google Drive` → Google Drive), deduplicated by that name.
 

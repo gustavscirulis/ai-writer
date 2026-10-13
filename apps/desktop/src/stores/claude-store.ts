@@ -3,6 +3,7 @@ import { Channel } from "@tauri-apps/api/core";
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { useSettingsStore } from "@/stores/settings-store";
 import { useEditorStore } from "@/stores/editor-store";
+import { skillsFor } from "@/stores/co-writer-store";
 import * as tauri from "@/lib/tauri";
 import { flushSave } from "@/lib/save";
 import { readStoreEntriesStrict, writeStoreEntriesStrict } from "@/lib/preferences";
@@ -23,6 +24,7 @@ import {
   isAppClosing,
 } from "@/lib/agent-turn";
 import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
+import { promptContent } from "@/lib/co-writer-skills";
 import { parseDocument } from "@/lib/frontmatter";
 import { getFileName } from "@/lib/paths";
 import { attachmentRange } from "@/lib/feedback-anchors";
@@ -797,7 +799,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           attachments: options ? [] : attachmentContext(path, attachments),
           ...(sentFiles.length ? { files: sentFiles } : {}),
         };
-        const content = `<writer_context>${JSON.stringify(context)}</writer_context>\n\n${prepared}`;
+        const content = promptContent(context, prepared, skillsFor(run.root));
         await tauri.claudeSend(
           id,
           JSON.stringify({ type: "user", message: { role: "user", content } }),

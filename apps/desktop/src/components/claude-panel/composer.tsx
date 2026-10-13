@@ -37,11 +37,14 @@ import {
   type FeedbackItem,
 } from "@/hooks/use-feedback";
 import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-api";
+import { useSkills } from "@/hooks/use-co-writer";
 import { useActiveFilePath } from "@/hooks/use-tabs";
+import { matchSkills, slashQuery, type Skill } from "@/lib/co-writer-skills";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
 import { pastedImageFile } from "@/lib/pasted-image";
 import { FileChip } from "./file-chip";
 import { FeedbackError, NotesTray } from "./notes-tray";
+import { SLASH_MENU_ID, SlashMenu, skillOptionId } from "./slash-menu";
 
 const MAX_INPUT_HEIGHT = 180;
 const KBD =
@@ -122,6 +125,17 @@ export function Composer() {
   );
   const notes = useMemo(() => items.filter((item) => item.status !== "attached"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
+  const skills = useSkills();
+  const query = slashQuery(text);
+  const matches = useMemo(
+    () => (query === null ? [] : matchSkills(query, skills)),
+    [query, skills],
+  );
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState({ query, index: 0 });
+  const menuOpen = matches.length > 0 && dismissed !== text;
+  const active = highlight.query === query ? Math.min(highlight.index, matches.length - 1) : 0;
+  const pickSkill = (skill: Skill) => path && setChatDraft(path, `/${skill.name} `);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const setInput = useCallback(
     (input: HTMLTextAreaElement | null) => {
@@ -195,8 +209,16 @@ export function Composer() {
       <div
         data-chat-composer
         data-chat-drop
-        className={`rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
+        className={`relative rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
       >
+        {menuOpen && (
+          <SlashMenu
+            skills={matches}
+            active={active}
+            onActive={(index) => setHighlight({ query, index })}
+            onPick={pickSkill}
+          />
+        )}
         {(attached.length > 0 || files.length > 0) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (
@@ -238,9 +260,24 @@ export function Composer() {
           }}
           disabled={!path}
           rows={2}
+          aria-autocomplete="list"
+          aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
+          aria-expanded={menuOpen}
+          aria-activedescendant={menuOpen ? skillOptionId(active) : undefined}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || !path) return;
-            if (event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey) {
+            const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+            if (menuOpen && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+              event.preventDefault();
+              const step = event.key === "ArrowDown" ? 1 : -1;
+              setHighlight({ query, index: (active + step + matches.length) % matches.length });
+            } else if (menuOpen && plain && (event.key === "Enter" || event.key === "Tab")) {
+              event.preventDefault();
+              pickSkill(matches[active]!);
+            } else if (menuOpen && event.key === "Escape") {
+              event.preventDefault();
+              setDismissed(text);
+            } else if (event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey) {
               event.preventDefault();
               togglePlanMode(path);
             } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -297,7 +334,11 @@ export function Composer() {
               Plan
             </button>
             <span className="min-w-0 truncate text-[11px] text-[var(--text-muted)]">
-              {busy && text.trim() ? (
+              {menuOpen ? (
+                <>
+                  <kbd className={KBD}>↵</kbd> choose
+                </>
+              ) : busy && text.trim() ? (
                 <>
                   <kbd className={KBD}>↵</kbd> queue for after this reply
                 </>

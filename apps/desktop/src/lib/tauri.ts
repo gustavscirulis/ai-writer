@@ -16,7 +16,7 @@ import type {
   WriteResult,
   WorkspaceInfo,
 } from "@/types/fs";
-import type { McpServer } from "@/lib/co-writer-suggestions";
+import type { Capabilities } from "@/lib/co-writer-skills";
 
 const identityReads = new Map<string, symbol>();
 
@@ -416,8 +416,8 @@ export function claudeStop(processId: string): Promise<void> {
   return invoke("claude_stop", { processId });
 }
 
-export function claudeMcpServers(root: string): Promise<McpServer[]> {
-  return invoke("claude_mcp_servers", { root });
+export function claudeCapabilities(root: string): Promise<Capabilities> {
+  return invoke("claude_capabilities", { root });
 }
 
 export function claudeDecidePermission(
