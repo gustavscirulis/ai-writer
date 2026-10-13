@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- When you send your queued Co-writer messages, they leave the queue above the message box as soon as they appear in the conversation. Before, they stayed in both places until Claude finished replying. If the reply fails or you stop it, they come back to the queue.
+
 - Co-writer shows a small spinner while it works, in place of the pulsing orange dot. You'll see it next to "Thinking…" in the conversation, on the note's tab, and now also in the sidebar, where it takes the place of the note's file icon. When Co-writer needs your answer or approval, the spinner becomes a still orange ring; after an error, a red one.
 
 - Use your Claude Code skills in Co-writer. Type / in the message box to see your skills and custom commands, the same ones Claude Code shows. Keep typing to narrow the list, use ↑/↓ and Enter or Tab to fill one in, add what you want, then send. Escape closes the list. Claude Code's own commands, like /clear or /model, aren't listed. Skills use Co-writer's tools, so steps that need others, such as running shell commands, won't work.

@@ -123,7 +123,8 @@ export function Composer() {
       ),
     [items],
   );
-  const notes = useMemo(() => items.filter((item) => item.status !== "attached"), [items]);
+  // Running items already show in the thread as the sent message.
+  const notes = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const skills = useSkills();
   const query = slashQuery(text);

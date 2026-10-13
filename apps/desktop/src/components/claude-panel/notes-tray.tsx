@@ -121,7 +121,6 @@ export function NotesTray({
               <button
                 type="button"
                 title="Edit in the composer"
-                disabled={item.status === "running"}
                 onClick={() => {
                   const text = takeBackFeedback(path, item.id);
                   clearAttachmentHighlight();
@@ -140,11 +139,7 @@ export function NotesTray({
                 )}
                 <span
                   className={`whitespace-pre-wrap [overflow-wrap:anywhere] ${
-                    item.status === "running"
-                      ? "chat-thinking-shimmer"
-                      : (item.anchor?.attached ?? true)
-                        ? ""
-                        : "opacity-55"
+                    (item.anchor?.attached ?? true) ? "" : "opacity-55"
                   }`}
                 >
                   {item.feedback}
@@ -168,7 +163,6 @@ export function NotesTray({
               <button
                 type="button"
                 aria-label="Remove from queue"
-                disabled={item.status === "running"}
                 onClick={() => {
                   removeFeedback(path, item.id);
                   clearAttachmentHighlight();
