@@ -18,6 +18,8 @@
 
 ## Done
 
+- Co-writer queue: items being sent (`status: "running"`) no longer show in `NotesTray`; the composer passes only `pending` items. A failed or stopped turn turns them back into `pending`, so they reappear.
+
 - Co-writer activity indicator: a shared `AgentIndicator` (`components/agent-indicator.tsx`) replaces the pulsing orange dot. It shows a neutral spinner while Co-writer works, an orange ring when it needs input, and a red ring after an error. It's used in the chat status line, on tabs, and in sidebar file rows, where it takes the file icon's place. Picked from a four-way prototype (Spinner, Shimmer, Caret, Sweep). Checks and tests pass. The real CSS was checked in Chrome; it hasn't been looked at in the native app yet.
 
 - Claude Code skills in Co-writer: [`SPECs/chat-skills.md`](SPECs/chat-skills.md). Typing `/` in the composer lists the user's skills and custom commands. They come from the SDK `initialize` response, which the MCP probe (now `claude_capabilities`) already requested, and are cached with the servers. Enter or Tab fills in `/name `. A message that starts with a known skill puts `<writer_context>` after it so the CLI expands the skill. Rust, store, helper and render tests pass, along with checks, Clippy and formatting. The ignored real-CLI test listed 165 skills. A WebDriver run of the built app (`e2e/specs/co-writer-skills.spec.js`) covered the menu, arrow keys, picking and Escape. Skill expansion was checked with a direct CLI probe; a full skill turn in the native app hasn't been run.
