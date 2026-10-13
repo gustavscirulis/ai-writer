@@ -1,61 +1,71 @@
 import { create } from "zustand";
-import type { McpServer } from "@/lib/co-writer-suggestions";
+import type { Capabilities } from "@/lib/co-writer-skills";
 import { readPreferenceStrict, writePreferenceStrict } from "@/lib/preferences";
 import * as tauri from "@/lib/tauri";
 
-export type McpServerList = McpServer[] | "unavailable";
+export type CapabilityList = Capabilities | "unavailable";
 
 interface CoWriterState {
   /** Per workspace root, absent until the cache or Claude Code reports them. */
-  servers: Record<string, McpServerList>;
+  capabilities: Record<string, CapabilityList>;
 }
 
-export const useCoWriterStore = create<CoWriterState>(() => ({ servers: {} }));
+export const useCoWriterStore = create<CoWriterState>(() => ({ capabilities: {} }));
 
-const SERVERS_KEY = "co-writer.mcp-servers";
+const CAPABILITIES_KEY = "co-writer.capabilities";
 
-const setServers = (root: string, servers: McpServerList) =>
-  useCoWriterStore.setState((state) => ({ servers: { ...state.servers, [root]: servers } }));
+const setCapabilities = (root: string, capabilities: CapabilityList) =>
+  useCoWriterStore.setState((state) => ({
+    capabilities: { ...state.capabilities, [root]: capabilities },
+  }));
 
-type ServerCache = Record<string, McpServer[]>;
-const noCache = (): ServerCache => ({});
-let cache: Promise<ServerCache> | null = null;
+type CapabilityCache = Record<string, Capabilities>;
+const noCache = (): CapabilityCache => ({});
+let cache: Promise<CapabilityCache> | null = null;
 const readCache = () =>
-  (cache ??= readPreferenceStrict<ServerCache>(SERVERS_KEY).then((stored) => stored ?? {}));
-function writeCache(root: string, servers: McpServer[]) {
+  (cache ??= readPreferenceStrict<CapabilityCache>(CAPABILITIES_KEY).then(
+    (stored) => stored ?? {},
+  ));
+function writeCache(root: string, capabilities: Capabilities) {
   cache = readCache()
     .catch(noCache)
     .then(async (stored) => {
-      const next = { ...stored, [root]: servers };
-      await writePreferenceStrict(SERVERS_KEY, next).catch((error) =>
-        console.error("[co-writer] Could not cache MCP servers", error),
+      const next = { ...stored, [root]: capabilities };
+      await writePreferenceStrict(CAPABILITIES_KEY, next).catch((error) =>
+        console.error("[co-writer] Could not cache MCP servers and skills", error),
       );
       return next;
     });
 }
 
-const discoveries = new Map<string, Promise<McpServer[]>>();
-/** Shows the cached list at once and refreshes it from Claude Code once per launch. */
-export function loadMcpServers(root: string) {
+const discoveries = new Map<string, Promise<Capabilities>>();
+/** Shows the cached MCP servers and skills at once and refreshes them from Claude Code once per launch. */
+export function loadCapabilities(root: string) {
   let discovery = discoveries.get(root);
   if (discovery) return discovery;
   const cached = readCache().then(
     (stored) => {
-      if (stored[root] && !useCoWriterStore.getState().servers[root])
-        setServers(root, stored[root]);
+      if (stored[root] && !useCoWriterStore.getState().capabilities[root])
+        setCapabilities(root, stored[root]);
     },
-    (error) => console.error("[co-writer] Could not read cached MCP servers", error),
+    (error) => console.error("[co-writer] Could not read cached MCP servers and skills", error),
   );
-  discovery = tauri.claudeMcpServers(root).then((servers) => {
-    setServers(root, servers);
-    writeCache(root, servers);
-    return servers;
+  discovery = tauri.claudeCapabilities(root).then((capabilities) => {
+    setCapabilities(root, capabilities);
+    writeCache(root, capabilities);
+    return capabilities;
   });
   discovery.catch(async (error) => {
-    console.error("[co-writer] Could not list MCP servers", error);
+    console.error("[co-writer] Could not list MCP servers and skills", error);
     await cached;
-    if (!useCoWriterStore.getState().servers[root]) setServers(root, "unavailable");
+    if (!useCoWriterStore.getState().capabilities[root]) setCapabilities(root, "unavailable");
   });
   discoveries.set(root, discovery);
   return discovery;
+}
+
+/** Skills known for the workspace; empty until Claude Code or the cache reports them. */
+export function skillsFor(root: string | null) {
+  const capabilities = root ? useCoWriterStore.getState().capabilities[root] : undefined;
+  return capabilities && capabilities !== "unavailable" ? capabilities.skills : [];
 }

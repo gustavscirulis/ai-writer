@@ -1,6 +1,6 @@
 pub mod allowed_tools;
+pub mod capabilities;
 pub mod claude;
-pub mod mcp;
 
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};

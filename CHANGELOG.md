@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-13
+
+- Use your Claude Code skills in Co-writer. Type / in the message box to see your skills and custom commands, the same ones Claude Code shows. Keep typing to narrow the list, use ↑/↓ and Enter or Tab to fill one in, add what you want, then send. Escape closes the list. Claude Code's own commands, like /clear or /model, aren't listed. Skills use Co-writer's tools, so steps that need others, such as running shell commands, won't work.
+
 ## 2026-10-12
 
 - Co-writer remembers “Yes, and don't ask again”. The choice is saved, so it now applies to every chat in every workspace and survives quitting Writer. Before, it reset when you started a new chat or quit. To see what you've allowed, or take something back, open Settings → Co-writer and press Revoke. A revoked tool asks again from your next message. Co-writer's other settings, Show Co-writer and Panel Width, moved there from Appearance.

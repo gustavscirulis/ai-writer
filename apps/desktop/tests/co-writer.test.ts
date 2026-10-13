@@ -18,9 +18,22 @@ import {
   toolSuggestions,
   type McpServer,
 } from "../src/lib/co-writer-suggestions";
-import { loadMcpServers, useCoWriterStore } from "../src/stores/co-writer-store";
+import {
+  matchSkills,
+  promptContent,
+  slashQuery,
+  type Capabilities,
+  type Skill,
+} from "../src/lib/co-writer-skills";
+import { loadCapabilities, skillsFor, useCoWriterStore } from "../src/stores/co-writer-store";
 
 const server = (name: string, status = "connected"): McpServer => ({ name, status });
+const skill = (name: string, aliases: string[] = []): Skill => ({
+  name,
+  description: "",
+  argumentHint: "",
+  aliases,
+});
 const servers = [
   server("plugin:base:glean"),
   server("claude.ai Gmail", "needs-auth"),
@@ -97,32 +110,78 @@ describe("co-writer store", () => {
     vi.mocked(invoke).mockReset();
   });
 
-  test("shows cached servers at once and refreshes them from Claude Code", async () => {
-    data.set("co-writer.mcp-servers", { "/cached": [server("claude.ai Slack")] });
-    let resolve!: (value: McpServer[]) => void;
+  const capabilities: Capabilities = { mcpServers: servers, skills: [skill("ux-copy")] };
+
+  test("shows cached servers and skills at once and refreshes them from Claude Code", async () => {
+    const stored: Capabilities = { mcpServers: [server("claude.ai Slack")], skills: [] };
+    data.set("co-writer.capabilities", { "/cached": stored });
+    let resolve!: (value: Capabilities) => void;
     vi.mocked(invoke).mockReturnValueOnce(new Promise((r) => (resolve = r)));
-    const discovery = loadMcpServers("/cached");
+    const discovery = loadCapabilities("/cached");
     await vi.waitFor(() =>
-      expect(useCoWriterStore.getState().servers["/cached"]).toEqual([server("claude.ai Slack")]),
+      expect(useCoWriterStore.getState().capabilities["/cached"]).toEqual(stored),
     );
-    resolve(servers);
+    resolve(capabilities);
     await discovery;
-    expect(useCoWriterStore.getState().servers["/cached"]).toBe(servers);
+    expect(useCoWriterStore.getState().capabilities["/cached"]).toBe(capabilities);
+    expect(skillsFor("/cached")).toEqual([skill("ux-copy")]);
     await vi.waitFor(() =>
-      expect(data.get("co-writer.mcp-servers")).toEqual({ "/cached": servers }),
+      expect(data.get("co-writer.capabilities")).toEqual({ "/cached": capabilities }),
     );
-    expect(loadMcpServers("/cached")).toBe(discovery);
+    expect(loadCapabilities("/cached")).toBe(discovery);
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  test("marks servers unavailable when Claude Code can't list them and nothing is cached", async () => {
+  test("marks capabilities unavailable when Claude Code can't list them and nothing is cached", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(invoke).mockRejectedValue(new Error("Not logged in"));
-    await expect(loadMcpServers("/fail")).rejects.toThrow("Not logged in");
+    await expect(loadCapabilities("/fail")).rejects.toThrow("Not logged in");
     await vi.waitFor(() =>
-      expect(useCoWriterStore.getState().servers["/fail"]).toBe("unavailable"),
+      expect(useCoWriterStore.getState().capabilities["/fail"]).toBe("unavailable"),
     );
-    expect(error).toHaveBeenCalledWith("[co-writer] Could not list MCP servers", expect.any(Error));
+    expect(skillsFor("/fail")).toEqual([]);
+    expect(error).toHaveBeenCalledWith(
+      "[co-writer] Could not list MCP servers and skills",
+      expect.any(Error),
+    );
     error.mockRestore();
+  });
+});
+
+describe("skills", () => {
+  const skills = [
+    skill("ux-copy"),
+    skill("design:ux-copy"),
+    skill("better-writing"),
+    skill("pdf", ["anthropic-skills:pdf"]),
+  ];
+
+  test("the menu opens only while the draft is a single slash word", () => {
+    expect(slashQuery("/")).toBe("");
+    expect(slashQuery("/ux")).toBe("ux");
+    expect(slashQuery("/ux-copy ")).toBeNull();
+    expect(slashQuery("draft /ux")).toBeNull();
+  });
+
+  test("name and namespaced-name prefixes rank above substrings", () => {
+    expect(matchSkills("ux", skills).map((s) => s.name)).toEqual(["ux-copy", "design:ux-copy"]);
+    expect(matchSkills("writ", skills).map((s) => s.name)).toEqual(["better-writing"]);
+    expect(matchSkills("", skills)).toEqual(skills);
+    expect(matchSkills("zzz", skills)).toEqual([]);
+  });
+
+  test("a known skill leads the prompt so Claude Code runs it; other slashes stay as text", () => {
+    const context = { openFile: "/n.md" };
+    const block = '<writer_context>{"openFile":"/n.md"}</writer_context>';
+    expect(promptContent(context, "/ux-copy the signup button", skills)).toBe(
+      `/ux-copy the signup button\n\n${block}`,
+    );
+    expect(promptContent(context, "/anthropic-skills:pdf", skills)).toBe(
+      `/anthropic-skills:pdf\n\n${block}`,
+    );
+    expect(promptContent(context, "/Users/me/notes.md is wrong", skills)).toBe(
+      `${block}\n\n/Users/me/notes.md is wrong`,
+    );
+    expect(promptContent(context, "/ux-copywriter", skills)).toBe(`${block}\n\n/ux-copywriter`);
   });
 });
