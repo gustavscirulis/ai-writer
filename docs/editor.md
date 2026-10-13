@@ -226,6 +226,7 @@ The history preview (`version-history/history-preview-extensions.ts`) mounts its
 - `mermaid-decorations.ts` — canonical replace-only block widget with in-widget editing. Reference for live position lookup (`findEnclosingFencedCode`) and writing the fence back from a nested editor.
 - `fold/image.ts` — canonical conditional replace ↔ widget, plus the measured-height cache for async-loading content.
 - `table-decorations.ts` — canonical conditional replace ↔ source-line styling; uses `selectAllDecorationsOnSelectExtension` for click-to-select.
+- `embeds/` — the one widget behind every embed kind (inline HTML, media, players, web pages), fed by the provider registry in `embed-providers.ts`. A new kind is a provider, not a new widget. Frames the app serves never get `allow-same-origin`; see [the embeds spec](../SPECs/embeds-spec.md) for the security model. `updateDOM` keeps the frame across replace ↔ widget switches so an embed keeps its state when its source opens.
 - `prosemark-core/codeFenceScroll.ts` — `codeBlockScrollField` / `setCodeBlockScroll` / `codeBlockAt`, the one place a code block's horizontal offset is stored and driven (wheel, caret reveal, resize clamp, drawn scrollbar thumb).
 - `prosemark-core/links.ts` — `linkUrlAt` / `rawUrlAt`, the one place that resolves a link destination from a document position.
 - `prosemark-core/imageSrc.ts` — `imageSrcResolverFacet` / `resolveImageSrc`; widgets resolve `<img src>` in `toDOM` (Writer provides the facet from `image-src-resolver.ts`), so no DOM observer rewrites images after insertion.

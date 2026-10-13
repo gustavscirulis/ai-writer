@@ -28,7 +28,7 @@ import {
 import "./feedback-extension.css";
 
 const WIDGETS =
-  ".cm-table-widget, .cm-mermaid-widget, .cm-html-block-widget, .cm-image, .cm-math-widget, .cm-horizontal-rule-container";
+  ".cm-table-widget, .cm-mermaid-widget, .cm-embed-widget, .cm-html-block-widget, .cm-image, .cm-math-widget, .cm-horizontal-rule-container";
 const CONTROLS =
   "button, input, textarea, select, [role=button], [role=menu], [contenteditable=true]";
 const SVG = "http://www.w3.org/2000/svg";

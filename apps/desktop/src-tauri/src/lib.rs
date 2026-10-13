@@ -2,6 +2,7 @@ mod commands;
 mod config;
 #[cfg(target_os = "macos")]
 mod dock_menu;
+mod embed_protocol;
 mod error;
 mod feedback_persistence;
 mod history;
@@ -533,6 +534,9 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_webdriver::init());
 
     builder
+        .register_uri_scheme_protocol(embed_protocol::SCHEME, |_ctx, request| {
+            embed_protocol::respond(&request)
+        })
         .manage(AppState::new())
         .manage(feedback_persistence::FeedbackPersistence::default())
         .setup(|app| {

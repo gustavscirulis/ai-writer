@@ -4,6 +4,8 @@
 
 - Use your Claude Code skills in Co-writer. Type / in the message box to see your skills and custom commands, the same ones Claude Code shows. Keep typing to narrow the list, use ↑/↓ and Enter or Tab to fill one in, add what you want, then send. Escape closes the list. Claude Code's own commands, like /clear or /model, aren't listed. Skills use Co-writer's tools, so steps that need others, such as running shell commands, won't work.
 
+- Put live HTML in a note. Write a fenced block that starts with ` ```html embed ` and its HTML, CSS and JavaScript run right there in the note: a prototype, a chart or an interactive diagram. Scripts from CDNs work. The embed grows to fit its content, and clicks inside it go to the embed. Click the edge around it to select the whole block, so you can delete it or add it to Co-writer with ⌘L. Move the caret into it, or press the code button on it, to edit the source with the live result underneath. If its code throws an error, the message shows on the embed. Embeds run in a sandbox with no access to your files or to Writer, and plain ` ```html ` blocks stay code. Co-writer knows the format, so you can ask it to design a diagram or visualization in your note.
+
 ## 2026-10-12
 
 - Co-writer remembers “Yes, and don't ask again”. The choice is saved, so it now applies to every chat in every workspace and survives quitting Writer. Before, it reset when you started a new chat or quit. To see what you've allowed, or take something back, open Settings → Co-writer and press Revoke. A revoked tool asks again from your next message. Co-writer's other settings, Show Co-writer and Panel Width, moved there from Appearance.

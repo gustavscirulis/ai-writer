@@ -30,7 +30,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost https:; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost https:; style-src 'self' 'unsafe-inline'; frame-src writer-embed: http://writer-embed.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]

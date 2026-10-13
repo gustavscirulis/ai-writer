@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8" />
+<script>
+  (() => {
+    const post = (message) => parent.postMessage({ source: "writer-embed", ...message }, "*");
+    const reportError = (reason) => {
+      const message = reason instanceof Error ? reason.message : String(reason ?? "Unknown error");
+      post({ type: "error", message });
+    };
+    let lastHeight = -1;
+    const reportHeight = () => {
+      const height = Math.ceil(document.documentElement.getBoundingClientRect().height);
+      if (height === lastHeight) return;
+      lastHeight = height;
+      post({ type: "height", height });
+    };
+
+    addEventListener("message", function onRender(event) {
+      const data = event.data;
+      if (event.source !== parent || data?.source !== "writer-embed" || data.type !== "render") {
+        return;
+      }
+      removeEventListener("message", onRender);
+      // `document.open` erases every listener, so the error hooks go on after
+      // it and before the write that runs the embed's scripts.
+      document.open();
+      addEventListener("error", (e) => reportError(e.error ?? e.message));
+      addEventListener("unhandledrejection", (e) => reportError(e.reason));
+      document.write(String(data.html));
+      document.close();
+      new ResizeObserver(reportHeight).observe(document.documentElement);
+      reportHeight();
+    });
+
+    post({ type: "ready" });
+  })();
+</script>

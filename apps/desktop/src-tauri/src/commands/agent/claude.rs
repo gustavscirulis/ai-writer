@@ -867,6 +867,15 @@ async fn run_process(
     let _ = finished.send(true);
 }
 
+const BASE_SYSTEM_PROMPT: &str = "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes.";
+
+fn system_prompt() -> String {
+    format!(
+        "{BASE_SYSTEM_PROMPT} {}",
+        crate::embed_protocol::EMBED_AUTHORING_GUIDE
+    )
+}
+
 fn scoped_command(
     binary: PathBuf,
     path: String,
@@ -876,7 +885,7 @@ fn scoped_command(
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes."])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", &system_prompt()])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -1777,6 +1786,10 @@ mod tests {
         assert!(args
             .windows(3)
             .any(|args| args == ["--allowedTools", "Edit", "Write"]));
+        assert!(args
+            .windows(2)
+            .any(|args| args[0] == "--append-system-prompt"
+                && args[1].contains(crate::embed_protocol::EMBED_AUTHORING_GUIDE)));
         assert_eq!(
             command.as_std().get_current_dir().unwrap(),
             std::path::Path::new("/vault")
