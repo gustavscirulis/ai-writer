@@ -7,6 +7,7 @@ import { SETTINGS_SCHEMA } from "@/lib/settings-schema";
 import type { SendOptions } from "@/lib/agent-request";
 import { readPastedImage } from "@/lib/pasted-image";
 import * as tauri from "@/lib/tauri";
+import type { AgentState } from "@/components/agent-indicator";
 export function useHasChatMessages(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).messages.length > 0);
 }
@@ -159,7 +160,7 @@ export function useViewportWidth() {
 }
 
 export function useChatIndicator(path: string | null) {
-  return useClaudeStore((state) => {
+  return useClaudeStore((state): AgentState | null => {
     const chat = chatForPath(state.chats, path);
     return chat.error
       ? "error"

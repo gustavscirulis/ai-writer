@@ -5,6 +5,7 @@ import {
   useHasChatMessages,
 } from "@/hooks/use-claude";
 import { needsAnswer } from "@/lib/claude-stream";
+import { AgentIndicator } from "@/components/agent-indicator";
 
 export function ChatActivity({ path }: { path: string | null }) {
   const status = useChatStatus(path);
@@ -38,12 +39,7 @@ export function ChatActivity({ path }: { path: string | null }) {
       aria-live="polite"
       aria-atomic="true"
     >
-      {shown && (
-        <span
-          aria-hidden="true"
-          className="chat-pulse size-1.5 shrink-0 rounded-full bg-[var(--accent)]"
-        />
-      )}
+      {shown && <AgentIndicator state="running" />}
       <span className={thinking ? "chat-thinking-shimmer" : "text-[var(--text-muted)]"}>
         {label}
       </span>

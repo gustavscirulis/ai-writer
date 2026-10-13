@@ -18,6 +18,7 @@ import {
   type Tab,
 } from "@/hooks/use-tabs";
 import { ScrollFade } from "@/components/scroll-fade";
+import { AGENT_STATE_LABEL, AgentIndicator } from "@/components/agent-indicator";
 import { useScrollActiveTabIntoView } from "@/hooks/use-scroll-active-tab-into-view";
 import { useEditorStore } from "@/stores/editor-store";
 import { getRelativePath } from "@/lib/paths";
@@ -79,29 +80,16 @@ function EditorTabButton({
       {agent && (
         <button
           type="button"
-          aria-label={`${title}: ${agent === "approval" ? "Agent needs your input" : agent === "error" ? "Agent needs attention" : "Agent running"}. Open chat`}
-          title={
-            agent === "approval"
-              ? "Agent needs your input"
-              : agent === "error"
-                ? "Agent needs attention"
-                : "Agent running"
-          }
+          aria-label={`${title}: ${AGENT_STATE_LABEL[agent]}. Open chat`}
+          title={AGENT_STATE_LABEL[agent]}
           onClick={(event) => {
             event.stopPropagation();
             onSelect(tab.id);
             showChatPanel();
           }}
-          className="mr-1.5 grid size-4 shrink-0 place-items-center rounded text-[var(--accent)] focus-visible:outline focus-visible:outline-2"
+          className="-ml-0.5 mr-1 grid size-4 shrink-0 place-items-center rounded focus-visible:outline focus-visible:outline-2"
         >
-          {agent === "running" ? (
-            <span
-              aria-hidden="true"
-              className="size-1.5 rounded-full bg-current motion-safe:animate-pulse"
-            />
-          ) : (
-            <span aria-hidden="true">{agent === "approval" ? "?" : "!"}</span>
-          )}
+          <AgentIndicator state={agent} />
         </button>
       )}
       {saveError ? (

@@ -2,6 +2,8 @@
 
 ## 2026-10-13
 
+- Co-writer shows a small spinner while it works, in place of the pulsing orange dot. You'll see it next to "Thinking…" in the conversation, on the note's tab, and now also in the sidebar, where it takes the place of the note's file icon. When Co-writer needs your answer or approval, the spinner becomes a still orange ring; after an error, a red one.
+
 - Use your Claude Code skills in Co-writer. Type / in the message box to see your skills and custom commands, the same ones Claude Code shows. Keep typing to narrow the list, use ↑/↓ and Enter or Tab to fill one in, add what you want, then send. Escape closes the list. Claude Code's own commands, like /clear or /model, aren't listed. Skills use Co-writer's tools, so steps that need others, such as running shell commands, won't work.
 
 - Put live HTML in a note. Write a fenced block that starts with ` ```html embed ` and its HTML, CSS and JavaScript run right there in the note: a prototype, a chart or an interactive diagram. Scripts from CDNs work. The embed grows to fit its content, and clicks inside it go to the embed. Click the edge around it to select the whole block, so you can delete it or add it to Co-writer with ⌘L. Move the caret into it, or press the code button on it, to edit the source with the live result underneath. If its code throws an error, the message shows on the embed. Embeds run in a sandbox with no access to your files or to Writer, and plain ` ```html ` blocks stay code. Co-writer knows the format, so you can ask it to design a diagram or visualization in your note.
