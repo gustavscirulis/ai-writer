@@ -41,7 +41,7 @@ function computeActive(
 }
 
 export function useActiveHeadings(
-  view: EditorView | null,
+  getView: (() => EditorView) | null,
   scrollContainerRef: React.RefObject<HTMLElement | null>,
   headings: DocumentHeading[],
 ): ActiveHeadings {
@@ -51,7 +51,8 @@ export function useActiveHeadings(
 
   useEffect(() => {
     const scroller = scrollContainerRef.current;
-    if (!view || !scroller) return;
+    if (!getView || !scroller) return;
+    const view = getView();
     let frame = 0;
     const update = () => {
       frame = 0;
@@ -70,10 +71,10 @@ export function useActiveHeadings(
       scroller.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
     };
-  }, [view, scrollContainerRef, headings]);
+  }, [getView, scrollContainerRef, headings]);
 
   // Without a live editor there is no active heading. Resolve this during
   // render instead of via an effect so the rail never paints a stale tick
   // from a previous file while the reset effect is pending.
-  return view ? state : EMPTY;
+  return getView ? state : EMPTY;
 }

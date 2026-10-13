@@ -2,6 +2,8 @@ import { memo, useEffect, useRef, type MouseEvent, type PointerEvent } from "rea
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { useIsActive } from "@/hooks/use-tabs";
+import { useChatIndicator } from "@/hooks/use-claude";
+import { AGENT_STATE_LABEL, AgentIndicator } from "@/components/agent-indicator";
 import { getFileStem } from "@/lib/paths";
 import type { DirEntry } from "@/types/fs";
 import { FileIcon, FolderIcon } from "./file-tree-icons";
@@ -46,6 +48,7 @@ export const FileTreeNode = memo(function FileTreeNode({
 }: FileTreeNodeProps) {
   const isActive = useIsActive(entry.path);
   const displayName = useFileTreeLabel(entry, fileLabelMode);
+  const agent = useChatIndicator(entry.is_dir ? null : entry.path);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-focus and select the stem when entering rename mode.
@@ -133,7 +136,13 @@ export const FileTreeNode = memo(function FileTreeNode({
       data-tree-path={entry.path}
       aria-selected={isActive}
       aria-expanded={entry.is_dir ? isExpanded : undefined}
-      aria-label={entry.is_dir ? `${entry.name} folder` : displayName}
+      aria-label={
+        entry.is_dir
+          ? `${entry.name} folder`
+          : agent
+            ? `${displayName}, ${AGENT_STATE_LABEL[agent]}`
+            : displayName
+      }
       onMouseDown={(e) => e.preventDefault()}
       onPointerDown={onPointerDown ? (event) => onPointerDown(event, entry) : undefined}
       onClick={handleClick}
@@ -157,6 +166,10 @@ export const FileTreeNode = memo(function FileTreeNode({
               />
             </span>
           </>
+        ) : agent ? (
+          <span title={AGENT_STATE_LABEL[agent]} className="grid size-4 place-items-center">
+            <AgentIndicator state={agent} />
+          </span>
         ) : (
           <span className="opacity-60 group-hover:opacity-100">
             <FileIcon />

@@ -1,0 +1,48 @@
+.agent-indicator {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent) 0 2px, transparent 2.5px);
+  animation: agent-indicator-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.agent-indicator[data-state="error"] {
+  --accent: #ff5f57;
+}
+
+/* Separate `scale` and `rotate` properties let the entrance and the spin run together. */
+.agent-indicator[data-state="running"] {
+  border-color: color-mix(in srgb, var(--fg-base) 16%, transparent);
+  border-top-color: var(--text-secondary);
+  background: none;
+  animation:
+    agent-indicator-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both,
+    agent-indicator-spin 750ms linear infinite;
+}
+
+@keyframes agent-indicator-in {
+  from {
+    opacity: 0;
+    scale: 0.5;
+  }
+}
+
+@keyframes agent-indicator-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+  .agent-indicator,
+  .agent-indicator[data-state="running"] {
+    animation: none;
+  }
+  .agent-indicator[data-state="running"] {
+    border-color: var(--text-muted);
+    border-left-color: color-mix(in srgb, var(--fg-base) 16%, transparent);
+  }
+}
