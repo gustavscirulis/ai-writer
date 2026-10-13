@@ -29,7 +29,12 @@ interface EditorPaneProps {
 export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPaneProps) {
   const isLoading = useIsFileLoading(path);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [editorView, setEditorView] = useState<EditorView | null>(null);
+  // Not the view itself: React's dev profiler walks props into window.frames, where sandboxed embeds throw.
+  const [getView, setGetView] = useState<(() => EditorView) | null>(null);
+  const handleViewChange = useCallback(
+    (view: EditorView | null) => setGetView(view ? () => () => view : null),
+    [],
+  );
   const showsHistory = useHistoryPath() === path && isActive;
   useCloseEditorSearchWhenInactive(isActive);
 
@@ -75,12 +80,12 @@ export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPan
             filePath={path}
             getScrollContainer={getScrollContainer}
             autoFocus={isActive}
-            onViewChange={setEditorView}
+            onViewChange={handleViewChange}
           />
         </EditorScrollContainer>
       </div>
       {!showsHistory && (
-        <SectionRail filePath={path} view={editorView} scrollContainerRef={scrollContainerRef} />
+        <SectionRail filePath={path} getView={getView} scrollContainerRef={scrollContainerRef} />
       )}
       {isActive && <EditorSearchOverview scrollContainerRef={scrollContainerRef} />}
       {showsHistory && <HistoryPreview path={path} />}

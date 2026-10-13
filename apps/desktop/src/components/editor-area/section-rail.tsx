@@ -27,7 +27,7 @@ const POPOVER_TRANSITION_MS = 180;
 
 interface SectionRailProps {
   filePath: string;
-  view: EditorView | null;
+  getView: (() => EditorView) | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -53,9 +53,9 @@ function handleContextMenu(event: React.MouseEvent, heading: DocumentHeading) {
   );
 }
 
-export function SectionRail({ filePath, view, scrollContainerRef }: SectionRailProps) {
+export function SectionRail({ filePath, getView, scrollContainerRef }: SectionRailProps) {
   const headings = useDocumentHeadings(filePath);
-  const { activeIndex } = useActiveHeadings(view, scrollContainerRef, headings);
+  const { activeIndex } = useActiveHeadings(getView, scrollContainerRef, headings);
   const [isOpen, setIsOpen] = useState(false);
   const { shouldRender, phase } = useMountTransition(isOpen, POPOVER_TRANSITION_MS);
   useEscKey(isOpen, () => setIsOpen(false));
@@ -80,8 +80,8 @@ export function SectionRail({ filePath, view, scrollContainerRef }: SectionRailP
 
   const handleTickClick = (heading: DocumentHeading) => {
     const scroller = scrollContainerRef.current;
-    if (!view || !scroller) return;
-    scrollPosToSafeTop(view, scroller, heading.pos, "auto");
+    if (!getView || !scroller) return;
+    scrollPosToSafeTop(getView(), scroller, heading.pos, "auto");
   };
 
   if (headings.length < MIN_HEADINGS) return null;
