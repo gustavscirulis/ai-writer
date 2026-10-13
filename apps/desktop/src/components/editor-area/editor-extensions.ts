@@ -17,6 +17,7 @@ import * as editorApi from "@/hooks/editor-api";
 import { dragFreezeExtensions } from "./drag-selection-gate";
 import { editorBodyContextMenuExtension } from "./editor-body-menu";
 import { editorClipboardExtension } from "./editor-clipboard";
+import { embedDecorations } from "./embeds/embed-decorations";
 import { editorSearchExtensions } from "./editor-search-extensions";
 import { useEditorSearchStore } from "./editor-search-store";
 import { headingDecorations } from "./heading-decorations";
@@ -136,6 +137,7 @@ export function createEditorExtensions(
     tableDecorations(),
     htmlBlockDecorations(),
     mermaidDecorations(),
+    embedDecorations(),
     mathDecorations(),
     headingDecorations,
     imageSrcResolver(getFilePath),

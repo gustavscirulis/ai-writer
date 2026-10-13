@@ -18,6 +18,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import DOMPurify from "dompurify";
 import { baseSyntaxHighlights, generalSyntaxHighlights } from "@/lib/prosemark-core/main";
+import { makeWidgetButton, setWidgetButtonIcon } from "./widget-buttons";
 
 export const MERMAID_CANVAS_HEIGHT = 480;
 
@@ -34,7 +35,6 @@ const FIT_MARGIN_PX = 16;
 // Debounce so a quick burst of keystrokes results in a single outer dispatch
 // + diagram re-render, not one per character.
 const SOURCE_CHANGE_DEBOUNCE_MS = 150;
-const SVG_NS = "http://www.w3.org/2000/svg";
 
 const CODE_ICON_PATHS = ["m16 18 6-6-6-6", "m8 6-6 6 6 6", "m13 4-2 16"] as const;
 const RESET_ICON_PATHS = ["M3 12a9 9 0 1 0 2.64-6.36L3 8", "M3 3v5h5"] as const;
@@ -175,7 +175,7 @@ export function mountMermaidCanvas(
   };
 
   if (editingEnabled) {
-    editButton = makeButton("", "Edit code");
+    editButton = makeWidgetButton("", "Edit code");
     editButton.classList.add("cm-mermaid-canvas-edit", "cm-mermaid-canvas-icon-btn");
     updateEditButton();
     editButton.addEventListener("click", () => setEditing(!editing));
@@ -183,7 +183,7 @@ export function mountMermaidCanvas(
   }
 
   if (opts.onClose) {
-    const closeButton = makeButton("✕", "Close fullscreen");
+    const closeButton = makeWidgetButton("✕", "Close fullscreen");
     closeButton.classList.add("cm-mermaid-canvas-icon-btn");
     closeButton.addEventListener("click", () => opts.onClose?.());
     topCluster.append(closeButton);
@@ -195,7 +195,7 @@ export function mountMermaidCanvas(
   zoomCluster.className = "cm-mermaid-canvas-zoom";
 
   if (opts.onExpand) {
-    const expandButton = makeButton("⛶", "Open in fullscreen");
+    const expandButton = makeWidgetButton("⛶", "Open in fullscreen");
     expandButton.classList.add("cm-mermaid-canvas-zoom-btn");
     // Focus the host BEFORE opening the overlay so the overlay's
     // `previouslyFocused` capture sees the inline canvas — that way
@@ -210,9 +210,9 @@ export function mountMermaidCanvas(
     zoomCluster.append(expandButton);
   }
 
-  const resetButton = makeButton("", "Reset zoom and pan");
-  const zoomInButton = makeButton("+", "Zoom in");
-  const zoomOutButton = makeButton("−", "Zoom out");
+  const resetButton = makeWidgetButton("", "Reset zoom and pan");
+  const zoomInButton = makeWidgetButton("+", "Zoom in");
+  const zoomOutButton = makeWidgetButton("−", "Zoom out");
   resetButton.classList.add("cm-mermaid-canvas-zoom-btn");
   setResetButtonIcon(resetButton);
   zoomInButton.classList.add("cm-mermaid-canvas-zoom-btn");
@@ -525,23 +525,7 @@ function setResetButtonIcon(button: HTMLButtonElement): void {
 }
 
 function setButtonIcon(button: HTMLButtonElement, paths: readonly string[]): void {
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", "cm-mermaid-canvas-button-icon");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-
-  for (const d of paths) {
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("d", d);
-    svg.append(path);
-  }
-
-  button.replaceChildren(svg);
+  setWidgetButtonIcon(button, paths, "cm-mermaid-canvas-button-icon");
 }
 
 // Minimal stream-mode highlighter for mermaid source. Lezer doesn't ship a
@@ -698,25 +682,4 @@ function createInnerEditor(
       ],
     }),
   });
-}
-
-function makeButton(label: string, title: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.textContent = label;
-  b.title = title;
-  b.setAttribute("aria-label", title);
-  // Keep the editor focused when the user clicks. Without `preventDefault`
-  // on mousedown, the browser focuses the button — and on the toggle path,
-  // that focus shift races with the dispatch's DOM rebuild + our explicit
-  // `view.contentDOM.focus()` call. The result is the editor briefly losing
-  // focus and CM applying a different selection than the one we dispatched.
-  // `stopPropagation` on mousedown keeps CM's editor-level pointerdown
-  // handlers (which may run before `ignoreEvent` is consulted in some paths)
-  // from racing with the click handler's dispatch.
-  b.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  return b;
 }

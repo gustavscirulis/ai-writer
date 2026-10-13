@@ -33,7 +33,9 @@ if (FULL || HISTORY) {
   const w = window as unknown as { __TAURI_INTERNALS__?: object };
   w.__TAURI_INTERNALS__ ??= {
     convertFileSrc: (path: string, protocol = "asset") =>
-      `${protocol}://localhost/${encodeURIComponent(path)}`,
+      protocol === "writer-embed"
+        ? "/embed-frame.html"
+        : `${protocol}://localhost/${encodeURIComponent(path)}`,
     invoke: () => Promise.reject(new Error("playground: no Tauri backend")),
   };
 }

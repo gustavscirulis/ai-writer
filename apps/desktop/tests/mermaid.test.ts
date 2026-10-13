@@ -292,9 +292,12 @@ describe("shouldStartDragGate", () => {
   // Element-like with closest('.cm-mermaid-widget') returning a truthy node —
   // simulates a click that originated inside a mermaid widget (canvas pan,
   // Edit-code button, Preview button).
-  const WIDGET_TARGET = {
-    closest: (sel: string) => (sel === ".cm-mermaid-widget" ? ({} as Element) : null),
-  } as unknown as Element;
+  const widgetTarget = (widgetClass: string) =>
+    ({
+      closest: (sel: string) =>
+        sel.split(",").some((part) => part.trim() === widgetClass) ? ({} as Element) : null,
+    }) as unknown as Element;
+  const WIDGET_TARGET = widgetTarget(".cm-mermaid-widget");
 
   test("returns dispatch with startDragEffect for primary button + non-widget target", () => {
     const dispatch = shouldStartDragGate(makeState(), {
@@ -342,6 +345,16 @@ describe("shouldStartDragGate", () => {
         isPrimary: true,
         button: 0,
         target: WIDGET_TARGET,
+      }),
+    ).toBeNull();
+  });
+
+  test("skips when target is inside .cm-embed-widget (the frame owns its pointer events)", () => {
+    expect(
+      shouldStartDragGate(makeState(), {
+        isPrimary: true,
+        button: 0,
+        target: widgetTarget(".cm-embed-widget"),
       }),
     ).toBeNull();
   });
