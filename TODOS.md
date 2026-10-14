@@ -10,7 +10,7 @@
 
 - Stream feedback in Chat: [`SPECs/stream-feedback-chat.md`](SPECs/stream-feedback-chat.md). Chosen from the unified feedback/chat prototype ([`SPECs/unified-feedback-chat-prototype.md`](SPECs/unified-feedback-chat-prototype.md)); replaces the separate Feedback column from [`SPECs/paragraph-feedback.md`](SPECs/paragraph-feedback.md).
   - How it works:
-    - Select text and press ⌘L (or the "Add to chat" pill / selection context menu), or ⌥-click / use the right-hand button on a block, to attach it to the composer.
+    - Select text and press ⌘L (or the "Add to chat" pill / selection context menu), or ⌥-click / use the right-hand button on a block, to attach it to the composer. Holding ⌥ tints the block ⌥-click would attach.
     - Enter edits now; ⌘Enter saves notes to a tray above the composer, applied together.
   - Status: verified in the playground and the seeded desktop dev server. Native Tauri QA (a real apply turn, reload recovery) is still pending.
 
@@ -19,6 +19,8 @@
 ## Done
 
 - Co-writer queue: when Claude is idle and the queue has ready items, Enter (and the Send button) adds the draft to the end of the queue and sends everything as one turn through `sendQueue`. Before, Enter sent only the draft and left the queue behind. Composer files stay in the composer, the same as with ⌘↵. With nothing queued, Enter sends normally; while Claude is busy, Enter still queues. A WebDriver run of the built app (`e2e/specs/co-writer-queue.spec.js`) queues two messages, presses Enter on a third, and checks they're sent as one turn in order.
+
+- ⌥-hover block highlight: while ⌥ is held, the block ⌥-click would attach is tinted via a below-content CodeMirror layer in `feedback-extension.ts`. Hover and click share one resolver (`altTarget`, using the cached target list through `feedbackTargetIn`). Checks and tests pass; geometry checked in the playground for a paragraph, list item, code block and table, plus ⌥ keydown/keyup. Not yet tried with a real ⌥ key in the native app.
 
 - Co-writer queue: items being sent (`status: "running"`) no longer show in `NotesTray`; the composer passes only `pending` items. A failed or stopped turn turns them back into `pending`, so they reappear.
 
