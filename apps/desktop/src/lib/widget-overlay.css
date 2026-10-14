@@ -1,0 +1,72 @@
+/* Closed state is the base rule; `.is-open` (added one frame after mount,
+   removed before teardown) is the open state. */
+.cm-widget-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: color-mix(in srgb, var(--bg-base) 92%, transparent);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.cm-widget-overlay:focus,
+.cm-widget-overlay:focus-visible {
+  outline: none;
+}
+
+.cm-widget-overlay.is-open {
+  opacity: 1;
+}
+
+.cm-widget-overlay-panel {
+  transform: scale(0.95);
+  opacity: 0;
+  transition:
+    transform 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.cm-widget-overlay.is-open .cm-widget-overlay-panel {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.cm-widget-overlay-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.cm-widget-overlay-close:hover {
+  background-color: var(--surface-subtle);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-widget-overlay,
+  .cm-widget-overlay-panel,
+  .cm-widget-overlay-close {
+    transition: none;
+  }
+}

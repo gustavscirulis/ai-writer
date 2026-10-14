@@ -1,4 +1,5 @@
 import { Decoration, type EditorView, WidgetType } from "@codemirror/view";
+import { isImageExpandEvent, wrapExpandableImage } from "@/lib/image-lightbox";
 import { normalizeMarkdownDestination } from "@/lib/paths";
 import { foldableSyntaxFacet, selectAllDecorationsOnSelectExtension } from "./core";
 import { iterChildren } from "../utils";
@@ -66,13 +67,13 @@ class ImageWidget extends WidgetType {
     const image = document.createElement("img");
     attachStableImageHeight(image, elem, this.url, view);
     image.src = resolveImageSrc(view.state, this.url);
-    elem.appendChild(image);
+    elem.appendChild(wrapExpandableImage(image));
     return elem;
   }
 
-  // allows clicks to pass through to the editor
-  ignoreEvent(_event: Event) {
-    return false;
+  // Clicks on the image pass through to the editor; the Expand button's don't.
+  ignoreEvent(event: Event) {
+    return isImageExpandEvent(event);
   }
 }
 

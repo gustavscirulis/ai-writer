@@ -5,6 +5,7 @@ export const MAX_FRAME_HEIGHT = 2000;
 
 export type FrameMessage =
   | { type: "ready" }
+  | { type: "escape" }
   | { type: "height"; height: number }
   | { type: "error"; message: string };
 
@@ -17,6 +18,8 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
   switch (message.type) {
     case "ready":
       return { type: "ready" };
+    case "escape":
+      return { type: "escape" };
     case "height":
       return typeof message.height === "number" && Number.isFinite(message.height)
         ? { type: "height", height: message.height }

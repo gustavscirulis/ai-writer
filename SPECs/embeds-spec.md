@@ -25,6 +25,7 @@ The replace ↔ widget shape from `fold/image.ts`:
 - Selection spans the whole source: the embed is selected as a block, outlined in the accent colour, and its source stays closed. Backspace deletes it and ⌘L or the selection pill adds it to Co-writer. Clicking the edge around the frame selects it this way, as does a shift-arrow or select-all selection across it.
 - Selection ends inside the source (arrow keys into it, or the Edit button): the source shows and the live embed stays below it. Edits reload the embed after 300 ms.
 - Clicks inside a frame go to the frame, never to CodeMirror, so using a prototype doesn't open its source.
+- The Expand button opens a fresh copy of the embed in a modal over the note, up to 1400 px wide and nearly the window's height. The frame fills the modal instead of fitting its content, so `100vh` layouts fill it too. Esc (also from inside the frame, unless the embed handles Esc itself), ✕ or a click outside it closes the modal, and focus goes back to where it was. Images get the same button and open in a lightbox at up to their natural size.
 
 The widget keeps its DOM across those switches, so the embed keeps its state when its source opens. Unlike `fold/image.ts`, a range selection over an embed selects it instead of opening its source (`embedMode` in `embed-decorations.ts`).
 
@@ -33,7 +34,7 @@ The widget keeps its DOM across those switches, so the embed keeps its state whe
 - `embeds/embed-providers.ts`: `EmbedSource` (a fence or a URL), `EmbedSpec` (what to draw), the provider list and `resolveEmbed`. Providers are pure: source in, spec out. First match wins.
 - `embeds/providers/*.ts`: one file per kind.
 - `embeds/embed-decorations.ts`: fold specs for `FencedCode` (and `Image`, for URLs) that ask the registry and place the widget.
-- `embeds/embed-widget.ts`: the one widget. It owns rendering per spec kind, sandboxing, sizing, the measured-height cache, the toolbar (Edit, Reload) and the error badge.
+- `embeds/embed-widget.ts`: the one widget. It owns rendering per spec kind, sandboxing, sizing, the measured-height cache, the toolbar (Edit, Reload, Expand) and the error badge. The expanded copy mounts through the same per-kind code with `expanded: true` and opens via `openWidgetOverlay` (`lib/widget-overlay.ts`), so every new kind can be expanded without extra work.
 - `embeds/frame-messages.ts`: the `postMessage` contract with the frame page.
 
 ### Adding a provider
@@ -45,7 +46,7 @@ Write `providers/<name>.ts` exporting an `EmbedProvider` whose `resolve` returns
 Embed code is untrusted: a note may come from anyone.
 
 - **Inline HTML** runs in `<iframe sandbox="allow-scripts allow-forms">` with no `allow-same-origin`, so it has an opaque origin. Never add `allow-same-origin` to a frame the app serves: the embed would share the app's origin and reach Tauri IPC.
-- The frame loads `writer-embed://localhost/frame`, a fixed page served by Rust (`src-tauri/src/embed_protocol.rs`) with its own CSP: `https: http: ws: wss: data: blob:` plus inline and eval. On macOS that excludes `asset:`, `ipc:` and `tauri:`, so embed code can't read local files (the asset protocol scope is `**`) or call native commands. The page receives the fence body by `postMessage` and writes it with `document.write`, then reports height and errors back.
+- The frame loads `writer-embed://localhost/frame`, a fixed page served by Rust (`src-tauri/src/embed_protocol.rs`) with its own CSP: `https: http: ws: wss: data: blob:` plus inline and eval. On macOS that excludes `asset:`, `ipc:` and `tauri:`, so embed code can't read local files (the asset protocol scope is `**`) or call native commands. The page receives the fence body by `postMessage` and writes it with `document.write`, then reports height and errors back, and forwards Esc presses the embed didn't handle (`escape`), because keys pressed inside a frame never reach the app.
 - `srcdoc` and `blob:` frames can't be used: they inherit the app's CSP, which blocks inline scripts (Tauri adds hashes, which cancel `'unsafe-inline'`) and CDNs.
 - Tauri injects its IPC scripts into the main frame only, and the IPC protocol rejects requests whose `Origin` isn't the app's.
 - The app CSP allows frames only from `writer-embed:` (and `http://writer-embed.localhost`, the Windows form).
@@ -60,6 +61,7 @@ Embed code is untrusted: a note may come from anyone.
 
 ## Known limits
 
+- The expanded view is a fresh copy, so state doesn't carry between it and the inline embed in either direction.
 - An embed's state resets when it scrolls far out of view (CodeMirror drops widgets outside its viewport) and when its source changes.
 - While focus is inside a frame, the editor's keyboard shortcuts don't fire. Native menu shortcuts still do.
 - An HTML embed that sizes itself to the viewport (`height: 100vh`) fits the frame's current height, 150 px by default.

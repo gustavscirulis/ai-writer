@@ -18,7 +18,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import DOMPurify from "dompurify";
 import { baseSyntaxHighlights, generalSyntaxHighlights } from "@/lib/prosemark-core/main";
-import { makeWidgetButton, setWidgetButtonIcon } from "./widget-buttons";
+import { makeWidgetButton, setWidgetButtonIcon } from "@/lib/widget-buttons";
 
 export const MERMAID_CANVAS_HEIGHT = 480;
 

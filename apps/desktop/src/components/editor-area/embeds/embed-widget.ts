@@ -2,7 +2,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { syntaxTree } from "@codemirror/language";
 import { EditorSelection } from "@codemirror/state";
 import { type EditorView, WidgetType } from "@codemirror/view";
-import { makeWidgetButton, setWidgetButtonIcon } from "../widget-buttons";
+import { EXPAND_ICON_PATHS, makeWidgetButton, setWidgetButtonIcon } from "@/lib/widget-buttons";
+import { openWidgetOverlay } from "@/lib/widget-overlay";
 import type { EmbedSpec } from "./embed-providers";
 import { clampFrameHeight, parseFrameMessage, renderMessage } from "./frame-messages";
 import "./embed.css";
@@ -39,7 +40,10 @@ interface KindHandle {
 
 interface MountContext {
   key: string;
+  /** Shown in the overlay: fills the panel instead of sizing to its content. */
+  expanded: boolean;
   setError(message: string | null): void;
+  onEscape?(): void;
 }
 
 export class EmbedWidget extends WidgetType {
@@ -82,23 +86,17 @@ export class EmbedWidget extends WidgetType {
     box.className = "cm-embed-box";
     wrapper.append(box);
 
-    const error = document.createElement("div");
-    error.className = "cm-embed-error";
-    error.setAttribute("role", "status");
-    error.hidden = true;
-
+    const error = errorBadge();
+    let spec = this.spec;
     let key = this.key;
     const ctx: MountContext = {
       get key() {
         return key;
       },
-      setError(message) {
-        error.hidden = message === null;
-        error.textContent = message ?? "";
-        error.title = message ?? "";
-      },
+      expanded: false,
+      setError: error.set,
     };
-    const content = mountKind(box, this.spec, ctx);
+    const content = mountKind(box, spec, ctx);
 
     const toolbar = document.createElement("div");
     toolbar.className = "cm-embed-toolbar";
@@ -111,8 +109,12 @@ export class EmbedWidget extends WidgetType {
     setWidgetButtonIcon(reload, RELOAD_ICON_PATHS, "cm-embed-button-icon");
     reload.className = "cm-embed-button";
     reload.addEventListener("click", () => content.reload());
-    toolbar.append(edit, reload);
-    box.append(toolbar, error);
+    const expand = makeWidgetButton("", "Expand");
+    setWidgetButtonIcon(expand, EXPAND_ICON_PATHS, "cm-embed-button-icon");
+    expand.className = "cm-embed-button";
+    expand.addEventListener("click", () => openExpanded(spec));
+    toolbar.append(edit, reload, expand);
+    box.append(toolbar, error.el);
 
     const resize = new ResizeObserver(() => {
       const height = wrapper.getBoundingClientRect().height;
@@ -122,9 +124,10 @@ export class EmbedWidget extends WidgetType {
     resize.observe(wrapper);
 
     handles.set(wrapper, {
-      update(spec, mode) {
-        if (!content.update(spec)) return false;
-        key = JSON.stringify(spec);
+      update(next, mode) {
+        if (!content.update(next)) return false;
+        spec = next;
+        key = JSON.stringify(next);
         edit.hidden = mode === "editing";
         wrapper.classList.toggle("cm-embed-selected", mode === "selected");
         return true;
@@ -153,6 +156,43 @@ export class EmbedWidget extends WidgetType {
   }
 }
 
+function errorBadge() {
+  const el = document.createElement("div");
+  el.className = "cm-embed-error";
+  el.setAttribute("role", "status");
+  el.hidden = true;
+  return {
+    el,
+    set: (message: string | null) => {
+      el.hidden = message === null;
+      el.textContent = message ?? "";
+      el.title = message ?? "";
+    },
+  };
+}
+
+/** A fresh copy in the overlay: moving the live frame would reload it anyway. */
+function openExpanded(spec: EmbedSpec): void {
+  openWidgetOverlay({
+    className: "cm-embed-overlay",
+    ariaLabel: "Expanded embed",
+    mount(close) {
+      const panel = document.createElement("div");
+      panel.className = "cm-embed-box cm-embed-expanded";
+      panel.dataset.embedKind = spec.kind;
+      const error = errorBadge();
+      const content = mountKind(panel, spec, {
+        key: JSON.stringify(spec),
+        expanded: true,
+        setError: error.set,
+        onEscape: close,
+      });
+      panel.append(error.el);
+      return { panel, destroy: () => content.destroy() };
+    },
+  });
+}
+
 function defaultHeight(spec: EmbedSpec): number {
   switch (spec.kind) {
     case "html":
@@ -176,7 +216,9 @@ function mountHtml(box: HTMLElement, initialHtml: string, ctx: MountContext): Ki
   iframe.className = "cm-embed-iframe";
   iframe.setAttribute("sandbox", APP_FRAME_SANDBOX);
   iframe.title = "Embedded HTML";
-  iframe.style.height = `${frameHeightCache.get(ctx.key) ?? DEFAULT_HTML_HEIGHT}px`;
+  if (!ctx.expanded) {
+    iframe.style.height = `${frameHeightCache.get(ctx.key) ?? DEFAULT_HTML_HEIGHT}px`;
+  }
   box.append(iframe);
 
   const load = () => {
@@ -192,12 +234,14 @@ function mountHtml(box: HTMLElement, initialHtml: string, ctx: MountContext): Ki
     if (message.type === "ready" && !rendered) {
       rendered = true;
       iframe.contentWindow?.postMessage(renderMessage(html), "*");
-    } else if (message.type === "height") {
+    } else if (message.type === "height" && !ctx.expanded) {
       const height = clampFrameHeight(message.height);
       frameHeightCache.set(ctx.key, height);
       iframe.style.height = `${height}px`;
     } else if (message.type === "error") {
       ctx.setError(message.message);
+    } else if (message.type === "escape") {
+      ctx.onEscape?.();
     }
   };
   window.addEventListener("message", onMessage);
