@@ -170,27 +170,28 @@ export function Composer() {
   };
   const empty = !text.trim() && !attached.length;
   const ready = useMemo(() => notes.filter(canApplyFeedback), [notes]);
-  const queue = () => {
+  const queue = (flush: boolean) => {
     if (!path) return;
-    if (empty) {
-      if (!busy && ready.length)
-        void applyFeedback(
-          path,
-          ready.map((item) => item.id),
-        );
-      return;
+    if (!empty) {
+      if (!saveFeedbackNotes(path, text)) return;
+      setChatDraft(path, "");
+      clearAttachmentHighlight();
     }
-    if (!saveFeedbackNotes(path, text)) return;
-    setChatDraft(path, "");
-    setTrayOpen(true);
-    clearAttachmentHighlight();
+    if (flush && !busy) void applyFeedback(path);
+    else if (!empty) setTrayOpen(true);
+  };
+  // A ready queue goes out with the draft appended last, so queued messages are never skipped.
+  const submit = () => {
+    if (busy) queue(false);
+    else if (ready.length) queue(true);
+    else send();
   };
   return (
     <form
       className="px-3 pb-3"
       onSubmit={(event) => {
         event.preventDefault();
-        send();
+        submit();
       }}
     >
       {path && <FeedbackError />}
@@ -283,11 +284,10 @@ export function Composer() {
               togglePlanMode(path);
             } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
-              queue();
+              queue(empty);
             } else if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              if (busy) queue();
-              else send();
+              submit();
             } else if (event.key === "Backspace" && !text && files.length) {
               event.preventDefault();
               removeChatFile(path, files[files.length - 1]!);
@@ -343,14 +343,18 @@ export function Composer() {
                 <>
                   <kbd className={KBD}>↵</kbd> queue for after this reply
                 </>
+              ) : !busy && ready.length && !empty ? (
+                <>
+                  <kbd className={KBD}>↵</kbd> send all
+                </>
               ) : attached.length || text.trim() ? (
                 <>
                   <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
                   <kbd className={KBD}>⌘↵</kbd> queue
                 </>
-              ) : empty && !busy && ready.length ? (
+              ) : !busy && ready.length ? (
                 <>
-                  <kbd className={KBD}>⌘↵</kbd> send queued
+                  <kbd className={KBD}>↵</kbd> send queued
                 </>
               ) : null}
             </span>
@@ -361,7 +365,7 @@ export function Composer() {
                 type="button"
                 title={busy ? "Send after this reply (↵)" : "Add to the queue (⌘↵)"}
                 disabled={!text.trim()}
-                onClick={queue}
+                onClick={() => queue(false)}
                 className="h-[26px] rounded-full px-[9px] text-[12px] font-medium text-[var(--text-secondary)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 Queue
@@ -390,7 +394,11 @@ export function Composer() {
               <button
                 type="submit"
                 aria-label="Send"
-                title="Send (Enter) · Shift+Enter for a new line"
+                title={
+                  ready.length
+                    ? `Send with ${ready.length} queued (Enter) · Shift+Enter for a new line`
+                    : "Send (Enter) · Shift+Enter for a new line"
+                }
                 disabled={!path || !text.trim()}
                 className="grid size-7 place-items-center rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] transition-[opacity,transform] duration-150 active:scale-[0.94] disabled:opacity-20"
               >
