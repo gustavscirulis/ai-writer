@@ -27,6 +27,7 @@ import { buildTabMenuItemsSpec, showNativeContextMenu } from "./editor-context-m
 import { useWorkspaceRoot } from "@/hooks/use-workspace";
 import { revealPathInSidebar } from "@/lib/reveal-in-sidebar";
 import { useTabDrag } from "./use-tab-drag";
+import { WORKSPACE_CHAT } from "@/lib/agent-turn";
 
 interface EditorTabButtonProps {
   tab: Tab;
@@ -48,7 +49,9 @@ function EditorTabButton({
   const kind = pageKind(tab.location);
   const filePath = kind.primaryPath(tab.location);
   const isLoading = useIsFileLoading(filePath ?? "");
-  const agent = useChatIndicator(filePath);
+  const agent = useChatIndicator(
+    filePath ?? (tab.location.kind === "launcher" ? WORKSPACE_CHAT : null),
+  );
   const saveError = useFileSaveError(filePath);
   const documentTitle = useResolvedDocumentTitle(filePath);
   const title = documentTitle || kind.title(tab.location);

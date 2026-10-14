@@ -43,6 +43,7 @@ import {
   beginPathMutation,
   registerPendingEditorFlush,
   setAppClosing,
+  WORKSPACE_CHAT,
 } from "../src/lib/agent-turn";
 import { registerEditorView } from "../src/lib/editor-views";
 import { EditorState } from "@codemirror/state";
@@ -1320,6 +1321,57 @@ test("an approved new note that was never written finishes cleanly", async () =>
   emit({ type: "result", is_error: false });
   await tick();
   expect(chatState()).toMatchObject({ status: "idle", error: null });
+});
+test("the workspace chat starts without a note", async () => {
+  useEditorStore.getState().openNewTab();
+  mockedInvoke.mockClear();
+  expect(await useClaudeStore.getState().send(WORKSPACE_CHAT, "Draft a note")).toBe(true);
+  const start = mockedInvoke.mock.calls.find(([c]) => c === "claude_start")![1] as {
+    notePath: string | null;
+  };
+  expect(start.notePath).toBeNull();
+  const payload = mockedInvoke.mock.calls.find(([c]) => c === "claude_send")![1] as {
+    line: string;
+  };
+  expect(payload.line).not.toContain("openFile");
+  expect(mockedInvoke.mock.calls.some(([c]) => c === "read_file")).toBe(false);
+});
+test("a note the workspace chat creates takes over the conversation and the launcher", async () => {
+  useEditorStore.getState().openNewTab();
+  const launcher = useEditorStore.getState().activeTabId;
+  await useClaudeStore.getState().send(WORKSPACE_CHAT, "Draft a note");
+  emit({ type: "system", subtype: "init", session_id: "session-w" });
+  await claudeEdits(() => disk.set("/notes/new.md", "Draft"), channels.at(-1), "/notes/new.md");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(useClaudeStore.getState().chats[WORKSPACE_CHAT]).toBeUndefined();
+  expect(chatMessages("/notes/new.md")[0]).toMatchObject({ role: "user", text: "Draft a note" });
+  const tab = useEditorStore.getState().tabs.find((entry) => entry.id === launcher);
+  expect(tab?.location).toMatchObject({ kind: "file", path: "/notes/new.md" });
+  expect(useEditorStore.getState().activeFilePath).toBe("/notes/new.md");
+  const saved = new Map(savedChats());
+  expect(saved.get(`/notes\0${WORKSPACE_CHAT}`)).toBeUndefined();
+  expect(saved.get("/notes\0/notes/new.md")).toMatchObject({ sessionId: "session-w" });
+});
+test("the workspace chat stays put after editing an existing note", async () => {
+  useEditorStore.getState().openNewTab();
+  await useClaudeStore.getState().send(WORKSPACE_CHAT, "Tidy A");
+  await claudeEdits(() => disk.set("/notes/a.md", "Tidied"));
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(chatMessages(WORKSPACE_CHAT)).toHaveLength(1);
+  expect(useEditorStore.getState().activeFilePath).toBeNull();
+});
+test("a created note doesn't take the tab when the writer has moved to another note", async () => {
+  useEditorStore.getState().openNewTab();
+  await useClaudeStore.getState().send(WORKSPACE_CHAT, "Draft a note");
+  useEditorStore.getState().setActiveFile("/notes/a.md");
+  await claudeEdits(() => disk.set("/notes/new.md", "Draft"), channels.at(-1), "/notes/new.md");
+  emit({ type: "result", is_error: false });
+  await tick();
+  expect(chatMessages("/notes/new.md")).toHaveLength(1);
+  expect(useEditorStore.getState().activeFilePath).toBe("/notes/a.md");
+  expect(useEditorStore.getState().openFiles.has("/notes/new.md")).toBe(false);
 });
 test("a note another chat is working on can't be edited", async () => {
   disk.set("/notes/b.md", "Before B");

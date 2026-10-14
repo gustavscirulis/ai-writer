@@ -2,12 +2,23 @@ import { getActiveFilePath } from "@/hooks/editor-api";
 import { useSyncExternalStore } from "react";
 import { useClaudeStore, chatForPath } from "@/stores/claude-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { isAgentEditing, subscribeAgentEditing, documentPath } from "@/lib/agent-turn";
+import { useActiveFilePath } from "@/hooks/use-tabs";
+import {
+  isAgentEditing,
+  subscribeAgentEditing,
+  documentPath,
+  WORKSPACE_CHAT,
+} from "@/lib/agent-turn";
 import { SETTINGS_SCHEMA } from "@/lib/settings-schema";
 import type { SendOptions } from "@/lib/agent-request";
 import { readPastedImage } from "@/lib/pasted-image";
 import * as tauri from "@/lib/tauri";
 import type { AgentState } from "@/components/agent-indicator";
+/** The chat the panel shows: the active note's, or the workspace one when no note is open. */
+export function useChatPath() {
+  return useActiveFilePath() ?? WORKSPACE_CHAT;
+}
+export const getChatPath = () => getActiveFilePath() ?? WORKSPACE_CHAT;
 export function useHasChatMessages(path: string | null) {
   return useClaudeStore((s) => chatForPath(s.chats, path).messages.length > 0);
 }
@@ -76,15 +87,14 @@ export function showChatPanel() {
 
 let composer: { path: string; input: HTMLTextAreaElement } | null = null;
 let focusRequested: string | null = null;
-export function registerChatComposer(path: string | null, input: HTMLTextAreaElement | null) {
-  composer = input && path ? { path: documentPath(path), input } : null;
+export function registerChatComposer(path: string, input: HTMLTextAreaElement | null) {
+  composer = input ? { path: documentPath(path), input } : null;
   if (composer && focusRequested === composer.path) {
     focusRequested = null;
     composer.input.focus({ preventScroll: true });
   }
 }
-export function focusChatComposer(path = getActiveFilePath()) {
-  if (!path) return;
+export function focusChatComposer(path = getChatPath()) {
   const key = documentPath(path);
   if (composer?.path === key && composer.input.isConnected)
     composer.input.focus({ preventScroll: true });

@@ -11,6 +11,7 @@ import {
   useChatPanelWidth,
   useViewportWidth,
   useToolPermissions,
+  useChatPath,
 } from "@/hooks/use-claude";
 import { useCallback, useRef, useState } from "react";
 import { Sidebar } from "./sidebar";
@@ -44,7 +45,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
   const activeFilePath = useActiveFilePath();
   const activeTab = useActiveTab();
   const activeShowsChat = !activeTab || pageKind(activeTab.location).showsChat;
-  const permissions = useToolPermissions(activeFilePath);
+  const permissions = useToolPermissions(useChatPath());
   const chatWidth = useChatPanelWidth();
   const viewportWidth = useViewportWidth();
   const maxSidebarWidth = Math.max(280, Math.min(420, Math.floor(viewportWidth * 0.35)));

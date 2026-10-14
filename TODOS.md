@@ -19,6 +19,8 @@
 
 ## Done
 
+- Co-writer without an open note: [`SPECs/co-writer-without-note.md`](SPECs/co-writer-without-note.md). Launcher tabs get one workspace conversation (`WORKSPACE_CHAT`); `claude_start` takes an optional note path, so every write needs approval. The first note the conversation creates takes it over, session included, and replaces the launcher tab. The queue and version history stay note-only. Rust, store and full JS suites, checks, Clippy and formatting pass. Not yet tried in the native app with a real turn.
+
 - Co-writer queue: when Claude is idle and the queue has ready items, Enter (and the Send button) adds the draft to the end of the queue and sends everything as one turn through `sendQueue`. Before, Enter sent only the draft and left the queue behind. Composer files stay in the composer, the same as with ⌘↵. With nothing queued, Enter sends normally; while Claude is busy, Enter still queues. A WebDriver run of the built app (`e2e/specs/co-writer-queue.spec.js`) queues two messages, presses Enter on a third, and checks they're sent as one turn in order.
 
 - ⌥-hover block highlight: while ⌥ is held, the block ⌥-click would attach is tinted via a below-content CodeMirror layer in `feedback-extension.ts`. Hover and click share one resolver (`altTarget`, using the cached target list through `feedbackTargetIn`). Checks and tests pass; geometry checked in the playground for a paragraph, list item, code block and table, plus ⌥ keydown/keyup. Not yet tried with a real ⌥ key in the native app.

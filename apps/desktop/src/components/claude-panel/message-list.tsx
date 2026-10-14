@@ -1,7 +1,12 @@
 import { Fragment } from "react";
 import { useConversationScroll } from "./use-conversation-scroll";
-import { useChatError, useChatMessages, useChatNotices, useChatStatus } from "@/hooks/use-claude";
-import { useActiveFilePath } from "@/hooks/use-tabs";
+import {
+  useChatError,
+  useChatMessages,
+  useChatNotices,
+  useChatPath,
+  useChatStatus,
+} from "@/hooks/use-claude";
 import { isVisibleMessage, type ChatMessage } from "@/lib/claude-stream";
 import type { ChatNotice } from "@/stores/claude-store";
 import { AssistantTurn, Disclosure, UserMessage } from "./chat-message";
@@ -27,7 +32,7 @@ function groupTurns(messages: ChatMessage[], notices: ChatNotice[]) {
 }
 
 export function MessageList() {
-  const path = useActiveFilePath();
+  const path = useChatPath();
   const messages = useChatMessages(path);
   const error = useChatError(path);
   const notices = useChatNotices(path);

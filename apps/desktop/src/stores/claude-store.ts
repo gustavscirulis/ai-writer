@@ -22,6 +22,8 @@ import {
   documentPath,
   isPathMutating,
   isAppClosing,
+  isWorkspaceChat,
+  WORKSPACE_CHAT,
 } from "@/lib/agent-turn";
 import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
 import { promptContent } from "@/lib/co-writer-skills";
@@ -118,6 +120,8 @@ interface Run {
   streamingId: string | null;
   streamingBlockIndex: number;
   permissionIds: Set<string>;
+  /** The first note a workspace chat wrote into existence; the chat moves to it after the turn. */
+  createdNote: string | null;
   releaseTurn: () => void;
 }
 interface Edit {
@@ -125,6 +129,7 @@ interface Edit {
   key: string;
   toolUseId: string | null;
   before: string | null;
+  created: boolean;
   release: () => void;
   ending: Promise<void> | null;
 }
@@ -352,6 +357,7 @@ function finish(run: Run): Promise<void> {
         activity: null,
         permissions: [],
       }));
+      if (run.createdNote) carryOver(run.root, run.createdNote);
       options?.complete({
         status: run.cancelled ? "cancelled" : run.error ? "failed" : "completed",
         changed: run.changed,
@@ -371,6 +377,24 @@ function finish(run: Run): Promise<void> {
     if (run.finishing === task) run.finishing = null;
   });
   return task;
+}
+/** Moves the workspace chat, session included, to the note it created, and shows the note
+ * in place of the launcher the conversation was on. */
+function carryOver(root: string, note: string) {
+  useClaudeStore.setState((state) => {
+    const { [WORKSPACE_CHAT]: chat, ...chats } = state.chats;
+    return chat ? { chats: { ...chats, [note]: chat } } : state;
+  });
+  void updateChats(root, (records) => {
+    const { [WORKSPACE_CHAT]: record, ...rest } = records;
+    return record ? { ...rest, [note]: record } : records;
+  }).catch((error) => console.error("[chat] Could not move the chat to its new note", error));
+  const editor = useEditorStore.getState();
+  const tab = editor.tabs.find((entry) => entry.id === editor.activeTabId);
+  if (tab && tab.location.kind !== "launcher") return;
+  void (tab ? editor.replaceTabWithFile(tab.id, note) : editor.openFile(note)).catch((error) =>
+    console.error("[chat] Could not open the new note", error),
+  );
 }
 /** History is a secondary record: a failed capture never blocks an AI edit. */
 function captureVersion(path: string, source: "agent" | "external", group?: string) {
@@ -404,7 +428,7 @@ async function beginEdit(run: Run, requestId: string, toolUseId: string | null, 
       throw new Error(`Another chat is editing ${getFileName(key)}.`);
     else {
       const release = acquireAgentEditing(own ? run.path : key);
-      edit = run.edit = { key, toolUseId, before: null, release, ending: null };
+      edit = run.edit = { key, toolUseId, before: null, created: false, release, ending: null };
     }
     // Embedded flushers may have dirtied another display alias synchronously.
     const aliases = [...useEditorStore.getState().openFiles.values()].filter(
@@ -416,6 +440,8 @@ async function beginEdit(run: Run, requestId: string, toolUseId: string | null, 
     await captureVersion(key, "external");
     if (!current(run) || run.edit !== edit) return;
     if (own) edit.before ??= (await tauri.readFile(key)).content;
+    if (isWorkspaceChat(run.key) && run.createdNote === null && !edit.created)
+      edit.created = !(await tauri.fileExists(key));
     ready = true;
   } catch (error) {
     if (current(run))
@@ -476,6 +502,7 @@ async function reloadAfterEdit(run: Run, edit: Edit) {
       consumeAgentReload(path, file.reloadVersion + 1);
     }
   }
+  if (content !== null && edit.created) run.createdNote ??= edit.key;
   if (content !== null) {
     // Awaited so the AI version is recorded before the unlock lets the user save over it.
     await captureVersion(edit.key, "agent", run.turnId);
@@ -534,7 +561,7 @@ function receive(run: Run, event: tauri.AgentEvent) {
         permissions: [...chat.permissions, parsed.permission],
       }));
       const active = useEditorStore.getState().activeFilePath;
-      if (active && documentPath(active) === run.key)
+      if ((active ? documentPath(active) : WORKSPACE_CHAT) === run.key)
         void useSettingsStore
           .getState()
           .setSetting("appearance.agent-panel-visible", true)
@@ -675,6 +702,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
   send: (path, text, { turn: options, attachments, feedbackIds, files } = {}) => {
     const key = documentPath(path);
+    const workspaceChat = isWorkspaceChat(key);
     const workspace = useWorkspaceStore.getState();
     if (!text.trim() || runs.has(key) || resets.has(key) || drains > 0 || isAppClosing())
       return Promise.resolve(false);
@@ -692,7 +720,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       return Promise.resolve(false);
     }
     const file = useEditorStore.getState().openFiles.get(path);
-    if ((!file && !options) || file?.isLoading) return Promise.resolve(false);
+    // Queued turns rewrite a note's feedback, so the workspace chat never runs one.
+    if (workspaceChat ? options : (!file && !options) || file?.isLoading)
+      return Promise.resolve(false);
     flushPendingEditors(path);
     // Embedded flushers may have dirtied another display alias synchronously.
     const aliases = [...useEditorStore.getState().openFiles.values()].filter(
@@ -736,6 +766,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       streamingId: null,
       streamingBlockIndex: 0,
       permissionIds: new Set(),
+      createdNote: null,
       releaseTurn: acquireAgentTurn(path),
     };
     runs.set(key, run);
@@ -771,9 +802,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       try {
         for (const alias of aliases) await flushSave(alias.path);
         if (!current(run) || run.cancelled || run.ended) return false;
-        const saved = await tauri.readFile(key);
+        const saved = workspaceChat ? null : await tauri.readFile(key);
         if (!current(run) || run.cancelled || run.ended) return false;
-        const prepared = options ? await options.prepare(saved.content) : text.trim();
+        const prepared = options && saved ? await options.prepare(saved.content) : text.trim();
         if (!current(run) || run.cancelled || run.ended) return false;
         const records = await loadChats(run.root);
         if (!current(run) || run.cancelled || run.ended) return false;
@@ -783,7 +814,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           run.root,
           workspace.workspaceEpoch!,
           records[key]?.sessionId ?? null,
-          path,
+          workspaceChat ? null : path,
           chatForPath(get().chats, key).planMode,
           channel,
         );
@@ -795,7 +826,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         if (run.cancelled || run.exited || run.ended) return false;
         run.handedOff = true;
         const context = {
-          openFile: key,
+          ...(workspaceChat ? {} : { openFile: key }),
           attachments: options ? [] : attachmentContext(path, attachments),
           ...(sentFiles.length ? { files: sentFiles } : {}),
         };

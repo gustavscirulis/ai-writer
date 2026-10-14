@@ -6,7 +6,7 @@ Chat is renamed **Co-writer** in every user-visible string (panel header and lab
 
 Chosen after several prototype rounds. A large heading and subtitle sit at the top of the panel, left-aligned. Four plain suggestion rows (icon, label) and one footnote sit at the bottom, just above the composer. Clicking a suggestion either sends it or, for a starter, fills the composer for the writer to finish.
 
-|             | Existing note                                          | Blank note (empty, or only headings)                                          |
+|             | Existing note                                          | Blank note (empty, or only headings), or no note open                         |
 | ----------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
 | Heading     | What are we working on?                                | What are we writing?                                                          |
 | Subtitle    | Ask for research, a first draft or edits to this note. | Start with research, an outline or a first draft.                             |

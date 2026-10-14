@@ -7,10 +7,11 @@ import {
   setChatPanelWidth,
   toggleChatPanel,
   useChatPanelWidth,
+  useChatPath,
   useChatStatus,
   useToolPermissions,
 } from "@/hooks/use-claude";
-import { useActiveFilePath } from "@/hooks/use-tabs";
+import { isWorkspaceChat } from "@/lib/agent-turn";
 import { PermissionRequest } from "./permission-request";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
@@ -24,7 +25,7 @@ export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5
 
 export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
-  const path = useActiveFilePath();
+  const path = useChatPath();
   const status = useChatStatus(path);
   const awaitingApproval = useToolPermissions(path).length > 0;
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
@@ -102,8 +103,8 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
             type="button"
             title="Version history (⌘⇧H)"
             aria-label="Version history"
-            disabled={!path}
-            onClick={() => path && toggleVersionHistory(path)}
+            disabled={isWorkspaceChat(path)}
+            onClick={() => toggleVersionHistory(path)}
             className={HEADER_BUTTON}
           >
             <HugeiconsIcon icon={Clock01Icon} size={16} strokeWidth={1.8} />
@@ -112,8 +113,8 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
             type="button"
             title="New conversation"
             aria-label="New conversation"
-            disabled={!path || status === "stopping"}
-            onClick={() => path && void newChat(path)}
+            disabled={status === "stopping"}
+            onClick={() => void newChat(path)}
             className={HEADER_BUTTON}
           >
             <HugeiconsIcon icon={PencilEdit02Icon} size={16} strokeWidth={1.8} />

@@ -396,7 +396,7 @@ export function claudeStart(
   root: string,
   epoch: number,
   resumeSessionId: string | null,
-  notePath: string,
+  notePath: string | null,
   plan: boolean,
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
 ): Promise<string> {
@@ -404,7 +404,7 @@ export function claudeStart(
     root,
     epoch,
     resumeSessionId,
-    notePath: documentPath(notePath),
+    notePath: notePath && documentPath(notePath),
     plan,
     onEvent,
   });

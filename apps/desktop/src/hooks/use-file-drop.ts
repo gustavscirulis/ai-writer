@@ -1,8 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { PhysicalPosition } from "@tauri-apps/api/dpi";
-import { getActiveFilePath } from "@/hooks/editor-api";
-import { attachChatFiles } from "@/hooks/use-claude";
+import { attachChatFiles, getChatPath } from "@/hooks/use-claude";
 import { detectPlatform } from "@/lib/platform";
 import * as tauri from "@/lib/tauri";
 
@@ -29,7 +28,7 @@ const scale = detectPlatform() === "windows" ? () => window.devicePixelRatio : (
 
 function overChat(position: PhysicalPosition) {
   const { x, y } = position.toLogical(scale());
-  return !!getActiveFilePath() && !!document.elementFromPoint(x, y)?.closest("[data-chat-drop]");
+  return !!document.elementFromPoint(x, y)?.closest("[data-chat-drop]");
 }
 
 /** Routes every file drop in this window: onto Chat attaches, anywhere else opens. */
@@ -42,7 +41,7 @@ export function useFileDrop() {
       }
       setDropActive(false);
       if (payload.type !== "drop" || !payload.paths.length) return;
-      const path = overChat(payload.position) ? getActiveFilePath() : null;
+      const path = overChat(payload.position) ? getChatPath() : null;
       const task = path
         ? attachChatFiles(path, payload.paths)
         : tauri.openDroppedPaths(payload.paths);

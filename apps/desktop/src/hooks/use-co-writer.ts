@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { isWorkspaceChat } from "@/lib/agent-turn";
 import { isBlankNote, type McpServer } from "@/lib/co-writer-suggestions";
 import type { Skill } from "@/lib/co-writer-skills";
 import { loadCapabilities, useCoWriterStore } from "@/stores/co-writer-store";
@@ -29,10 +30,11 @@ export function useSkills() {
   return capabilities && capabilities !== "unavailable" ? capabilities.skills : NO_SKILLS;
 }
 
-/** Whether the note has nothing to work on yet; `null` while it loads. */
-export function useNoteIsBlank(path: string | null) {
+/** Whether the note has nothing to work on yet; `null` while it loads. No note counts as blank. */
+export function useNoteIsBlank(path: string) {
   return useEditorStore((s) => {
-    const file = path ? s.openFiles.get(path) : undefined;
+    if (isWorkspaceChat(path)) return true;
+    const file = s.openFiles.get(path);
     return file && !file.isLoading ? isBlankNote(file.content) : null;
   });
 }

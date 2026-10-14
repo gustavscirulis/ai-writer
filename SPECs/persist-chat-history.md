@@ -16,7 +16,7 @@ Chat messages lived only in memory, so quitting Writer emptied every note's thre
 ## Storage
 
 - `chats.json` in the app data dir, a dedicated plugin-store file, so transcripts don't get rewritten with every preference and don't live in the vault.
-- One key per note: `${root}\0${canonicalNotePath}`. The root is part of the key because Claude Code sessions belong to the directory they ran in, so a nested workspace must not reuse them.
+- One key per note: `${root}\0${canonicalNotePath}`, plus `${root}\0writer:workspace` for the conversation used with no note open ([`co-writer-without-note.md`](co-writer-without-note.md)). The root is part of the key because Claude Code sessions belong to the directory they ran in, so a nested workspace must not reuse them.
 - Value: `{ version: 1, sessionId, messages }`. The session ID and the visible thread form one record, so they can't drift apart. Records with an unknown version are ignored and logged.
 - All writes go through the serialized `updateChats` queue. Only changed keys are written, followed by one save.
 - A failed session-ID write keeps the note locked for recovery, as before. A failed transcript write at turn end is reported in Chat without locking the note.
