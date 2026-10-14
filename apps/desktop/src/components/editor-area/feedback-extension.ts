@@ -1,8 +1,10 @@
 import {
   Decoration,
   EditorView,
+  RectangleMarker,
   ViewPlugin,
   keymap,
+  layer,
   showTooltip,
   type DecorationSet,
   type Tooltip,
@@ -21,7 +23,7 @@ import { attachBlock, attachFromEditor, feedbackState } from "@/hooks/feedback-a
 import { useFeedbackStore } from "@/stores/feedback-store";
 import {
   attachmentRange,
-  feedbackTargetAt,
+  feedbackTargetIn,
   feedbackTargets,
   type FeedbackAnchor,
 } from "@/lib/feedback-anchors";
@@ -112,6 +114,53 @@ function selectionPill(getPath: () => string): Extension {
   return [field, EditorView.focusChangeEffect.of((_, focusing) => focusChanged.of(focusing))];
 }
 
+const altHover = StateEffect.define<FeedbackAnchor | null>();
+const altHoverField = StateField.define<FeedbackAnchor | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(altHover)) return effect.value;
+    return tr.docChanged ? null : value;
+  },
+});
+
+/** Tints the block ⌥-click would attach, drawn behind the text so it never washes it out. */
+const altHoverLayer = layer({
+  above: false,
+  class: "writer-block-hover-layer",
+  markers(view) {
+    const target = view.state.field(altHoverField);
+    if (!target || target.to > view.state.doc.length) return [];
+    const scroller = view.scrollDOM.getBoundingClientRect();
+    const content = view.contentDOM.getBoundingClientRect();
+    const style = getComputedStyle(view.contentDOM);
+    const baseLeft = scroller.left - view.scrollDOM.scrollLeft * view.scaleX;
+    const baseTop = scroller.top - view.scrollDOM.scrollTop * view.scaleY;
+    const left = (content.left - baseLeft) / view.scaleX + parseFloat(style.paddingLeft);
+    const right = (content.right - baseLeft) / view.scaleX - parseFloat(style.paddingRight);
+    const offset = (view.documentTop - baseTop) / view.scaleY;
+    const top = view.lineBlockAt(target.from).top + offset;
+    const bottom = view.lineBlockAt(target.to).bottom + offset;
+    return [
+      new RectangleMarker(
+        "writer-block-hover",
+        left - 8,
+        top - 2,
+        right - left + 16,
+        bottom - top + 4,
+      ),
+    ];
+  },
+  update: (update) =>
+    update.docChanged ||
+    update.geometryChanged ||
+    update.viewportChanged ||
+    update.state.field(altHoverField) !== update.startState.field(altHoverField),
+});
+
+const onlyAlt = (event: MouseEvent | KeyboardEvent) =>
+  event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey;
+const MODIFIERS = new Set(["Alt", "Meta", "Control", "Shift"]);
+
 type Placement = {
   x: number;
   button: number | null;
@@ -132,6 +181,7 @@ function feedbackGutter(getPath: () => string) {
       button = document.createElement("button");
       dots = new Map<string, HTMLElement>();
       hovered: FeedbackAnchor | null = null;
+      pointer: PointerEvent | null = null;
       targets: { doc: Text; list: FeedbackAnchor[] } | null = null;
       built: { items: unknown; highlighted: unknown } = { items: null, highlighted: null };
       queued = false;
@@ -159,6 +209,9 @@ function feedbackGutter(getPath: () => string) {
           view.dom.addEventListener(type, this.suppress, true);
         view.dom.addEventListener("pointermove", this.hover);
         view.dom.addEventListener("pointerleave", this.leave);
+        this.window.addEventListener("keydown", this.modifier);
+        this.window.addEventListener("keyup", this.modifier);
+        this.window.addEventListener("blur", this.blur);
         this.unsubscribe = useFeedbackStore.subscribe(this.schedule);
         this.measure();
       }
@@ -291,7 +344,40 @@ function feedbackGutter(getPath: () => string) {
         });
       }
 
+      get window() {
+        return this.view.dom.ownerDocument.defaultView ?? window;
+      }
+
+      altTarget(event: MouseEvent) {
+        const element = event.target instanceof Element ? event.target : null;
+        const control = element?.closest(CONTROLS);
+        if ((control && control !== this.view.contentDOM) || this.overlay.contains(element))
+          return null;
+        const hit = feedbackPositionAtEvent(this.view, event);
+        if (!hit) return null;
+        const targets = this.targetList();
+        return (
+          feedbackTargetIn(targets, hit.pos, hit.side) ??
+          feedbackTargetIn(targets, hit.pos, hit.side === -1 ? 1 : -1)
+        );
+      }
+
+      setAltHover(target: FeedbackAnchor | null) {
+        const current = this.view.state.field(altHoverField);
+        if (target?.from === current?.from && target?.to === current?.to) return;
+        this.view.dispatch({ effects: altHover.of(target) });
+      }
+
+      modifier = (event: KeyboardEvent) => {
+        if (!MODIFIERS.has(event.key) || event.repeat) return;
+        this.setAltHover(this.pointer && onlyAlt(event) ? this.altTarget(this.pointer) : null);
+      };
+
+      blur = () => this.setAltHover(null);
+
       hover = (event: PointerEvent) => {
+        this.pointer = event;
+        this.setAltHover(onlyAlt(event) ? this.altTarget(event) : null);
         if (event.target === this.button || this.button.contains(event.target as Node)) return;
         const view = this.view;
         const y = event.clientY - view.documentTop;
@@ -306,6 +392,8 @@ function feedbackGutter(getPath: () => string) {
       };
 
       leave = () => {
+        this.pointer = null;
+        this.setAltHover(null);
         if (!this.hovered) return;
         this.hovered = null;
         this.measure();
@@ -313,17 +401,8 @@ function feedbackGutter(getPath: () => string) {
 
       start = (event: PointerEvent) => {
         this.captured = false;
-        if (!event.altKey || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey)
-          return;
-        const element = event.target instanceof Element ? event.target : null;
-        const control = element?.closest(CONTROLS);
-        if ((control && control !== this.view.contentDOM) || this.overlay.contains(element)) return;
-        const hit = feedbackPositionAtEvent(this.view, event);
-        if (!hit) return;
-        const source = this.view.state.doc.toString();
-        const target =
-          feedbackTargetAt(source, hit.pos, hit.side) ??
-          feedbackTargetAt(source, hit.pos, hit.side === -1 ? 1 : -1);
+        if (!onlyAlt(event) || event.button !== 0) return;
+        const target = this.altTarget(event);
         if (!target) return;
         this.captured = true;
         event.preventDefault();
@@ -347,6 +426,9 @@ function feedbackGutter(getPath: () => string) {
           this.view.dom.removeEventListener(type, this.suppress, true);
         this.view.dom.removeEventListener("pointermove", this.hover);
         this.view.dom.removeEventListener("pointerleave", this.leave);
+        this.window.removeEventListener("keydown", this.modifier);
+        this.window.removeEventListener("keyup", this.modifier);
+        this.window.removeEventListener("blur", this.blur);
       }
     },
     { decorations: (plugin) => plugin.decorations },
@@ -355,6 +437,8 @@ function feedbackGutter(getPath: () => string) {
 
 export function feedbackExtension(getPath: () => string): Extension {
   return [
+    altHoverField,
+    altHoverLayer,
     feedbackGutter(getPath),
     selectionPill(getPath),
     Prec.high(

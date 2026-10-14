@@ -4,6 +4,8 @@
 
 - When you have Co-writer messages queued, pressing Enter sends the whole queue with your new message last. Before, Enter sent only the new message and left the queue waiting. With an empty message box, Enter sends what's queued. ⌘Enter still adds a message to the queue without sending.
 
+- Hold ⌥ while you move the pointer over a note and the block under it is lightly tinted, so you can see which paragraph, list item, code block or table ⌥-click will add to Co-writer. Press ⌥ while already hovering and the tint shows straight away; let go and it's gone.
+
 ## 2026-10-13
 
 - When you send your queued Co-writer messages, they leave the queue above the message box as soon as they appear in the conversation. Before, they stayed in both places until Claude finished replying. If the reply fails or you stop it, they come back to the queue.

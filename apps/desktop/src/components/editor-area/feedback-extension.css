@@ -1,10 +1,26 @@
 .cm-editor {
   --writer-mark-attached: color-mix(in srgb, var(--accent) 18%, transparent);
   --writer-mark-focus: color-mix(in srgb, var(--accent) 26%, transparent);
+  --writer-block-hover: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 [data-theme="dark"] .cm-editor {
   --writer-mark-attached: color-mix(in srgb, var(--accent) 24%, transparent);
   --writer-mark-focus: color-mix(in srgb, var(--accent) 34%, transparent);
+  --writer-block-hover: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.writer-block-hover-layer {
+  pointer-events: none;
+}
+.writer-block-hover {
+  position: absolute;
+  border-radius: 6px;
+  background: var(--writer-block-hover);
+  animation: writer-block-hover-in 100ms ease-out;
+}
+@keyframes writer-block-hover-in {
+  from {
+    opacity: 0;
+  }
 }
 .writer-mark-attached,
 .writer-mark-focus {
@@ -146,7 +162,8 @@
   .writer-note-dot {
     transition: none;
   }
-  .cm-tooltip.writer-comment-pill {
+  .cm-tooltip.writer-comment-pill,
+  .writer-block-hover {
     animation: none;
   }
 }

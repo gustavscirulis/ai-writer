@@ -85,13 +85,16 @@ export function feedbackTargets(source: string, tree: Tree = feedbackParser.pars
   return targets;
 }
 
-export function feedbackTargetAt(source: string, pos: number, side: -1 | 1 = 1) {
-  const targets = feedbackTargets(source);
+export function feedbackTargetIn(targets: FeedbackAnchor[], pos: number, side: -1 | 1 = 1) {
   return (
     targets.find((target) =>
       side === -1 ? target.from < pos && pos <= target.to : target.from <= pos && pos < target.to,
     ) ?? null
   );
+}
+
+export function feedbackTargetAt(source: string, pos: number, side: -1 | 1 = 1) {
+  return feedbackTargetIn(feedbackTargets(source), pos, side);
 }
 
 /** Recovery never trusts old offsets or chooses the nearest identical paragraph. */

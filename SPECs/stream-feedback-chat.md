@@ -9,7 +9,7 @@ There is no feedback mode. Writing and pointing at text happen in the same edito
 Pointing at text:
 
 - Selecting text inside one block shows an "Add to chat ⌘L" pill above it. The pill, the selection's right-click "Add to chat" action, or ⌘L adds the selection to the composer as a quote chip. A selection across blocks adds each block it touches. With only a caret, ⌘L adds the block at the caret.
-- Hovering a block shows a comment button to the right of the text column, level with the block's first line. Clicking it, or ⌥-clicking the block, adds the whole block.
+- Hovering a block shows a comment button to the right of the text column, level with the block's first line. Clicking it, or ⌥-clicking the block, adds the whole block. While ⌥ is held, the block ⌥-click would add is tinted behind its text (a CodeMirror layer in `feedback-extension.ts`, resolved by the same hit-test as the click).
 - Adding a chip opens Chat, focuses the composer and collapses the selection. The same chip is never added twice.
 - The command palette has "Add Selection to Chat", which does the same as ⌘L.
 
