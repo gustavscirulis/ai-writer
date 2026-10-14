@@ -25,6 +25,7 @@ import {
   useChatFileError,
   usePlanMode,
   togglePlanMode,
+  useChatPath,
 } from "@/hooks/use-claude";
 import { useChatDropActive } from "@/hooks/use-file-drop";
 import {
@@ -38,7 +39,7 @@ import {
 } from "@/hooks/use-feedback";
 import { clearAttachmentHighlight, highlightAttachment } from "@/hooks/feedback-api";
 import { useSkills } from "@/hooks/use-co-writer";
-import { useActiveFilePath } from "@/hooks/use-tabs";
+import { isWorkspaceChat } from "@/lib/agent-turn";
 import { matchSkills, slashQuery, type Skill } from "@/lib/co-writer-skills";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
 import { pastedImageFile } from "@/lib/pasted-image";
@@ -108,7 +109,9 @@ function AttachmentChip({ item }: { item: AttachedItem }) {
 }
 
 export function Composer() {
-  const path = useActiveFilePath();
+  const path = useChatPath();
+  // The queue holds note feedback, so the workspace chat has none.
+  const queues = !isWorkspaceChat(path);
   const text = useChatDraft(path);
   const status = useChatStatus(path);
   const error = useChatError(path);
@@ -136,7 +139,7 @@ export function Composer() {
   const [highlight, setHighlight] = useState({ query, index: 0 });
   const menuOpen = matches.length > 0 && dismissed !== text;
   const active = highlight.query === query ? Math.min(highlight.index, matches.length - 1) : 0;
-  const pickSkill = (skill: Skill) => path && setChatDraft(path, `/${skill.name} `);
+  const pickSkill = (skill: Skill) => setChatDraft(path, `/${skill.name} `);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const setInput = useCallback(
     (input: HTMLTextAreaElement | null) => {
@@ -160,7 +163,6 @@ export function Composer() {
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }, [text]);
   const send = () => {
-    if (!path) return;
     void sendChat(path, text, {
       attachments: attached.map((item) => ({ anchor: item.anchor, quote: item.quote })),
       feedbackIds: attached.map((item) => item.id),
@@ -171,7 +173,7 @@ export function Composer() {
   const empty = !text.trim() && !attached.length;
   const ready = useMemo(() => notes.filter(canApplyFeedback), [notes]);
   const queue = (flush: boolean) => {
-    if (!path) return;
+    if (!queues) return;
     if (!empty) {
       if (!saveFeedbackNotes(path, text)) return;
       setChatDraft(path, "");
@@ -194,9 +196,9 @@ export function Composer() {
         submit();
       }}
     >
-      {path && <FeedbackError />}
-      {path && <FileError path={path} />}
-      {path && (
+      {queues && <FeedbackError />}
+      <FileError path={path} />
+      {queues && (
         <NotesTray
           path={path}
           notes={notes}
@@ -231,7 +233,7 @@ export function Composer() {
                 key={file}
                 path={file}
                 onRemove={() => {
-                  if (path) removeChatFile(path, file);
+                  removeChatFile(path, file);
                   focusChatComposer();
                 }}
               />
@@ -242,32 +244,29 @@ export function Composer() {
           ref={setInput}
           aria-label="Message"
           placeholder={
-            !path
-              ? "Open a note to start"
-              : attached.length
-                ? "What should change here?"
-                : busy
-                  ? "Queue a follow-up…"
-                  : planMode
-                    ? "Describe what you want planned…"
-                    : "Ask anything, or describe a change…"
+            attached.length
+              ? "What should change here?"
+              : busy && queues
+                ? "Queue a follow-up…"
+                : planMode
+                  ? "Describe what you want planned…"
+                  : "Ask anything, or describe a change…"
           }
           value={text}
-          onChange={(event) => path && setChatDraft(path, event.target.value)}
+          onChange={(event) => setChatDraft(path, event.target.value)}
           onPaste={(event) => {
-            const image = path && pastedImageFile(event.clipboardData);
+            const image = pastedImageFile(event.clipboardData);
             if (!image) return;
             event.preventDefault();
             void pasteChatImage(path, image);
           }}
-          disabled={!path}
           rows={2}
           aria-autocomplete="list"
           aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
           aria-expanded={menuOpen}
           aria-activedescendant={menuOpen ? skillOptionId(active) : undefined}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || !path) return;
+            if (event.nativeEvent.isComposing) return;
             const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
             if (menuOpen && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
               event.preventDefault();
@@ -309,8 +308,7 @@ export function Composer() {
               type="button"
               aria-label="Attach files"
               title="Attach files"
-              disabled={!path}
-              onClick={() => path && void pickChatFiles(path)}
+              onClick={() => void pickChatFiles(path)}
               className="grid size-7 shrink-0 place-items-center rounded-full text-[var(--text-muted)] transition-colors duration-150 hover:bg-[var(--item-hover-bg)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:hover:bg-transparent"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={16} strokeWidth={1.8} />
@@ -319,9 +317,7 @@ export function Composer() {
               type="button"
               aria-pressed={planMode}
               title={planMode ? "Plan mode is on (⇧⇥)" : "Plan first, then write (⇧⇥)"}
-              disabled={!path}
               onClick={() => {
-                if (!path) return;
                 togglePlanMode(path);
                 focusChatComposer();
               }}
@@ -340,17 +336,24 @@ export function Composer() {
                   <kbd className={KBD}>↵</kbd> choose
                 </>
               ) : busy && text.trim() ? (
-                <>
-                  <kbd className={KBD}>↵</kbd> queue for after this reply
-                </>
+                queues && (
+                  <>
+                    <kbd className={KBD}>↵</kbd> queue for after this reply
+                  </>
+                )
               ) : !busy && ready.length && !empty ? (
                 <>
                   <kbd className={KBD}>↵</kbd> send all
                 </>
               ) : attached.length || text.trim() ? (
                 <>
-                  <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"} ·{" "}
-                  <kbd className={KBD}>⌘↵</kbd> queue
+                  <kbd className={KBD}>↵</kbd> {attached.length ? "change now" : "send"}
+                  {queues && (
+                    <>
+                      {" "}
+                      · <kbd className={KBD}>⌘↵</kbd> queue
+                    </>
+                  )}
                 </>
               ) : !busy && ready.length ? (
                 <>
@@ -360,7 +363,7 @@ export function Composer() {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {(attached.length > 0 || text.trim() !== "") && (
+            {queues && (attached.length > 0 || text.trim() !== "") && (
               <button
                 type="button"
                 title={busy ? "Send after this reply (↵)" : "Add to the queue (⌘↵)"}
@@ -374,7 +377,7 @@ export function Composer() {
             {retryLabel ? (
               <button
                 type="button"
-                onClick={() => path && void stopChat(path)}
+                onClick={() => void stopChat(path)}
                 className="h-7 rounded-full bg-[var(--surface-subtle)] px-3 text-[12px] text-[var(--text-primary)]"
               >
                 {retryLabel}
@@ -385,7 +388,7 @@ export function Composer() {
                 aria-label={status === "stopping" ? "Stopping…" : "Stop"}
                 title={status === "stopping" ? "Stopping…" : "Stop"}
                 disabled={status === "stopping"}
-                onClick={() => path && void stopChat(path)}
+                onClick={() => void stopChat(path)}
                 className="grid size-7 place-items-center rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] transition-[opacity,transform] duration-150 active:scale-[0.94] disabled:opacity-40"
               >
                 <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-current" />
@@ -399,7 +402,7 @@ export function Composer() {
                     ? `Send with ${ready.length} queued (Enter) · Shift+Enter for a new line`
                     : "Send (Enter) · Shift+Enter for a new line"
                 }
-                disabled={!path || !text.trim()}
+                disabled={!text.trim()}
                 className="grid size-7 place-items-center rounded-full bg-[var(--text-primary)] text-[var(--bg-base)] transition-[opacity,transform] duration-150 active:scale-[0.94] disabled:opacity-20"
               >
                 <HugeiconsIcon icon={ArrowUp02Icon} size={15} strokeWidth={2.2} />

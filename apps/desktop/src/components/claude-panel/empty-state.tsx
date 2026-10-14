@@ -20,7 +20,7 @@ function pick(path: string, suggestion: Suggestion) {
   focusChatComposer(path);
 }
 
-export function EmptyState({ path, busy }: { path: string | null; busy: boolean }) {
+export function EmptyState({ path, busy }: { path: string; busy: boolean }) {
   const loaded = useMcpServers();
   const blank = useNoteIsBlank(path);
   const servers = loaded === "unavailable" ? null : loaded;
@@ -48,8 +48,8 @@ export function EmptyState({ path, busy }: { path: string | null; busy: boolean 
               <button
                 key={suggestion.label}
                 type="button"
-                disabled={!path || busy}
-                onClick={() => path && pick(path, suggestion)}
+                disabled={busy}
+                onClick={() => pick(path, suggestion)}
                 className="co-writer-suggestion co-writer-enter relative flex min-h-[32px] items-center gap-2.5 rounded-lg px-2.5 py-[6px] text-left text-[13px] leading-snug text-[var(--text-secondary)] transition-colors duration-150 hover:enabled:bg-[var(--item-hover-bg)] hover:enabled:text-[var(--text-primary)] active:enabled:scale-[0.99] disabled:opacity-50"
                 style={stagger(2 + i)}
               >

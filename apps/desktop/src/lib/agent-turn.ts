@@ -8,6 +8,9 @@ export function clearDocumentPaths() {
   identityGeneration++;
   identities.clear();
 }
+/** Chat key used when no note is open. Not an absolute path, so it never matches a note. */
+export const WORKSPACE_CHAT = "writer:workspace";
+export const isWorkspaceChat = (path: string) => path === WORKSPACE_CHAT;
 /** Display paths remain stable; every I/O boundary uses the native resolved path. */
 export function documentPath(path: string) {
   return identities.get(path) ?? path;

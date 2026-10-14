@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { useActiveFilePath } from "@/hooks/use-tabs";
 import { useWorkspaceRoot } from "@/hooks/use-workspace";
-import { decideToolPermission, useToolPermissions } from "@/hooks/use-claude";
+import { decideToolPermission, useChatPath, useToolPermissions } from "@/hooks/use-claude";
 import { alwaysAllowLabel, summarizeToolRequest } from "@/lib/tool-request-summary";
 import {
   KBD,
@@ -23,10 +22,10 @@ const PROMPTS: Partial<Record<string, (props: PromptProps) => ReactNode>> = {
 
 /** Takes the composer's place while Claude waits on a decision. */
 export function PermissionRequest() {
-  const path = useActiveFilePath();
+  const path = useChatPath();
   const permissions = useToolPermissions(path);
   const request = permissions[0];
-  if (!request || !path) return null;
+  if (!request) return null;
   const Prompt = PROMPTS[request.tool] ?? PermissionPrompt;
   return (
     <Prompt

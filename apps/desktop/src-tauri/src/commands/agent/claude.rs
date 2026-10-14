@@ -253,7 +253,7 @@ enum Target {
 type Remember = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 struct Scope {
-    note: PathBuf,
+    note: Option<PathBuf>,
     root: PathBuf,
     owner: String,
     claims: NoteClaims,
@@ -277,7 +277,7 @@ struct Scope {
     targets: HashMap<String, PendingTarget>,
 }
 impl Scope {
-    fn new(note: PathBuf, root: PathBuf, owner: String, claims: NoteClaims) -> Self {
+    fn new(note: Option<PathBuf>, root: PathBuf, owner: String, claims: NoteClaims) -> Self {
         Self {
             note,
             root,
@@ -338,7 +338,7 @@ impl Scope {
                 Target::Denied(PLANNING.into())
             });
         }
-        if canonical == self.note || self.approved.contains(&canonical) {
+        if self.note.as_ref() == Some(&canonical) || self.approved.contains(&canonical) {
             return Ok(Target::Allowed(canonical));
         }
         if let Some(reason) = workspace_denial(&self.root, &canonical) {
@@ -534,7 +534,7 @@ impl Scope {
         let path = input["file_path"]
             .as_str()
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.note.clone());
+            .or_else(|| self.note.clone())?;
         self.edits.insert(id.into(), (reply.clone(), deny));
         Some(AgentEvent::EditStart {
             request_id: id.into(),
@@ -867,11 +867,20 @@ async fn run_process(
     let _ = finished.send(true);
 }
 
-const BASE_SYSTEM_PROMPT: &str = "You assist a writer in a Markdown editor. Read workspace files for context. Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace. Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes.";
+const BASE_SYSTEM_PROMPT: &str =
+    "You assist a writer in a Markdown editor. Read workspace files for context.";
+const NOTE_SCOPE: &str = "Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace.";
+const WORKSPACE_SCOPE: &str = "No note is open. When the user asks you to write something, create a new Markdown note for it inside the workspace with Write, using an absolute path. Edit existing notes only when the user asks. Each note you create or edit needs the user's approval.";
+const PROMPT_RULES: &str = "Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes.";
 
-fn system_prompt() -> String {
+fn system_prompt(has_note: bool) -> String {
+    let scope = if has_note {
+        NOTE_SCOPE
+    } else {
+        WORKSPACE_SCOPE
+    };
     format!(
-        "{BASE_SYSTEM_PROMPT} {}",
+        "{BASE_SYSTEM_PROMPT} {scope} {PROMPT_RULES} {}",
         crate::embed_protocol::EMBED_AUTHORING_GUIDE
     )
 }
@@ -882,10 +891,11 @@ fn scoped_command(
     root: &std::path::Path,
     resume_session_id: Option<String>,
     plan: bool,
+    has_note: bool,
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", &system_prompt()])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", &system_prompt(has_note)])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -916,7 +926,7 @@ pub async fn claude_start(
     state: State<'_, AppState>,
     root: String,
     epoch: u64,
-    note_path: String,
+    note_path: Option<String>,
     resume_session_id: Option<String>,
     plan: bool,
     on_event: Channel<AgentEvent>,
@@ -944,11 +954,11 @@ pub async fn claude_start(
         ));
     }
     let root = PathBuf::from(root);
-    let paths = (root.clone(), PathBuf::from(note_path));
+    let paths = (root.clone(), note_path.map(PathBuf::from));
     let (scope_root, note, plans) = tauri::async_runtime::spawn_blocking(move || {
         Ok::<_, std::io::Error>((
             paths.0.canonicalize()?,
-            paths.1.canonicalize()?,
+            paths.1.map(|note| note.canonicalize()).transpose()?,
             plan.then(plans_dir).flatten(),
         ))
     })
@@ -967,16 +977,19 @@ pub async fn claude_start(
             }
             registry.retain(|_, process| !*process.finished.borrow());
             let mut claims = workspace.agent_claims.lock();
-            if claims.contains_key(&note) {
+            if note.as_ref().is_some_and(|note| claims.contains_key(note)) {
                 return Err(AppError::Io("An agent is already editing this note".into()));
             }
-            let mut command = scoped_command(binary, path, &root, resume_session_id, plan);
+            let mut command =
+                scoped_command(binary, path, &root, resume_session_id, plan, note.is_some());
             let child = command.spawn()?;
             let (tx, rx) = mpsc::channel(1);
             let (cancel_tx, cancel_rx) = watch::channel(false);
             let (finished_tx, finished_rx) = watch::channel(false);
             let id = uuid::Uuid::new_v4().to_string();
-            claims.insert(note.clone(), id.clone());
+            if let Some(note) = &note {
+                claims.insert(note.clone(), id.clone());
+            }
             drop(claims);
             registry.insert(
                 id.clone(),
@@ -1157,7 +1170,7 @@ mod tests {
     fn test_scope(note: PathBuf) -> Scope {
         let root = note.parent().unwrap();
         let root = root.canonicalize().unwrap_or_else(|_| root.into());
-        Scope::new(note, root, "test".into(), NoteClaims::default())
+        Scope::new(Some(note), root, "test".into(), NoteClaims::default())
     }
     fn shell(script: &str, dir: &std::path::Path) -> Child {
         Command::new("/bin/sh")
@@ -1269,6 +1282,24 @@ mod tests {
 
     fn edit_hook(path: &std::path::Path) -> Value {
         json!({"callback_id": HOOK_ID, "input": {"tool_name": "Edit", "tool_input": {"file_path": path, "old_string": "old", "new_string": "new"}}})
+    }
+    #[tokio::test]
+    async fn a_scope_without_a_note_asks_before_every_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.md"), "old").unwrap();
+        let mut scope = Scope::new(None, root.clone(), "w".into(), NoteClaims::default());
+        scope.active = true;
+        let write_hook = |path: PathBuf| json!({"callback_id": HOOK_ID, "input": {"tool_name": "Write", "tool_input": {"file_path": path, "content": "new"}}});
+        for reply in [
+            scope.hook(&edit_hook(&root.join("a.md"))).await.unwrap(),
+            scope.hook(&write_hook(root.join("a.md"))).await.unwrap(),
+            scope.hook(&write_hook(root.join("new.md"))).await.unwrap(),
+        ] {
+            assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "ask");
+        }
+        assert!(system_prompt(false).contains(WORKSPACE_SCOPE));
+        assert!(!system_prompt(false).contains(NOTE_SCOPE));
     }
     #[tokio::test]
     async fn scope_resolves_aliases_and_denies_other_documents_without_override() {
@@ -1416,7 +1447,12 @@ mod tests {
         std::fs::write(root.join("a.md"), "a").unwrap();
         std::fs::write(root.join("b.md"), "b").unwrap();
         let claims = NoteClaims::default();
-        let mut scope = Scope::new(root.join("a.md"), root.clone(), "a".into(), claims.clone());
+        let mut scope = Scope::new(
+            Some(root.join("a.md")),
+            root.clone(),
+            "a".into(),
+            claims.clone(),
+        );
         scope.active = true;
         let write = |path: PathBuf| json!({"tool_name": "Write", "input": {"file_path": path, "content": "new"}});
         let created = root.join("notes/new.md");
@@ -1495,7 +1531,12 @@ mod tests {
         let claims = NoteClaims::default();
         let mut scope = Scope {
             always: always_allow_set(vec!["Write".into()]).unwrap(),
-            ..Scope::new(root.join("a.md"), root.clone(), "a".into(), claims.clone())
+            ..Scope::new(
+                Some(root.join("a.md")),
+                root.clone(),
+                "a".into(),
+                claims.clone(),
+            )
         };
         scope.active = true;
         let read = |path: &str| json!({"tool_name": "Read", "input": {"file_path": path}});
@@ -1570,7 +1611,12 @@ mod tests {
                 log.lock().push(tool.into());
                 Ok(())
             })),
-            ..Scope::new(root.join("a.md"), root, "a".into(), NoteClaims::default())
+            ..Scope::new(
+                Some(root.join("a.md")),
+                root,
+                "a".into(),
+                NoteClaims::default(),
+            )
         };
         scope.active = true;
         let read = json!({"tool_name": "Read", "input": {"file_path": "/x.md"}});
@@ -1756,6 +1802,7 @@ mod tests {
             std::path::Path::new("/vault"),
             Some("session".into()),
             false,
+            true,
         );
         let args: Vec<_> = command
             .as_std()
@@ -1799,6 +1846,7 @@ mod tests {
             "/bin".into(),
             std::path::Path::new("/vault"),
             None,
+            true,
             true,
         );
         assert!(planning
@@ -2414,7 +2462,7 @@ mod tests {
             .map(|name| outside.path().join(name).canonicalize().unwrap())
             .collect();
         let (binary, path) = resolve_claude_env().await.unwrap();
-        let child = scoped_command(binary, path, workspace.path(), None, false)
+        let child = scoped_command(binary, path, workspace.path(), None, false, true)
             .spawn()
             .unwrap();
         let (input, rx) = mpsc::channel(4);
@@ -2512,7 +2560,7 @@ mod tests {
         let note = note.canonicalize().unwrap();
         let original = std::fs::read_to_string(&note).unwrap();
         let (binary, path) = resolve_claude_env().await.unwrap();
-        let child = scoped_command(binary, path, workspace.path(), None, true)
+        let child = scoped_command(binary, path, workspace.path(), None, true, true)
             .spawn()
             .unwrap();
         let (input, rx) = mpsc::channel(4);
@@ -2675,7 +2723,7 @@ mod tests {
             let note = dir.path().join(format!("{name}.md"));
             std::fs::write(&note, "Original").unwrap();
             let canonical = note.canonicalize().unwrap();
-            let child = scoped_command(binary.clone(), path.clone(), dir.path(), None, false)
+            let child = scoped_command(binary.clone(), path.clone(), dir.path(), None, false, true)
                 .args(["--plugin-dir", plugin.to_str().unwrap()])
                 .spawn()
                 .unwrap();

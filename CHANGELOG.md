@@ -2,6 +2,8 @@
 
 ## 2026-10-14
 
+- Use Co-writer without opening a note. On a new tab, open Co-writer and ask it to write something; it creates a new note for it once you approve. When it does, the conversation moves to that note and the new tab becomes the note, so you can keep going there. A conversation that doesn't create a note stays on the new tab and is there next time you open one.
+
 - See an embed or image bigger. Hover an HTML embed or an image in a note and press the expand button in its top-right corner. It opens in a large window over the note: embeds get nearly the whole window to lay themselves out in, and images show at up to their full size. Press Esc, click ✕ or click outside it to go back to the note. The expanded embed is a fresh copy, so anything you do in it doesn't carry over to the one in the note.
 
 - When you have Co-writer messages queued, pressing Enter sends the whole queue with your new message last. Before, Enter sent only the new message and left the queue waiting. With an empty message box, Enter sends what's queued. ⌘Enter still adds a message to the queue without sending.
