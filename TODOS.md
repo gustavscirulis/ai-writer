@@ -18,6 +18,8 @@
 
 ## Done
 
+- Co-writer queue: when Claude is idle and the queue has ready items, Enter (and the Send button) adds the draft to the end of the queue and sends everything as one turn through `sendQueue`. Before, Enter sent only the draft and left the queue behind. Composer files stay in the composer, the same as with ⌘↵. With nothing queued, Enter sends normally; while Claude is busy, Enter still queues. A WebDriver run of the built app (`e2e/specs/co-writer-queue.spec.js`) queues two messages, presses Enter on a third, and checks they're sent as one turn in order.
+
 - Co-writer queue: items being sent (`status: "running"`) no longer show in `NotesTray`; the composer passes only `pending` items. A failed or stopped turn turns them back into `pending`, so they reappear.
 
 - Co-writer activity indicator: a shared `AgentIndicator` (`components/agent-indicator.tsx`) replaces the pulsing orange dot. It shows a neutral spinner while Co-writer works, an orange ring when it needs input, and a red ring after an error. It's used in the chat status line, on tabs, and in sidebar file rows, where it takes the file icon's place. Picked from a four-way prototype (Spinner, Shimmer, Caret, Sweep). Checks and tests pass. The real CSS was checked in Chrome; it hasn't been looked at in the native app yet.
