@@ -22,6 +22,16 @@
   background: transparent;
 }
 
+.cm-embed-expanded {
+  width: min(1400px, calc(100vw - 96px));
+  height: calc(100vh - 96px);
+  background-color: var(--bg-base);
+}
+
+.cm-embed-expanded .cm-embed-iframe {
+  height: 100%;
+}
+
 .cm-embed-toolbar {
   position: absolute;
   top: 8px;

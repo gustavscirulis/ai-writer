@@ -111,7 +111,7 @@ function shouldStartDragGate(
   if (
     target &&
     typeof target.closest === "function" &&
-    target.closest(".cm-mermaid-widget, .cm-embed-widget")
+    target.closest(".cm-mermaid-widget, .cm-embed-widget, .cm-image-expand")
   ) {
     return null;
   }

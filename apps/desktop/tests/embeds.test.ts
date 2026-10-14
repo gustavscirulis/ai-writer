@@ -85,6 +85,7 @@ describe("html embed fences", () => {
 describe("frame messages", () => {
   test.each([
     [{ source: "writer-embed", type: "ready" }, { type: "ready" }],
+    [{ source: "writer-embed", type: "escape" }, { type: "escape" }],
     [
       { source: "writer-embed", type: "height", height: 120 },
       { type: "height", height: 120 },

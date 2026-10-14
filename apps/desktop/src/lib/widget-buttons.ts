@@ -1,5 +1,7 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+export const EXPAND_ICON_PATHS = ["M15 3h6v6", "M9 21H3v-6", "m21 3-7 7", "m3 21 7-7"] as const;
+
 /** A button for chrome inside an editor widget. */
 export function makeWidgetButton(label: string, title: string): HTMLButtonElement {
   const b = document.createElement("button");

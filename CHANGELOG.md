@@ -2,6 +2,8 @@
 
 ## 2026-10-14
 
+- See an embed or image bigger. Hover an HTML embed or an image in a note and press the expand button in its top-right corner. It opens in a large window over the note: embeds get nearly the whole window to lay themselves out in, and images show at up to their full size. Press Esc, click ✕ or click outside it to go back to the note. The expanded embed is a fresh copy, so anything you do in it doesn't carry over to the one in the note.
+
 - When you have Co-writer messages queued, pressing Enter sends the whole queue with your new message last. Before, Enter sent only the new message and left the queue waiting. With an empty message box, Enter sends what's queued. ⌘Enter still adds a message to the queue without sending.
 
 - Hold ⌥ while you move the pointer over a note and the block under it is lightly tinted, so you can see which paragraph, list item, code block or table ⌥-click will add to Co-writer. Press ⌥ while already hovering and the tint shows straight away; let go and it's gone.

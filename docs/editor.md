@@ -124,6 +124,12 @@ Combine with `ignoreEvent: true` on the widget so CM skips its own pointer/click
 
 **Gotcha: `mousedown.stopPropagation` does not stop `pointerdown`.** They're separate event types — the browser dispatches both for a click, and stopping one doesn't filter the other. If you wire an editor-level handler on `pointerdown` (e.g., a drag-selection gate that listens on `view.contentDOM`), the in-widget button's `mousedown` stop won't suppress it. Filter inside the editor-level handler instead — typically `event.target instanceof Element && event.target.closest('.cm-your-widget')`. See `mermaid-decorations.ts`'s `shouldStartDragGate` for the canonical filter.
 
+`makeWidgetButton` in `lib/widget-buttons.ts` does the `mousedown` part for you.
+
+## Showing a widget large: `openWidgetOverlay`
+
+Mermaid fullscreen, expanded embeds and the image lightbox all open through `openWidgetOverlay` in `lib/widget-overlay.ts`. It owns the backdrop, the ✕ button, Esc, backdrop clicks, the enter/exit animation and restoring focus on close. The caller only builds the panel. Mount a fresh copy of the content rather than moving the inline DOM: moving an iframe reloads it anyway. Keys pressed inside an iframe never reach the app's document, so the embed frame forwards Esc to the widget as a message (`escape` in `frame-messages.ts`).
+
 ## Heightmap-shifting transitions: include `view.scrollSnapshot()`
 
 Any decoration switch that changes block heights (replace ↔ widget, fold/unfold, widget appearing/disappearing) shifts the heightmap. Without compensation the viewport jumps.

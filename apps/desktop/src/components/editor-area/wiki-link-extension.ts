@@ -32,6 +32,7 @@ import {
   resolveWikiImage,
   resolveWikiLink,
 } from "@/lib/wiki-links";
+import { isImageExpandEvent, wrapExpandableImage } from "@/lib/image-lightbox";
 import { attachStableImageHeight } from "@/lib/prosemark-core/fold/image";
 import { getEffectiveSelectionRanges } from "./drag-selection-gate";
 import { renderedRanges, renderedRangesChanged } from "@/lib/prosemark-core/utils";
@@ -168,7 +169,7 @@ class ImageEmbedWidget extends WidgetType {
     elem.className = "cm-image cm-image-embed";
     const image = document.createElement("img");
     attachStableImageHeight(image, elem, this.target, view);
-    elem.appendChild(image);
+    elem.appendChild(wrapExpandableImage(image));
 
     void resolveEmbed(this.target, this.workspaceRoot, this.currentFilePath)
       .then((absolutePath) => {
@@ -192,8 +193,8 @@ class ImageEmbedWidget extends WidgetType {
     elem.textContent = this.rawText;
   }
 
-  ignoreEvent(): boolean {
-    return false;
+  ignoreEvent(event: Event): boolean {
+    return isImageExpandEvent(event);
   }
 }
 

@@ -26,6 +26,11 @@
       document.open();
       addEventListener("error", (e) => reportError(e.error ?? e.message));
       addEventListener("unhandledrejection", (e) => reportError(e.reason));
+      // Keys pressed in the frame never reach the app, so Esc is forwarded
+      // unless the embed handled it.
+      addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !e.defaultPrevented) post({ type: "escape" });
+      });
       document.write(String(data.html));
       document.close();
       new ResizeObserver(reportHeight).observe(document.documentElement);
