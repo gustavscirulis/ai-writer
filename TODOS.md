@@ -19,7 +19,7 @@
 
 ## Done
 
-- Remove the Show Co-writer setting: the panel opens by default and is hidden or shown only with ⌘⇧L, the Chat button or the panel's close button. Dropped the "experimental" wording from the README and docs.
+- Remove the Show Co-writer setting: the panel opens by default and is hidden or shown only with ⌘⇧L, the top-right button (renamed from Chat to Co-writer) or the panel's close button. Dropped the "experimental" wording from the README and docs.
 
 - Rename the GitHub repo to `gustavscirulis/co-writer`: updater endpoint, `RELEASE_REPO`, README and `docs/releasing.md` point at the new name. Checked that the old `latest.json` URL redirects to the new repo.
 
