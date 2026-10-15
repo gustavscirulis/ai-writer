@@ -60,11 +60,11 @@ bundle identifier (see below).
 
 ## How it works
 
-1. `pnpm run build:app` produces `Writer.app` with the `e2e` Cargo feature,
+1. `pnpm run build:app` produces `Co-writer.app` with the `e2e` Cargo feature,
    which includes `tauri-plugin-webdriver` (an embedded HTTP WebDriver server).
 2. `wdio.conf.js` (`onPrepare`) spawns the `tauri-webdriver` intermediary CLI
    on port 4444.
-3. WebdriverIO connects to 4444; the intermediary launches `Writer.app` and
+3. WebdriverIO connects to 4444; the intermediary launches `Co-writer.app` and
    proxies WebDriver commands to the embedded server.
 4. The spec runs; afterwards `onComplete` kills the intermediary and the app
    quits.

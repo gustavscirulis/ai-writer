@@ -23,7 +23,7 @@ Gotchas:
   packages lag the Rust crates; without it the CLI hard-errors before
   building.
 - The bundle lands at
-  `src-tauri/target/release/bundle/macos/Writer.app/Contents/MacOS/desktop`
+  `src-tauri/target/release/bundle/macos/Co-writer.app/Contents/MacOS/desktop`
   (binary keeps the crate name). Incremental rebuilds are fast; the first
   build is slow.
 - Rebuild after every frontend change too — the app ships the built assets.

@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Choose which Claude model Co-writer uses in Settings → Co-writer → Model: Fable, Opus, Sonnet, Haiku, or Default to keep your Claude Code CLI's own model. Changes apply from your next message.
+
 - The "Allowed without asking" list in Preferences is easier to read. Tools are grouped by where they come from (Co-writer, Google Drive, Granola and so on) and go by plain names like "List meetings" instead of their full internal ID, which still shows when you hover. Hover a tool to revoke it, or hover a group to revoke all its tools at once.
 
 - Co-writer is no longer an option you turn on. Its panel is open by default, and Settings → Co-writer no longer has a Show Co-writer switch. Hide or show the panel with ⌘⇧L or the button at the top right, now labelled Co-writer instead of Chat.

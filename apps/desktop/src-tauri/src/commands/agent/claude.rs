@@ -885,11 +885,36 @@ fn system_prompt(has_note: bool) -> String {
     )
 }
 
+const MODEL_SETTING: &str = "co-writer.model";
+
+/// The `--model` alias to pass, or `None` to keep the CLI's configured model.
+fn configured_model(settings: &crate::config::Settings) -> Result<Option<String>, AppError> {
+    let model = settings
+        .get_global_or_default(MODEL_SETTING)
+        .and_then(crate::config::ConfigValue::as_str)
+        .ok_or_else(|| AppError::Io(format!("Setting {MODEL_SETTING} must be a string")))?;
+    if model == "default" {
+        return Ok(None);
+    }
+    let known = crate::config::settings_schema()
+        .into_iter()
+        .find(|def| def.key == MODEL_SETTING)
+        .and_then(|def| def.options)
+        .is_some_and(|options| options.iter().any(|option| option == model));
+    if !known {
+        return Err(AppError::Io(format!(
+            "Unknown Co-writer model \"{model}\". Choose one in Settings → Co-writer."
+        )));
+    }
+    Ok(Some(model.into()))
+}
+
 fn scoped_command(
     binary: PathBuf,
     path: String,
     root: &std::path::Path,
     resume_session_id: Option<String>,
+    model: Option<&str>,
     plan: bool,
     has_note: bool,
 ) -> Command {
@@ -901,6 +926,9 @@ fn scoped_command(
     command.process_group(0);
     if let Some(session) = resume_session_id {
         command.args(["--resume", &session]);
+    }
+    if let Some(model) = model {
+        command.args(["--model", model]);
     }
     command
 }
@@ -933,7 +961,9 @@ pub async fn claude_start(
 ) -> Result<String, AppError> {
     let app = webview.app_handle().clone();
     let label = webview.label().to_string();
-    let always = allowed_tools::with_settings(&app, &label, allowed_tools::load)?;
+    let (always, model) = allowed_tools::with_settings(&app, &label, |settings| {
+        Ok((allowed_tools::load(settings)?, configured_model(settings)?))
+    })?;
     let remember: Remember = Arc::new(move |tool| {
         allowed_tools::with_settings(&app, &label, |settings| {
             allowed_tools::allow(settings, tool)
@@ -980,8 +1010,15 @@ pub async fn claude_start(
             if note.as_ref().is_some_and(|note| claims.contains_key(note)) {
                 return Err(AppError::Io("An agent is already editing this note".into()));
             }
-            let mut command =
-                scoped_command(binary, path, &root, resume_session_id, plan, note.is_some());
+            let mut command = scoped_command(
+                binary,
+                path,
+                &root,
+                resume_session_id,
+                model.as_deref(),
+                plan,
+                note.is_some(),
+            );
             let child = command.spawn()?;
             let (tx, rx) = mpsc::channel(1);
             let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -1801,6 +1838,7 @@ mod tests {
             "/bin".into(),
             std::path::Path::new("/vault"),
             Some("session".into()),
+            Some("opus"),
             false,
             true,
         );
@@ -1827,6 +1865,7 @@ mod tests {
             ["--permission-prompts", "host"],
             ["--permission-prompt-tool", "stdio"],
             ["--resume", "session"],
+            ["--model", "opus"],
         ] {
             assert!(args.windows(2).any(|args| args == pair));
         }
@@ -1846,16 +1885,42 @@ mod tests {
             "/bin".into(),
             std::path::Path::new("/vault"),
             None,
+            None,
             true,
             true,
         );
-        assert!(planning
+        let planning_args: Vec<_> = planning
             .as_std()
             .get_args()
             .map(|arg| arg.to_str().unwrap())
-            .collect::<Vec<_>>()
+            .collect();
+        assert!(planning_args
             .windows(2)
             .any(|args| args == ["--permission-mode", "plan"]));
+        assert!(!planning_args.contains(&"--model"));
+    }
+    #[test]
+    fn model_setting_keeps_the_cli_default_unless_an_alias_is_chosen() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = crate::config::Settings::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(configured_model(&settings).unwrap(), None);
+        settings
+            .set_global(
+                MODEL_SETTING,
+                crate::config::ConfigValue::String("sonnet".into()),
+            )
+            .unwrap();
+        assert_eq!(
+            configured_model(&settings).unwrap().as_deref(),
+            Some("sonnet")
+        );
+        settings
+            .set_global(
+                MODEL_SETTING,
+                crate::config::ConfigValue::String("--debug".into()),
+            )
+            .unwrap();
+        assert!(configured_model(&settings).is_err());
     }
     #[tokio::test]
     async fn plan_mode_blocks_note_edits_until_the_user_approves_the_plan() {
@@ -2462,7 +2527,7 @@ mod tests {
             .map(|name| outside.path().join(name).canonicalize().unwrap())
             .collect();
         let (binary, path) = resolve_claude_env().await.unwrap();
-        let child = scoped_command(binary, path, workspace.path(), None, false, true)
+        let child = scoped_command(binary, path, workspace.path(), None, None, false, true)
             .spawn()
             .unwrap();
         let (input, rx) = mpsc::channel(4);
@@ -2560,7 +2625,7 @@ mod tests {
         let note = note.canonicalize().unwrap();
         let original = std::fs::read_to_string(&note).unwrap();
         let (binary, path) = resolve_claude_env().await.unwrap();
-        let child = scoped_command(binary, path, workspace.path(), None, true, true)
+        let child = scoped_command(binary, path, workspace.path(), None, None, true, true)
             .spawn()
             .unwrap();
         let (input, rx) = mpsc::channel(4);
@@ -2723,10 +2788,18 @@ mod tests {
             let note = dir.path().join(format!("{name}.md"));
             std::fs::write(&note, "Original").unwrap();
             let canonical = note.canonicalize().unwrap();
-            let child = scoped_command(binary.clone(), path.clone(), dir.path(), None, false, true)
-                .args(["--plugin-dir", plugin.to_str().unwrap()])
-                .spawn()
-                .unwrap();
+            let child = scoped_command(
+                binary.clone(),
+                path.clone(),
+                dir.path(),
+                None,
+                None,
+                false,
+                true,
+            )
+            .args(["--plugin-dir", plugin.to_str().unwrap()])
+            .spawn()
+            .unwrap();
             let (input, rx) = mpsc::channel(4);
             let (_cancel, cancel_rx) = watch::channel(false);
             let (finished, done) = watch::channel(false);

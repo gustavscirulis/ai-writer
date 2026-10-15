@@ -19,6 +19,8 @@
 
 ## Done
 
+- Co-writer model setting: [`SPECs/claude-model-setting.md`](SPECs/claude-model-setting.md). Settings → Co-writer → Model chooses `default` (the CLI's own model), `fable`, `opus`, `sonnet` or `haiku`. `claude_start` reads the global setting and passes `--model`. Unknown values fail the turn with an explicit error. Covered by schema and Rust unit tests, plus `e2e/specs/co-writer-model.spec.js`, which picks a model in the built app and checks that it persists. A real chat turn on a chosen model hasn't been run yet. The e2e harness now points at `Co-writer.app`; it still pointed at `Writer.app` after the rename.
+
 - Allowed tools in Preferences, grouped by source: picked the "Grouped" direction from a three-way prototype (grouped / chips / collapsed summary). `describeAllowedTool` and `groupAllowedTools` in `lib/tool-request-summary.ts` replace `allowedToolLabel`: they turn `mcp__<server>__<tool>` into a readable source and name, and put built-in tools first. The list now spans the full width of the card, under the description, with revoke buttons that show on hover and a "Revoke all" for each source, which revokes one tool after another through the existing command. Unit and render tests pass; checked in a browser with the real component and app CSS (hover, revoke, revoke all). Not yet tried in the native app.
 
 - Remove the Show Co-writer setting: the panel opens by default and is hidden or shown only with ⌘⇧L, the top-right button (renamed from Chat to Co-writer) or the panel's close button. Dropped the "experimental" wording from the README and docs.

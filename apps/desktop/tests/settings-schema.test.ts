@@ -85,6 +85,20 @@ describe("default terminal setting", () => {
   });
 });
 
+describe("co-writer model setting", () => {
+  test("offers the CLI default plus model aliases, shared across workspaces", () => {
+    const definition = SETTINGS_SCHEMA.find((def) => def.key === "co-writer.model");
+    expect(definition).toMatchObject({
+      label: "Model",
+      category: "Co-writer",
+      type: "enum",
+      options: ["default", "fable", "opus", "sonnet", "haiku"],
+      scope: "global",
+      default: "default",
+    });
+  });
+});
+
 describe("theme presets", () => {
   test("at least one preset file is discovered", () => {
     expect(Object.keys(presetFiles).length).toBeGreaterThan(0);
