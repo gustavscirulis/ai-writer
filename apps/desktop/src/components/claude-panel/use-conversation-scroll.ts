@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
  * Follow content growth only while the reader is at the bottom, until a message is sent. A sent
  * message (`anchorId`) is scrolled to the top and held there while the reply streams in below it.
  */
-export function useConversationScroll(anchorId: string | undefined) {
+export function useConversationScroll(anchorId: string | undefined, empty: boolean) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
   const following = useRef(true);
@@ -48,6 +48,18 @@ export function useConversationScroll(anchorId: string | undefined) {
     },
     [update],
   );
+
+  // A new conversation reuses this mount, so drop the previous anchor and its spacer.
+  useLayoutEffect(() => {
+    if (!empty) return;
+    for (const animation of slide.current) animation.cancel();
+    slide.current = [];
+    anchorTop.current = null;
+    seenAnchorId.current = undefined;
+    following.current = true;
+    if (spacerRef.current) spacerRef.current.style.height = "";
+    if (scroller.current) scroller.current.scrollTop = 0;
+  }, [empty]);
 
   useLayoutEffect(() => {
     const element = scroller.current;
