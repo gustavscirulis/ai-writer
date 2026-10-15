@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Co-writer can run on Codex. Pick it in Settings → Co-writer → Agent, and Co-writer uses the `codex` CLI you're signed in to in your terminal (version 0.162.1 or later). Replies, note edits, approvals for other notes, Stop, plan mode, questions, skills, MCPs and "don't ask again" all work as they do on Claude Code. The Model row then lists Codex's models. Codex's shell commands only read files; edits go through Co-writer and are limited to your notes. Codex can read files outside the workspace without asking, which Claude Code doesn't allow. A chat that switches agents keeps its messages, but the new agent starts without them as context.
+
 - Choose which Claude model Co-writer uses in Settings → Co-writer → Model: Fable, Opus, Sonnet, Haiku, or Default to keep your Claude Code CLI's own model. Each choice shows the version it runs, and Default shows which model your CLI is set to use (for example "Default · Opus 5.5 (1M context)"). Changes apply from your next message.
 
 - The "Allowed without asking" list in Preferences is easier to read. Tools are grouped by where they come from (Co-writer, Google Drive, Granola and so on) and go by plain names like "List meetings" instead of their full internal ID, which still shows when you hover. Hover a tool to revoke it, or hover a group to revoke all its tools at once.

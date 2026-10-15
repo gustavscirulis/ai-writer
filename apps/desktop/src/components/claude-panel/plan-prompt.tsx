@@ -11,7 +11,7 @@ import {
   type PromptProps,
 } from "./prompt-shell";
 
-/** Claude's plan from plan mode; approving it lets Claude start writing in the same reply. */
+/** Co-writer's plan from plan mode; approving it lets Co-writer start writing in the same reply. */
 export function PlanPrompt({ path, request, queued }: PromptProps) {
   const [revising, setRevising] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -54,7 +54,7 @@ export function PlanPrompt({ path, request, queued }: PromptProps) {
         )}
       </div>
       <p className="px-1.5 text-[11.5px] text-[var(--text-muted)]">
-        Claude made a plan. It won&apos;t change anything until you approve it.
+        Co-writer made a plan. It won&apos;t change anything until you approve it.
       </p>
       <div
         tabIndex={0}
@@ -64,7 +64,7 @@ export function PlanPrompt({ path, request, queued }: PromptProps) {
         {plan ? (
           <MarkdownReply id={`plan-${request.id}`} text={plan} />
         ) : (
-          <p className="text-[var(--text-muted)]">Claude didn&apos;t include the plan text.</p>
+          <p className="text-[var(--text-muted)]">Co-writer didn&apos;t include the plan text.</p>
         )}
       </div>
       <PromptError error={request.error} />

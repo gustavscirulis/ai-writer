@@ -12,8 +12,8 @@ Anthropic's current [legal and compliance documentation](https://code.claude.com
 
 Use Claude Code only as accurate descriptive plain text, not the fork's product/feature name, logo or implied endorsement. Review the linked terms before distribution; installing externally alone does not establish compliance.
 
-## Future Codex integration
+## External Codex
 
-Codex is not implemented or bundled in this spike. Its [CLI source license](https://github.com/openai/codex/blob/main/LICENSE) is Apache-2.0. If later redistributed or modified, include the license, applicable attribution/NOTICE material and modification notices. Source licensing does not itself establish permission for authentication, hosted service usage or trademarks; review those terms when designing the integration.
+Co-writer can run the user's installed, unmodified `codex` CLI through `codex app-server` (see [codex-provider.md](../SPECs/codex-provider.md)). No OpenAI binary or SDK is bundled. Codex handles its own login and billing, and Co-writer never reads its credentials. Its [CLI source license](https://github.com/openai/codex/blob/main/LICENSE) is Apache-2.0. If Codex is ever redistributed or modified, include the license, any attribution or NOTICE material, and modification notices. The source license alone doesn't grant permission for authentication, hosted service use or trademarks, so review those terms before distributing. Use "Codex" only as accurate plain text, never as a product name or a suggestion of endorsement.
 
 Use a distinct fork name, icon, bundle identifier and updater/release endpoints before publishing a separate app. Keep upstream attribution and ship the required source/license notices with binary releases.

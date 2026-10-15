@@ -33,7 +33,7 @@ test("a question shows its header, options with descriptions, a free answer and 
     }),
   );
   for (const text of [
-    'aria-label="Claude&#x27;s question"',
+    'aria-label="Co-writer&#x27;s question"',
     "Sections",
     "1 of 2",
     "Which sections should stay?",

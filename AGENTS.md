@@ -22,6 +22,7 @@ Rust source structure:
 - `error.rs` — error types serialized over IPC
 - `watcher.rs` — file system watcher with debounce and self-write detection
 - `commands/` — Tauri IPC handlers: `fs.rs`, `workspace.rs`, `search.rs`, `images.rs`
+- `commands/agent/` — Co-writer's agent CLIs: shared launch and `agent_*` commands (`mod.rs`), edit-scope rules (`scope.rs`), CLI discovery (`cli_env.rs`), and one actor per agent (`claude.rs`, `codex.rs`). The frontend picks an agent from `src/lib/agent-providers.ts`; see [SPECs/codex-provider.md](./SPECs/codex-provider.md)
 
 ## Docs Index
 

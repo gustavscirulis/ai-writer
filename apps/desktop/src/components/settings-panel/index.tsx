@@ -3,13 +3,9 @@ import { useAllSettings, useResetSetting, useSetSetting } from "@/hooks/use-sett
 import { SETTINGS_SCHEMA, type SettingDef } from "@/lib/settings-schema";
 import { SettingControl } from "./setting-control";
 import { ThemesSection } from "./themes-section";
-import {
-  ALLOWED_TOOLS_KEY,
-  AllowedToolsRows,
-  CO_WRITER_CATEGORY,
-  MODEL_KEY,
-} from "./co-writer-section";
-import { useModelOptionLabel } from "@/hooks/use-co-writer";
+import { ALLOWED_TOOLS_KEY, AllowedToolsRows, CO_WRITER_CATEGORY } from "./co-writer-section";
+import { useAgent, useModels } from "@/hooks/use-co-writer";
+import { AGENT_KEY, AGENTS, isAgentId } from "@/lib/agent-providers";
 import { EditorScrollContainer } from "@/components/editor-area/editor-scroll-container";
 
 /** Section that renders above the Themes block. The schema-driven section
@@ -17,11 +13,15 @@ import { EditorScrollContainer } from "@/components/editor-area/editor-scroll-co
  *  comes next, and everything else is rendered after. */
 const SECTIONS_BEFORE_THEMES = ["Appearance", "Typography"] as const;
 
+const AGENT_MODEL_KEYS = new Set<string>(Object.values(AGENTS).map((agent) => agent.modelKey));
+const agentLabel = (option: string) => (isAgentId(option) ? AGENTS[option].label : option);
+
 export function SettingsPanel({ isActive }: { isActive: boolean }) {
   const settings = useAllSettings();
   const setSetting = useSetSetting();
   const resetSetting = useResetSetting();
-  const modelOptionLabel = useModelOptionLabel(isActive);
+  const agent = useAgent();
+  const models = useModels(isActive);
 
   const categories = useMemo(() => {
     const map = new Map<string, SettingDef[]>();
@@ -32,15 +32,30 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
       if (def.key === ALLOWED_TOOLS_KEY) continue;
       // Panel open state, toggled with ⌘⇧L; Co-writer itself can't be turned off.
       if (def.key === "appearance.agent-panel-visible") continue;
+      if (AGENT_MODEL_KEYS.has(def.key) && def.key !== agent.modelKey) continue;
       const existing = map.get(def.category) ?? [];
       existing.push(def);
       map.set(def.category, existing);
     }
     return map;
-  }, []);
+  }, [agent.modelKey]);
 
   function isModified(def: SettingDef): boolean {
     return JSON.stringify(settings[def.key]) !== JSON.stringify(def.default);
+  }
+
+  function optionLabel(def: SettingDef) {
+    if (def.key === AGENT_KEY) return agentLabel;
+    return def.key === agent.modelKey ? models.label : undefined;
+  }
+
+  /** Codex models aren't known until Codex reports them, so the schema stores a plain string. */
+  function withOptions(def: SettingDef): SettingDef {
+    if (def.key !== AGENTS.codex.modelKey) return def;
+    const value = settings[def.key];
+    const options = ["default", ...models.models.map((model) => model.value)];
+    if (typeof value === "string" && !options.includes(value)) options.push(value);
+    return { ...def, type: "enum", options };
   }
 
   function renderSection(category: string, defs: SettingDef[], extra?: ReactNode) {
@@ -54,12 +69,12 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
               className={i === 0 ? undefined : "border-t border-[var(--line-subtler)]"}
             >
               <SettingControl
-                def={def}
+                def={withOptions(def)}
                 value={settings[def.key]}
                 onChange={(value) => setSetting(def.key, value)}
                 onReset={() => void resetSetting(def.key)}
                 isModified={isModified(def)}
-                optionLabel={def.key === MODEL_KEY ? modelOptionLabel : undefined}
+                optionLabel={optionLabel(def)}
               />
             </div>
           ))}

@@ -370,58 +370,67 @@ export function saveClipboardImage(
 }
 
 export type AgentEvent =
-  | { type: "started"; processId: string }
-  | { type: "claude"; line: string }
+  | { type: "started"; processId: string; provider: string }
+  | { type: "line"; line: string }
   | { type: "stderr"; message: string }
   | { type: "edit_start"; requestId: string; toolUseId: string | null; path: string }
   | { type: "exit"; code: number | null };
 
-export function claudeStart(
+/** Starts an agent turn's process; `resumeSessionId` continues that agent's saved session. */
+export type AgentStart = (
   root: string,
   epoch: number,
   resumeSessionId: string | null,
   notePath: string | null,
   plan: boolean,
   onEvent: import("@tauri-apps/api/core").Channel<AgentEvent>,
-): Promise<string> {
-  return invoke("claude_start", {
-    root,
-    epoch,
-    resumeSessionId,
-    notePath: notePath && documentPath(notePath),
-    plan,
-    onEvent,
-  });
+) => Promise<string>;
+
+function agentStart(command: string): AgentStart {
+  return (root, epoch, resumeSessionId, notePath, plan, onEvent) =>
+    invoke(command, {
+      root,
+      epoch,
+      resumeSessionId,
+      notePath: notePath && documentPath(notePath),
+      plan,
+      onEvent,
+    });
 }
-export function claudeSend(processId: string, line: string, files: string[]): Promise<void> {
-  return invoke("claude_send", { processId, line, files });
+export const claudeStart = agentStart("claude_start");
+export const codexStart = agentStart("codex_start");
+export function agentSend(processId: string, content: string, files: string[]): Promise<void> {
+  return invoke("agent_send", { processId, content, files });
 }
-export function claudeStop(processId: string): Promise<void> {
-  return invoke("claude_stop", { processId });
+export function agentStop(processId: string): Promise<void> {
+  return invoke("agent_stop", { processId });
 }
 
 export function claudeCapabilities(root: string): Promise<Capabilities> {
   return invoke("claude_capabilities", { root });
 }
+export function codexCapabilities(root: string): Promise<Capabilities> {
+  return invoke("codex_capabilities", { root });
+}
 
-export function claudeDecidePermission(
+export function agentDecidePermission(
   processId: string,
   requestId: string,
   allow: boolean,
   always: boolean,
 ): Promise<void> {
-  return invoke("claude_decide_permission", { processId, requestId, allow, always });
+  return invoke("agent_decide_permission", { processId, requestId, allow, always });
 }
 /** The user's reply to a question (`answers` keyed by question text, `null` declines) or a plan. */
 export type HostAnswer =
   | { kind: "questions"; answers: Record<string, string> | null }
   | { kind: "plan"; approve: boolean; feedback: string | null };
-export function claudeAnswer(
+export function agentAnswer(
   processId: string,
   requestId: string,
   answer: HostAnswer,
 ): Promise<void> {
-  return invoke("claude_answer", { processId, requestId, answer });
+  return invoke("agent_answer", { processId, requestId, answer });
 }
 /** Tools saved with "don't ask again", in every workspace. */
 export function coWriterAllowedTools(): Promise<string[]> {
@@ -434,10 +443,10 @@ export function revokeCoWriterTool(tool: string): Promise<string[]> {
 export function setPendingApprovals(count: number): Promise<void> {
   return invoke("set_pending_approvals", { count });
 }
-export function claudeEditReady(
+export function agentEditReady(
   processId: string,
   requestId: string,
   allow: boolean,
 ): Promise<void> {
-  return invoke("claude_edit_ready", { processId, requestId, allow });
+  return invoke("agent_edit_ready", { processId, requestId, allow });
 }

@@ -1,7 +1,11 @@
-use super::{allowed_tools, AgentEvent, AgentProcess, Answer, Input, NoteClaims};
+use super::scope::{
+    self, checked_answers, question_texts, resolve_target, Remember, Target, DECLINED_QUESTIONS,
+    NOTE_CLAIMED,
+};
+use super::{allowed_tools, AgentEvent, Answer, Input, NoteClaims};
 use crate::{error::AppError, state::AppState};
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Stdio,
     sync::{Arc, OnceLock},
     time::Duration,
@@ -14,72 +18,16 @@ use tokio::{
 };
 
 static CLAUDE_ENV: OnceLock<(PathBuf, String)> = OnceLock::new();
+const CLAUDE_CLI: super::cli_env::Cli = super::cli_env::Cli {
+    binary: "claude",
+    name: "Claude Code",
+    min_version: &[2, 1, 296],
+    update_hint: "Update Claude Code in your terminal.",
+    cache: &CLAUDE_ENV,
+};
 
 pub(super) async fn resolve_claude_env() -> Result<(PathBuf, String), AppError> {
-    if let Some(env) = CLAUDE_ENV.get() {
-        return Ok(env.clone());
-    }
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = tokio::time::timeout(
-        Duration::from_secs(8),
-        Command::new(shell)
-            .args([
-                "-l",
-                "-i",
-                "-c",
-                "printf '\\n__WRITER_CLAUDE__\\n%s\\n%s\\n' \"$(command -v claude)\" \"$PATH\"",
-            ])
-            .stdin(Stdio::null())
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Io("Timed out resolving Claude Code from your login shell".into()))??;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let framed = stdout.split_once("\n__WRITER_CLAUDE__\n").map(|(_, s)| s);
-    let mut lines = framed.unwrap_or("").lines();
-    let binary = PathBuf::from(lines.next().unwrap_or(""));
-    let path = lines.next().unwrap_or("").to_string();
-    if !output.status.success() || !binary.is_absolute() || !binary.is_file() || path.is_empty() {
-        return Err(AppError::NotFound("Claude Code CLI not found. Install Claude Code and sign in in your terminal, then try again.".into()));
-    }
-    let env = (binary, path);
-    let version = tokio::time::timeout(
-        Duration::from_secs(8),
-        Command::new(&env.0)
-            .arg("--version")
-            .env("PATH", &env.1)
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .map_err(|_| AppError::Io("Timed out checking Claude Code capabilities".into()))??;
-    let text = String::from_utf8_lossy(&version.stdout);
-    let numbers: Vec<u32> = text
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .split('.')
-        .filter_map(|part| part.parse().ok())
-        .collect();
-    if !version.status.success() || numbers.as_slice() < [2, 1, 296].as_slice() {
-        let reported = if version.status.success() {
-            text.trim().to_string()
-        } else {
-            String::from_utf8_lossy(&version.stderr).trim().to_string()
-        };
-        eprintln!(
-            "claude: {} --version failed the check: {reported:?} ({})",
-            env.0.display(),
-            version.status
-        );
-        return Err(AppError::Io(format!(
-            "Parallel note agents require Claude Code 2.1.296 or newer, but {} reports “{reported}”. Update Claude Code in your terminal.",
-            env.0.display()
-        )));
-    }
-    let _ = CLAUDE_ENV.set(env.clone());
-    Ok(env)
+    super::cli_env::resolve(&CLAUDE_CLI).await
 }
 
 pub(super) fn kill_group(child: &mut Child) {
@@ -95,7 +43,7 @@ pub(super) fn kill_group(child: &mut Child) {
 }
 
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 const INIT_ID: &str = "writer-initialize";
 const HOOK_ID: &str = "writer-note-scope";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
@@ -131,8 +79,6 @@ fn interactive_tool(tool: &str) -> bool {
 
 const PLANNING: &str =
     "Plan mode: present your plan with ExitPlanMode and wait for the user's approval before editing notes.";
-const KEEP_PLANNING: &str = "The user wants to keep planning. Revise the plan before editing.";
-const FEEDBACK_LIMIT: usize = 4000;
 
 /// Claude Code writes plan-mode plans to `plans/` in its config folder.
 fn plans_dir() -> Option<PathBuf> {
@@ -142,89 +88,6 @@ fn plans_dir() -> Option<PathBuf> {
     resolve_target(&config.join("plans"))
         .ok()
         .map(|(path, _)| path)
-}
-
-const ANSWER_LIMIT: usize = 2000;
-const DECLINED_QUESTIONS: &str = "The user chose not to answer.";
-
-fn question_texts(input: &Value) -> Result<BTreeSet<&str>, String> {
-    input["questions"]
-        .as_array()
-        .filter(|questions| !questions.is_empty())
-        .ok_or("Claude asked no questions")?
-        .iter()
-        .map(|question| {
-            question["question"]
-                .as_str()
-                .filter(|text| !text.trim().is_empty())
-                .ok_or_else(|| "Claude asked a question without text".to_string())
-        })
-        .collect()
-}
-
-/// Answers must cover exactly the questions Claude asked, so the UI can't add or rename any.
-fn checked_answers(input: &Value, answers: &BTreeMap<String, String>) -> Result<(), String> {
-    let questions = question_texts(input)?;
-    if !answers
-        .keys()
-        .map(String::as_str)
-        .eq(questions.iter().copied())
-    {
-        return Err("Answers don't match Claude's questions".into());
-    }
-    if answers
-        .values()
-        .any(|answer| answer.trim().is_empty() || answer.chars().count() > ANSWER_LIMIT)
-    {
-        return Err(format!(
-            "Each answer needs between 1 and {ANSWER_LIMIT} characters"
-        ));
-    }
-    Ok(())
-}
-
-/// Resolves an edit target to its canonical path, through the nearest existing
-/// ancestor when the file does not exist yet.
-fn resolve_target(path: &Path) -> std::io::Result<(PathBuf, bool)> {
-    let mut missing = Vec::new();
-    let mut ancestor = path;
-    loop {
-        match ancestor.canonicalize() {
-            Ok(mut resolved) => {
-                resolved.extend(missing.iter().rev());
-                return Ok((resolved, missing.is_empty()));
-            }
-            // A dangling link would let Write create a file wherever it points.
-            Err(error)
-                if error.kind() != std::io::ErrorKind::NotFound
-                    || ancestor.symlink_metadata().is_ok() =>
-            {
-                return Err(error)
-            }
-            Err(_) => {}
-        }
-        let (Some(name), Some(parent)) = (ancestor.file_name(), ancestor.parent()) else {
-            return Err(std::io::ErrorKind::NotFound.into());
-        };
-        missing.push(name);
-        ancestor = parent;
-    }
-}
-
-fn workspace_denial(root: &Path, target: &Path) -> Option<&'static str> {
-    let Ok(relative) = target.strip_prefix(root) else {
-        return Some("Co-writer can edit only notes inside this workspace.");
-    };
-    if relative
-        .components()
-        .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
-    {
-        return Some("Co-writer can't edit files in hidden folders.");
-    }
-    if !crate::open_target::is_markdown(target) {
-        return Some("Co-writer can create and edit only Markdown notes.");
-    }
-    None
 }
 
 struct PendingTarget {
@@ -238,19 +101,6 @@ enum Decision {
     /// An approved edit to another note waits, like an own-note edit, until the UI has saved and locked it.
     Hold(AgentEvent),
 }
-
-enum Target {
-    Allowed(PathBuf),
-    /// Claude Code's own plan file, the only file it may write while planning.
-    PlanFile,
-    NeedsApproval {
-        path: PathBuf,
-        exists: bool,
-    },
-    Denied(String),
-}
-
-type Remember = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 struct Scope {
     note: Option<PathBuf>,
@@ -302,26 +152,9 @@ impl Scope {
         let path = input["file_path"]
             .as_str()
             .ok_or("Missing edit file path")?;
-        let path = PathBuf::from(path);
-        if !path.is_absolute()
-            || path
-                .components()
-                .any(|part| part == std::path::Component::ParentDir)
-        {
-            return Ok(Target::Denied(
-                "Edit path must be absolute, without \"..\".".into(),
-            ));
-        }
-        let resolved = tokio::time::timeout(
-            CONTROL_TIMEOUT,
-            tauri::async_runtime::spawn_blocking(move || resolve_target(&path)),
-        )
-        .await
-        .map_err(|_| "Timed out checking note edit scope")?
-        .map_err(|e| e.to_string())?;
-        let (canonical, exists) = match resolved {
+        let (canonical, exists) = match scope::resolve(PathBuf::from(path)).await? {
             Ok(resolved) => resolved,
-            Err(error) => return Ok(Target::Denied(error.to_string())),
+            Err(reason) => return Ok(Target::Denied(reason)),
         };
         #[cfg(test)]
         eprintln!(
@@ -338,21 +171,14 @@ impl Scope {
                 Target::Denied(PLANNING.into())
             });
         }
-        if self.note.as_ref() == Some(&canonical) || self.approved.contains(&canonical) {
-            return Ok(Target::Allowed(canonical));
-        }
-        if let Some(reason) = workspace_denial(&self.root, &canonical) {
-            return Ok(Target::Denied(reason.into()));
-        }
-        if !exists && tool != "Write" {
-            return Ok(Target::Denied(
-                "That note doesn't exist. Use Write to create it.".into(),
-            ));
-        }
-        Ok(Target::NeedsApproval {
-            path: canonical,
+        Ok(scope::classify(
+            self.note.as_deref(),
+            &self.approved,
+            &self.root,
+            canonical,
             exists,
-        })
+            (tool != "Write").then_some("That note doesn't exist. Use Write to create it."),
+        ))
     }
     /// A Read of a file the user attached this turn needs no further approval.
     async fn attached_read(&self, input: &Value) -> Result<bool, String> {
@@ -629,23 +455,11 @@ impl Scope {
         feedback: Option<String>,
     ) -> Result<Decision, String> {
         let input = self.interactive_input(id, "ExitPlanMode")?;
-        let feedback = feedback
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty());
-        if feedback.is_some_and(|text| text.chars().count() > FEEDBACK_LIMIT) {
-            return Err(format!(
-                "Feedback can be at most {FEEDBACK_LIMIT} characters"
-            ));
-        }
+        let message = scope::keep_planning(feedback.as_deref())?;
         let reply = if approve {
             self.planning = false;
             json!({"behavior": "allow", "updatedInput": input})
         } else {
-            let message = match feedback {
-                Some(feedback) => format!("{KEEP_PLANNING} Their feedback: {feedback}"),
-                None => KEEP_PLANNING.into(),
-            };
             json!({"behavior": "deny", "message": message})
         };
         self.permissions.remove(id);
@@ -664,38 +478,24 @@ impl Scope {
     }
     /// Claims another note for this chat; false when a different chat holds it.
     fn claim(&mut self, path: PathBuf) -> bool {
-        {
-            let mut claims = self.claims.lock();
-            if claims.get(&path).is_some_and(|owner| owner != &self.owner) {
-                return false;
-            }
-            claims.insert(path.clone(), self.owner.clone());
+        if !scope::claim(&self.claims, &self.owner, &path) {
+            return false;
         }
         self.approved.insert(path);
         true
     }
     fn release(&self) {
-        self.claims.lock().retain(|_, owner| owner != &self.owner);
+        scope::release(&self.claims, &self.owner);
     }
 }
-const NOTE_CLAIMED: &str = "Another chat is editing this note.";
 fn denied_hook(message: &str) -> Value {
     json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": message}})
 }
 fn response(id: &str, value: Value) -> Value {
     json!({"type": "control_response", "response": {"subtype": "success", "request_id": id, "response": value}})
 }
-fn user_frame(line: &str) -> Result<(), String> {
-    let value: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-    if value["type"] != "user"
-        || value["message"]["role"] != "user"
-        || !value["message"]["content"].is_string()
-    {
-        return Err(
-            "Co-writer accepts only user messages; native code owns agent control replies".into(),
-        );
-    }
-    Ok(())
+fn user_frame(content: &str) -> String {
+    json!({"type": "user", "message": {"role": "user", "content": content}}).to_string()
 }
 async fn write_line(
     stdin: &mut tokio::process::ChildStdin,
@@ -756,15 +556,14 @@ async fn run_process(
             next = input.recv() => {
                 let Some(next) = next else { kill_group(&mut child); break child.wait().await; };
                 let (line, ack) = match next {
-                    Input::User { line, files, ack } => {
+                    Input::User { content, files, ack } => {
                         if let Some(scope) = scope.as_mut() {
                             if !scope.initialized || scope.sent {
                                 let _ = ack.send(Err("This note process cannot accept another turn".into())); continue;
                             }
-                            if let Err(error) = user_frame(&line) { let _ = ack.send(Err(error)); continue; }
                             scope.sent = true; scope.active = true; scope.attached.extend(files);
                         }
-                        (line, ack)
+                        (user_frame(&content), ack)
                     }
                     Input::Permission { request_id, answer, ack } => {
                         match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.answer(&request_id, answer)) {
@@ -826,9 +625,9 @@ async fn run_process(
                         }
                     }
                     if value["type"] == "result" { scope.active = false; scope.permissions.clear(); scope.targets.clear(); scope.edits.clear(); }
-                    if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); continue; }
+                    if events.send(AgentEvent::Line { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); continue; }
                     if value["type"] == "result" { kill_group(&mut child); break child.wait().await; }
-                } else if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); }
+                } else if events.send(AgentEvent::Line { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); }
             }
         }
     };
@@ -839,7 +638,7 @@ async fn run_process(
         }
     }
     if let Some(message) = failure.as_ref() {
-        let _ = events.send(AgentEvent::Claude {
+        let _ = events.send(AgentEvent::Line {
             line: json!({"type": "result", "is_error": true, "errors": [message]}).to_string(),
         });
     }
@@ -854,7 +653,7 @@ async fn run_process(
             .ok()
             .is_some_and(|v| v["type"] != "control_request" && v["type"] != "control_response")
         {
-            let _ = events.send(AgentEvent::Claude { line });
+            let _ = events.send(AgentEvent::Line { line });
         }
     }
     let _ = err.await;
@@ -865,24 +664,6 @@ async fn run_process(
         code: status.ok().and_then(|s| s.code()),
     });
     let _ = finished.send(true);
-}
-
-const BASE_SYSTEM_PROMPT: &str =
-    "You assist a writer in a Markdown editor. Read workspace files for context.";
-const NOTE_SCOPE: &str = "Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace.";
-const WORKSPACE_SCOPE: &str = "No note is open. When the user asks you to write something, create a new Markdown note for it inside the workspace with Write, using an absolute path. Edit existing notes only when the user asks. Each note you create or edit needs the user's approval.";
-const PROMPT_RULES: &str = "Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. An @Name in the user's message refers to the attached file with that name. Report changes.";
-
-fn system_prompt(has_note: bool) -> String {
-    let scope = if has_note {
-        NOTE_SCOPE
-    } else {
-        WORKSPACE_SCOPE
-    };
-    format!(
-        "{BASE_SYSTEM_PROMPT} {scope} {PROMPT_RULES} {}",
-        crate::embed_protocol::EMBED_AUTHORING_GUIDE
-    )
 }
 
 const MODEL_SETTING: &str = "co-writer.model";
@@ -920,7 +701,7 @@ fn scoped_command(
 ) -> Command {
     let mut command = Command::new(binary);
     command.current_dir(root).env("PATH", path).env_remove("CLAUDECODE")
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", &system_prompt(has_note)])
+        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", if plan { "plan" } else { "manual" }, "--permission-prompts", "host", "--permission-prompt-tool", "stdio", "--tools", "Read,Glob,Grep,Edit,Write,WebSearch,WebFetch,ToolSearch,WaitForMcpServers,AskUserQuestion,ExitPlanMode", "--allowedTools", "Edit", "Write", "--append-system-prompt", &super::system_prompt(has_note, "Write")])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
@@ -970,232 +751,62 @@ pub async fn claude_start(
         })
         .map_err(|e| e.to_string())
     });
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    let agent_epoch = workspace
-        .agent_epoch
-        .load(std::sync::atomic::Ordering::SeqCst);
-    let (binary, path) = resolve_claude_env().await?;
-    if !webview
-        .is_visible()
-        .map_err(|e| AppError::Io(e.to_string()))?
-    {
-        return Err(AppError::Io(
-            "Co-writer startup canceled because the window is closed".into(),
-        ));
-    }
-    let root = PathBuf::from(root);
-    let paths = (root.clone(), note_path.map(PathBuf::from));
-    let (scope_root, note, plans) = tauri::async_runtime::spawn_blocking(move || {
-        Ok::<_, std::io::Error>((
-            paths.0.canonicalize()?,
-            paths.1.map(|note| note.canonicalize()).transpose()?,
-            plan.then(plans_dir).flatten(),
-        ))
-    })
-    .await
-    .map_err(|e| AppError::Io(e.to_string()))??;
-    let (ready_tx, ready_rx) = oneshot::channel();
-    let id = workspace
-        .with_workspace_snapshot(&root, epoch, || {
-            let mut registry = workspace.agents.lock();
-            if workspace
-                .agent_epoch
-                .load(std::sync::atomic::Ordering::SeqCst)
-                != agent_epoch
-            {
-                return Err(AppError::Io("Co-writer startup was canceled".into()));
-            }
-            registry.retain(|_, process| !*process.finished.borrow());
-            let mut claims = workspace.agent_claims.lock();
-            if note.as_ref().is_some_and(|note| claims.contains_key(note)) {
-                return Err(AppError::Io("An agent is already editing this note".into()));
-            }
-            let mut command = scoped_command(
+    let plans = match plan {
+        true => tauri::async_runtime::spawn_blocking(plans_dir)
+            .await
+            .map_err(|e| AppError::Io(e.to_string()))?,
+        false => None,
+    };
+    let start = super::Start {
+        webview: &webview,
+        state: &state,
+        root,
+        epoch,
+        note_path,
+        provider: "claude-code",
+        on_event,
+    };
+    super::launch(
+        start,
+        resolve_claude_env(),
+        move |(binary, path), launch| {
+            let has_note = launch.note.is_some();
+            let child = scoped_command(
                 binary,
                 path,
-                &root,
+                &launch.root,
                 resume_session_id,
                 model.as_deref(),
                 plan,
-                note.is_some(),
-            );
-            let child = command.spawn()?;
-            let (tx, rx) = mpsc::channel(1);
-            let (cancel_tx, cancel_rx) = watch::channel(false);
-            let (finished_tx, finished_rx) = watch::channel(false);
-            let id = uuid::Uuid::new_v4().to_string();
-            if let Some(note) = &note {
-                claims.insert(note.clone(), id.clone());
-            }
-            drop(claims);
-            registry.insert(
-                id.clone(),
-                AgentProcess {
-                    input: tx,
-                    cancel: cancel_tx,
-                    finished: finished_rx,
-                },
-            );
+                has_note,
+            )
+            .spawn()?;
             tauri::async_runtime::spawn(run_process(
                 child,
-                rx,
-                cancel_rx,
-                finished_tx,
-                on_event.clone(),
+                launch.input,
+                launch.cancel,
+                launch.finished,
+                launch.events,
                 Some(Scope {
                     always,
                     remember: Some(remember),
                     planning: plan,
                     plans,
-                    ..Scope::new(note, scope_root, id.clone(), workspace.agent_claims.clone())
+                    ..Scope::new(launch.note, launch.scope_root, launch.id, launch.claims)
                 }),
-                Some(ready_tx),
+                Some(launch.ready),
             ));
-            Ok(id)
-        })
-        .ok_or(AppError::NoWorkspace)??;
-    // Publish cancellation ownership before waiting for MCP/plugin initialization.
-    if let Err(error) = on_event.send(AgentEvent::Started {
-        process_id: id.clone(),
-    }) {
-        stop_process(&workspace, &id).await;
-        return Err(AppError::Io(error.to_string()));
-    }
-    match ready_rx.await {
-        Ok(Ok(())) => Ok(id),
-        failure => {
-            stop_process(&workspace, &id).await;
-            let message = match failure {
-                Ok(Err(message)) => message,
-                Err(error) => error.to_string(),
-                Ok(Ok(())) => unreachable!(),
-            };
-            Err(AppError::Io(message))
-        }
-    }
-}
-async fn deliver(
-    state: &crate::state::WorkspaceState,
-    process_id: &str,
-    build: impl FnOnce(oneshot::Sender<Result<(), String>>) -> Input,
-) -> Result<(), AppError> {
-    let tx = state
-        .agents
-        .lock()
-        .get(process_id)
-        .ok_or_else(|| AppError::Io("Co-writer process is no longer active".into()))?
-        .input
-        .clone();
-    let (ack, result) = oneshot::channel();
-    tx.send(build(ack))
-        .await
-        .map_err(|_| AppError::Io("Claude Code exited".into()))?;
-    result
-        .await
-        .map_err(|_| AppError::Io("Claude Code exited".into()))?
-        .map_err(AppError::Io)
-}
-#[tauri::command]
-pub async fn claude_send(
-    webview: WebviewWindow,
-    state: State<'_, AppState>,
-    process_id: String,
-    line: String,
-    files: Vec<String>,
-) -> Result<(), AppError> {
-    user_frame(&line).map_err(AppError::Io)?;
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    let files = tauri::async_runtime::spawn_blocking(move || {
-        crate::commands::chat_files::resolve_attachments(&files)
-    })
+            Ok(())
+        },
+    )
     .await
-    .map_err(|e| AppError::Io(e.to_string()))?
-    .map_err(AppError::Io)?;
-    deliver(&workspace, &process_id, |ack| Input::User {
-        line,
-        files,
-        ack,
-    })
-    .await
-}
-#[tauri::command]
-pub async fn claude_decide_permission(
-    webview: WebviewWindow,
-    state: State<'_, AppState>,
-    process_id: String,
-    request_id: String,
-    allow: bool,
-    always: bool,
-) -> Result<(), AppError> {
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    deliver(&workspace, &process_id, |ack| Input::Permission {
-        request_id,
-        answer: Answer::Tool { allow, always },
-        ack,
-    })
-    .await
-}
-#[tauri::command]
-pub async fn claude_answer(
-    webview: WebviewWindow,
-    state: State<'_, AppState>,
-    process_id: String,
-    request_id: String,
-    answer: Answer,
-) -> Result<(), AppError> {
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    deliver(&workspace, &process_id, |ack| Input::Permission {
-        request_id,
-        answer,
-        ack,
-    })
-    .await
-}
-#[tauri::command]
-pub async fn claude_edit_ready(
-    webview: WebviewWindow,
-    state: State<'_, AppState>,
-    process_id: String,
-    request_id: String,
-    allow: bool,
-) -> Result<(), AppError> {
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    deliver(&workspace, &process_id, |ack| Input::EditReady {
-        request_id,
-        allow,
-        ack,
-    })
-    .await
-}
-async fn stop_process(workspace: &crate::state::WorkspaceState, process_id: &str) {
-    let mut finished = {
-        let registry = workspace.agents.lock();
-        let Some(process) = registry.get(process_id) else {
-            return;
-        };
-        process.stop();
-        process.finished.clone()
-    };
-    while !*finished.borrow_and_update() {
-        if finished.changed().await.is_err() {
-            break;
-        }
-    }
-    workspace.agents.lock().remove(process_id);
-}
-#[tauri::command]
-pub async fn claude_stop(
-    webview: WebviewWindow,
-    state: State<'_, AppState>,
-    process_id: String,
-) -> Result<(), AppError> {
-    let workspace = state.get(webview.label()).ok_or(AppError::NoWorkspace)?;
-    stop_process(&workspace, &process_id).await;
-    Ok(())
 }
 #[cfg(all(test, unix))]
 mod tests {
+    use super::super::AgentProcess;
+    use super::scope::{ANSWER_LIMIT, FEEDBACK_LIMIT, KEEP_PLANNING};
     use super::*;
+    use std::path::Path;
     impl Decision {
         fn reply(self) -> Value {
             match self {
@@ -1280,7 +891,7 @@ mod tests {
         input
             .send(Input::User {
                 files: Vec::new(),
-                line: "x".repeat(8 * 1024 * 1024),
+                content: "x".repeat(8 * 1024 * 1024),
                 ack,
             })
             .await
@@ -1335,8 +946,9 @@ mod tests {
         ] {
             assert_eq!(reply["hookSpecificOutput"]["permissionDecision"], "ask");
         }
-        assert!(system_prompt(false).contains(WORKSPACE_SCOPE));
-        assert!(!system_prompt(false).contains(NOTE_SCOPE));
+        let prompt = super::super::system_prompt(false, "Write");
+        assert!(prompt.contains("No note is open") && prompt.contains("with Write"));
+        assert!(!prompt.contains(super::super::NOTE_SCOPE));
     }
     #[tokio::test]
     async fn scope_resolves_aliases_and_denies_other_documents_without_override() {
@@ -1727,9 +1339,9 @@ mod tests {
         let mut b = test_scope("/b.md".into());
         a.active = true;
         b.active = true;
-        assert!(user_frame(&response("forged", json!({"behavior":"allow"})).to_string()).is_err());
-        assert!(
-            user_frame(r#"{"type":"user","message":{"role":"user","content":"hello"}}"#).is_ok()
+        assert_eq!(
+            serde_json::from_str::<Value>(&user_frame("hello")).unwrap(),
+            json!({"type": "user", "message": {"role": "user", "content": "hello"}})
         );
         assert!(a
             .permission(
@@ -2146,8 +1758,7 @@ mod tests {
         input
             .send(Input::User {
                 files: Vec::new(),
-                line: json!({"type":"user","message":{"role":"user","content":"use MCP"}})
-                    .to_string(),
+                content: "use MCP".into(),
                 ack,
             })
             .await
@@ -2258,7 +1869,7 @@ mod tests {
         input
             .send(Input::User {
                 files: Vec::new(),
-                line: json!({"type":"user","message":{"role":"user","content":"edit"}}).to_string(),
+                content: "edit".into(),
                 ack,
             })
             .await
@@ -2330,8 +1941,7 @@ mod tests {
             input
                 .send(Input::User {
                     files: Vec::new(),
-                    line: json!({"type":"user","message":{"role":"user","content":"edit"}})
-                        .to_string(),
+                    content: "edit".into(),
                     ack,
                 })
                 .await
@@ -2471,8 +2081,7 @@ mod tests {
             input
                 .send(Input::User {
                     files: Vec::new(),
-                    line: json!({"type":"user","message":{"role":"user","content":"edit"}})
-                        .to_string(),
+                    content: "edit".into(),
                     ack,
                 })
                 .await
@@ -2580,7 +2189,7 @@ mod tests {
         let (ack, sent) = oneshot::channel();
         input
             .send(Input::User {
-                line: json!({"type":"user","message":{"role":"user","content":prompt}}).to_string(),
+                content: prompt.clone(),
                 files: files.clone(),
                 ack,
             })
@@ -2735,7 +2344,7 @@ mod tests {
         let (ack, sent) = oneshot::channel();
         input
             .send(Input::User {
-                line: json!({"type":"user","message":{"role":"user","content":prompt}}).to_string(),
+                content: prompt.clone(),
                 files: Vec::new(),
                 ack,
             })
@@ -2885,8 +2494,7 @@ mod tests {
             input
                 .send(Input::User {
                     files: Vec::new(),
-                    line: json!({"type":"user","message":{"role":"user","content":prompt}})
-                        .to_string(),
+                    content: prompt.clone(),
                     ack,
                 })
                 .await

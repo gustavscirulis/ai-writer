@@ -5,7 +5,6 @@ import { groupAllowedTools } from "@/lib/tool-request-summary";
 import { useAllowedTools } from "./use-allowed-tools";
 
 export const ALLOWED_TOOLS_KEY = "co-writer.allowed-tools";
-export const MODEL_KEY = "co-writer.model";
 const DEF = SETTINGS_SCHEMA.find((def) => def.key === ALLOWED_TOOLS_KEY)!;
 export const CO_WRITER_CATEGORY = DEF.category;
 

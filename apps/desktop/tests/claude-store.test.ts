@@ -60,7 +60,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 const emit = (data: unknown, channel = channels[channels.length - 1]) =>
-  channel.onmessage({ type: "claude", line: JSON.stringify(data) });
+  channel.onmessage({ type: "line", line: JSON.stringify(data) });
 let edits = 0;
 /** Opens Writer's native edit gate as Claude Code does before applying Edit/Write. */
 async function startEdit(channel = channels[channels.length - 1], path = "/notes/a.md") {
@@ -92,7 +92,7 @@ const tick = async () => {
   for (let i = 0; i < 50; i++) await Promise.resolve();
 };
 async function reopenWithSavedChat(
-  record: { sessionId: string | null; messages: unknown[] },
+  record: { messages: unknown[]; [field: string]: unknown },
   path = "/notes/a.md",
 ) {
   vi.mocked(readStoreEntriesStrict).mockResolvedValue([
@@ -119,7 +119,8 @@ function defaultInvoke(command: string, payload: unknown): Promise<unknown> {
     return Promise.resolve({ path: args.path, modified_at: 2 });
   }
   if (command === "file_exists") return Promise.resolve(disk.has(args.path));
-  if (command === "claude_start") return Promise.resolve(`process-${channels.length}`);
+  if (command === "claude_start" || command === "codex_start")
+    return Promise.resolve(`process-${channels.length}`);
   return Promise.resolve(null);
 }
 beforeEach(async () => {
@@ -158,7 +159,7 @@ test("sending clears the composer immediately, before startup/delivery, and pres
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_start"
       ? start.promise
-      : command === "claude_send"
+      : command === "agent_send"
         ? delivery.promise
         : defaultInvoke(command, args),
   );
@@ -181,7 +182,7 @@ test("sending clears the composer immediately, before startup/delivery, and pres
   expect(useClaudeStore.getState().chats["/notes/a.md"].draft).toBe("Next message");
 });
 
-test.each(["write_file", "claude_start", "claude_send"])(
+test.each(["write_file", "claude_start", "agent_send"])(
   "%s failure restores the original composer draft",
   async (failedCommand) => {
     mockedInvoke.mockImplementation((command, args) =>
@@ -219,7 +220,7 @@ test.each(["write_file", "read_file", "claude_start"])(
     await tick();
     expect(pendingArgs).toBeDefined();
     expect(chatMessages("/notes/a.md")).toEqual([message]);
-    expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_send")).toBe(false);
+    expect(mockedInvoke.mock.calls.some(([command]) => command === "agent_send")).toBe(false);
     pending.resolve(await defaultInvoke(pendingCommand, pendingArgs));
     expect(await sending).toBe(true);
     expect(chatMessages("/notes/a.md")).toEqual([message]);
@@ -262,7 +263,7 @@ test("a failed send keeps a newer draft", async () => {
 test("a result retains ownership until its delivery acknowledgement settles", async () => {
   const delivery = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
+    command === "agent_send" ? delivery.promise : defaultInvoke(command, args),
   );
   const first = send("First");
   await tick();
@@ -282,7 +283,7 @@ test("a result retains ownership until its delivery acknowledgement settles", as
 test("failed delivery restores only the originating note's draft after tab switching", async () => {
   const delivery = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send" ? delivery.promise : defaultInvoke(command, args),
+    command === "agent_send" ? delivery.promise : defaultInvoke(command, args),
   );
   useClaudeStore.getState().setDraft("/notes/a.md", "For A");
   const sending = send("For A");
@@ -321,12 +322,12 @@ test.each(["New chat", "workspace reset"])(
     expect(await sending).toBe(false);
     await resetting;
     oldChannel.onmessage({
-      type: "claude",
+      type: "line",
       line: JSON.stringify({ type: "result", is_error: false }),
     });
     await tick();
     expect(chatMessages("/notes/a.md")).toEqual([]);
-    expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_send")).toBe(false);
+    expect(mockedInvoke.mock.calls.some(([command]) => command === "agent_send")).toBe(false);
   },
 );
 
@@ -395,8 +396,8 @@ test("saves the target before starting and locks it only while an edit is applie
     disk.set("/notes/a.md", "Revised A");
     useEditorStore.getState().updateContent("/notes/b.md", "User edit B");
   });
-  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_edit_ready")).toEqual([
-    ["claude_edit_ready", { processId: "process-1", requestId: "edit-1", allow: true }],
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "agent_edit_ready")).toEqual([
+    ["agent_edit_ready", { processId: "process-1", requestId: "edit-1", allow: true }],
   ]);
   expect(useEditorStore.getState().openFiles.get("/notes/a.md")?.content).toBe("Revised A");
   expect(isAgentEditing("/notes/a.md")).toBe(false);
@@ -427,7 +428,7 @@ test("a failed save before an edit denies it and keeps the note editable", async
   );
   useEditorStore.getState().updateContent("/notes/a.md", "Unsaved");
   await claudeEdits(() => {});
-  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_edit_ready").at(-1)?.[1]).toEqual({
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "agent_edit_ready").at(-1)?.[1]).toEqual({
     processId: "process-1",
     requestId: "edit-1",
     allow: false,
@@ -451,10 +452,10 @@ test("attachments reach Claude as saved-file lines and stay on the user message"
   expect(await sending).toBe(true);
   expect(chatMessages("/notes/a.md")).toHaveLength(1);
   unregister();
-  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
-    line: string;
+  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "agent_send").at(-1)![1] as {
+    content: string;
   };
-  const content = JSON.parse(payload.line).message.content as string;
+  const content = payload.content;
   const context = JSON.parse(content.match(/<writer_context>(.*)<\/writer_context>/)![1]!);
   expect(context.attachments).toEqual([{ fromLine: 6, toLine: 6, text: "two" }]);
   expect(chatMessages("/notes/a.md").at(-1)).toMatchObject({ text: "Cut this", attachments });
@@ -467,12 +468,12 @@ test("attached files reach Claude by path, stay on the saved message and leave t
   expect(chatState().files).toEqual([]);
   expect(chatMessages("/notes/a.md")[0]).toMatchObject({ text: "What changed?", files });
   expect(await sending).toBe(true);
-  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
-    line: string;
+  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "agent_send").at(-1)![1] as {
+    content: string;
     files: string[];
   };
   expect(payload.files).toEqual(files);
-  const content = JSON.parse(payload.line).message.content as string;
+  const content = payload.content;
   const context = JSON.parse(content.match(/<writer_context>(.*)<\/writer_context>/)![1]!);
   expect(context.files).toEqual(files);
   const saved = savedChats().filter(([key]) => key.endsWith("/notes/a.md"));
@@ -480,7 +481,7 @@ test("attached files reach Claude by path, stay on the saved message and leave t
 });
 test("a failed send puts its attached files back in the composer", async () => {
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
+    command === "agent_send"
       ? Promise.reject(new Error("Couldn't find diagram.png."))
       : defaultInvoke(command, args),
   );
@@ -510,7 +511,7 @@ test("a mentioned note stays attached only while its pill is in the draft", () =
 });
 test("a sent message keeps its mentions, and a failed send puts them back in the draft", async () => {
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
+    command === "agent_send"
       ? Promise.reject(new Error("Couldn't start."))
       : defaultInvoke(command, args),
   );
@@ -568,7 +569,7 @@ test("failed Stop keeps process ownership and lock until termination retry succe
   await send("Edit");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_stop" && failures-- > 0
+    command === "agent_stop" && failures-- > 0
       ? Promise.reject(new Error("IPC failure"))
       : defaultInvoke(command, args),
   );
@@ -576,7 +577,7 @@ test("failed Stop keeps process ownership and lock until termination retry succe
   expect(isAgentTurnActive()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentTurnActive()).toBe(false);
-  const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
+  const stops = mockedInvoke.mock.calls.filter(([c]) => c === "agent_stop");
   expect(stops).toHaveLength(2);
   expect(stops[0][1]).toEqual(stops[1][1]);
 });
@@ -586,7 +587,7 @@ test("Stop waits for deferred startup despite a duplicate Send and retries faile
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_start"
       ? start.promise
-      : command === "claude_stop" && failures-- > 0
+      : command === "agent_stop" && failures-- > 0
         ? Promise.reject(new Error("IPC failure"))
         : defaultInvoke(command, args),
   );
@@ -599,7 +600,7 @@ test("Stop waits for deferred startup despite a duplicate Send and retries faile
   await sending;
   await stop;
   expect(isAgentTurnActive()).toBe(true);
-  expect(mockedInvoke.mock.calls.some(([c]) => c === "claude_send")).toBe(false);
+  expect(mockedInvoke.mock.calls.some(([c]) => c === "agent_send")).toBe(false);
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(isAgentTurnActive()).toBe(false);
 });
@@ -615,7 +616,7 @@ test("old process callbacks cannot finish a newer turn", async () => {
   expect(chatState().status).toBe("running");
   expect(isAgentTurnActive()).toBe(true);
   await useClaudeStore.getState().stop("/notes/a.md");
-  expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop").at(-1)?.[1]).toEqual({
+  expect(mockedInvoke.mock.calls.filter(([c]) => c === "agent_stop").at(-1)?.[1]).toEqual({
     processId: "process-2",
   });
 });
@@ -625,7 +626,7 @@ test.each(["before Stop", "after Stop"])(
     const start = deferred<string>();
     mockedInvoke.mockImplementation((command, args) => {
       if (command === "claude_start") return start.promise;
-      if (command === "claude_stop") start.reject(new Error("Startup canceled"));
+      if (command === "agent_stop") start.reject(new Error("Startup canceled"));
       return defaultInvoke(command, args);
     });
     const sending = send("Edit");
@@ -640,10 +641,10 @@ test.each(["before Stop", "after Stop"])(
     expect(isAgentTurnActive()).toBe(false);
     expect(chatState().error).toBeNull();
     expect(chatMessages("/notes/a.md")).toEqual([message]);
-    expect(mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop")).toEqual([
-      ["claude_stop", { processId: "starting-process" }],
+    expect(mockedInvoke.mock.calls.filter(([c]) => c === "agent_stop")).toEqual([
+      ["agent_stop", { processId: "starting-process" }],
     ]);
-    expect(mockedInvoke.mock.calls.some(([c]) => c === "claude_send")).toBe(false);
+    expect(mockedInvoke.mock.calls.some(([c]) => c === "agent_send")).toBe(false);
   },
 );
 test("failed startup cancellation retains ownership for an immediate Stop retry", async () => {
@@ -651,7 +652,7 @@ test("failed startup cancellation retains ownership for an immediate Stop retry"
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) => {
     if (command === "claude_start") return start.promise;
-    if (command === "claude_stop") {
+    if (command === "agent_stop") {
       if (failures-- > 0) return Promise.reject(new Error("IPC failure"));
       start.reject(new Error("Startup canceled"));
     }
@@ -667,7 +668,7 @@ test("failed startup cancellation retains ownership for an immediate Stop retry"
   await useClaudeStore.getState().stop("/notes/a.md");
   expect(await sending).toBe(false);
   expect(isAgentTurnActive()).toBe(false);
-  const stops = mockedInvoke.mock.calls.filter(([c]) => c === "claude_stop");
+  const stops = mockedInvoke.mock.calls.filter(([c]) => c === "agent_stop");
   expect(stops).toHaveLength(2);
   expect(stops[0][1]).toEqual(stops[1][1]);
 });
@@ -704,7 +705,7 @@ test("New chat stop failure rejects sends until termination is confirmed", async
   await send("First");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_stop" && failures-- > 0
+    command === "agent_stop" && failures-- > 0
       ? Promise.reject(new Error("IPC failure"))
       : defaultInvoke(command, args),
   );
@@ -737,11 +738,11 @@ test("a rejected navigation read for another note cannot affect the running note
 
 test("malformed protocol data stops the process and preserves the visible error", async () => {
   await send("Edit");
-  channels[channels.length - 1].onmessage({ type: "claude", line: "invalid JSON" });
+  channels[channels.length - 1].onmessage({ type: "line", line: "invalid JSON" });
   await tick();
   expect(isAgentTurnActive()).toBe(false);
-  expect(chatState().error).toContain("Invalid Claude stream:");
-  expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_stop")).toBe(true);
+  expect(chatState().error).toContain("Invalid Claude Code stream:");
+  expect(mockedInvoke.mock.calls.some(([command]) => command === "agent_stop")).toBe(true);
 });
 
 test("CLI warnings remain inspectable after success without becoming turn errors", async () => {
@@ -808,7 +809,7 @@ function requestPermission(
 }
 function sentDecisions() {
   return mockedInvoke.mock.calls
-    .filter(([command]) => command === "claude_decide_permission")
+    .filter(([command]) => command === "agent_decide_permission")
     .map(([, payload]) => payload);
 }
 test.each([
@@ -861,7 +862,7 @@ test("reports the window's pending approval count for the Dock badge only when i
 test("Claude's questions wait for answers, keep a failed reply for retry and show the answers in the thread", async () => {
   const answers = () =>
     mockedInvoke.mock.calls
-      .filter(([command]) => command === "claude_answer")
+      .filter(([command]) => command === "agent_answer")
       .map(([, payload]) => payload);
   const questions = [
     { question: "Which tone?", header: "Tone", multiSelect: false, options: [] },
@@ -943,7 +944,7 @@ test("plan mode starts the turn in plan mode, and approving the plan turns it of
     .answer("/notes/a.md", "plan-2", { kind: "plan", approve: true, feedback: null });
   expect(
     mockedInvoke.mock.calls
-      .filter(([command]) => command === "claude_answer")
+      .filter(([command]) => command === "agent_answer")
       .map(([, payload]) => (payload as { answer: unknown }).answer),
   ).toEqual([
     { kind: "plan", approve: false, feedback: "Keep the intro" },
@@ -964,7 +965,7 @@ test("canceling an approval invalidates its in-flight completion without losing 
   requestPermission("second");
   const delivery = deferred<null>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_decide_permission" ? delivery.promise : defaultInvoke(command, args),
+    command === "agent_decide_permission" ? delivery.promise : defaultInvoke(command, args),
   );
   const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "first", true);
   emit({ type: "control_cancel_request", request_id: "first" });
@@ -1012,7 +1013,7 @@ test("decision transport errors retain a retryable request and the editor lock",
   await send("Search");
   requestPermission("request");
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_decide_permission"
+    command === "agent_decide_permission"
       ? Promise.reject(new Error("Pipe unavailable"))
       : defaultInvoke(command, args),
   );
@@ -1033,7 +1034,7 @@ test("Stop removes approvals immediately and ignores late decisions and old requ
   requestPermission("request");
   const delivery = deferred<null>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_decide_permission" ? delivery.promise : defaultInvoke(command, args),
+    command === "agent_decide_permission" ? delivery.promise : defaultInvoke(command, args),
   );
   const approving = useClaudeStore.getState().decidePermission("/notes/a.md", "request", true);
   const oldChannel = channels.at(-1)!;
@@ -1100,7 +1101,7 @@ test("terminal reconciliation rejects late approvals and completed IDs cannot be
 test("protocol failures keep recovery locked when native Stop fails", async () => {
   await send("Search");
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_stop"
+    command === "agent_stop"
       ? Promise.reject(new Error("IPC unavailable"))
       : defaultInvoke(command, args),
   );
@@ -1257,7 +1258,7 @@ test.each(["new-chat", "exit", "malformed", "send-failure"])(
   async (boundary) => {
     if (boundary === "send-failure")
       mockedInvoke.mockImplementation((command, args) =>
-        command === "claude_send"
+        command === "agent_send"
           ? Promise.reject(new Error("Delivery failed"))
           : defaultInvoke(command, args),
       );
@@ -1265,7 +1266,7 @@ test.each(["new-chat", "exit", "malformed", "send-failure"])(
     if (boundary === "new-chat") await useClaudeStore.getState().newChat("/notes/a.md");
     else if (boundary === "exit") channels.at(-1)!.onmessage({ type: "exit", code: 1 });
     else if (boundary === "malformed")
-      channels.at(-1)!.onmessage({ type: "claude", line: "not JSON" });
+      channels.at(-1)!.onmessage({ type: "line", line: "not JSON" });
     await tick();
     expect(chatState().activity).toBeNull();
     expect(chatState().status).not.toBe("running");
@@ -1314,7 +1315,7 @@ function requestNoteWrite(id: string, path: string, exists: boolean, channel = c
   );
 }
 const editReplies = () =>
-  mockedInvoke.mock.calls.filter(([command]) => command === "claude_edit_ready").map(([, p]) => p);
+  mockedInvoke.mock.calls.filter(([command]) => command === "agent_edit_ready").map(([, p]) => p);
 test("an edit to another note saves and locks it only while applied, then reloads it", async () => {
   disk.set("/notes/b.md", "Before B");
   await useEditorStore.getState().openFileInNewTab("/notes/b.md");
@@ -1367,10 +1368,10 @@ test("the workspace chat starts without a note", async () => {
     notePath: string | null;
   };
   expect(start.notePath).toBeNull();
-  const payload = mockedInvoke.mock.calls.find(([c]) => c === "claude_send")![1] as {
-    line: string;
+  const payload = mockedInvoke.mock.calls.find(([c]) => c === "agent_send")![1] as {
+    content: string;
   };
-  expect(payload.line).not.toContain("openFile");
+  expect(payload.content).not.toContain("openFile");
   expect(mockedInvoke.mock.calls.some(([c]) => c === "read_file")).toBe(false);
 });
 test("a note the workspace chat creates takes over the conversation and the launcher", async () => {
@@ -1388,7 +1389,9 @@ test("a note the workspace chat creates takes over the conversation and the laun
   expect(useEditorStore.getState().activeFilePath).toBe("/notes/new.md");
   const saved = new Map(savedChats());
   expect(saved.get(`/notes\0${WORKSPACE_CHAT}`)).toBeUndefined();
-  expect(saved.get("/notes\0/notes/new.md")).toMatchObject({ sessionId: "session-w" });
+  expect(saved.get("/notes\0/notes/new.md")).toMatchObject({
+    session: { id: "session-w", agent: "claude-code" },
+  });
 });
 test("the workspace chat stays put after editing an existing note", async () => {
   useEditorStore.getState().openNewTab();
@@ -1432,11 +1435,11 @@ test("captured feedback path is independent of the active tab and survives tab c
       .getState()
       .send("/notes/a.md", "Feedback", { turn: { path: "/notes/a.md", prepare, complete } }),
   ).toBe(true);
-  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "claude_send").at(-1)![1] as {
-    line: string;
+  const payload = mockedInvoke.mock.calls.filter(([c]) => c === "agent_send").at(-1)![1] as {
+    content: string;
   };
-  expect(payload.line).toContain('openFile\\\":\\\"/notes/a.md');
-  expect(payload.line).toContain("Feedback for A:");
+  expect(payload.content).toContain('openFile":"/notes/a.md');
+  expect(payload.content).toContain("Feedback for A:");
   useEditorStore.getState().closeFile("/notes/a.md");
   await claudeEdits(() => disk.set("/notes/a.md", "Revised A"));
   disk.set("/notes/b.md", "Revised B");
@@ -1495,7 +1498,7 @@ test("Stop during feedback preparation settles cancellation exactly once without
     changed: false,
     error: null,
   });
-  expect(mockedInvoke.mock.calls.some(([command]) => command === "claude_send")).toBe(false);
+  expect(mockedInvoke.mock.calls.some(([command]) => command === "agent_send")).toBe(false);
 });
 
 test("partial changes survive failed Stop and require cancelled completion after termination retry", async () => {
@@ -1507,7 +1510,7 @@ test("partial changes survive failed Stop and require cancelled completion after
   disk.set("/notes/a.md", "Partly revised");
   let failures = 1;
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_stop" && failures-- > 0
+    command === "agent_stop" && failures-- > 0
       ? Promise.reject(new Error("IPC failure"))
       : defaultInvoke(command, args),
   );
@@ -1752,7 +1755,7 @@ test("two notes interleave starts, streams and delivery acknowledgements indepen
   const a = deferred<unknown>(),
     b = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_send"
+    command === "agent_send"
       ? (args as { processId: string }).processId === "process-1"
         ? a.promise
         : b.promise
@@ -1870,7 +1873,7 @@ test("stopAll retains only failed-note recovery and blocks new actions while dra
   await send("B");
   const stop = deferred<unknown>();
   mockedInvoke.mockImplementation((command, args) =>
-    command === "claude_stop" && (args as { processId: string }).processId === "process-1"
+    command === "agent_stop" && (args as { processId: string }).processId === "process-1"
       ? stop.promise
       : defaultInvoke(command, args),
   );
@@ -2039,8 +2042,8 @@ test("a reopened workspace restores each note's chat and resumes its session", a
   expect(savedChats().at(-1)).toEqual([
     "/notes\0/notes/a.md",
     {
-      version: 1,
-      sessionId: "session-a",
+      version: 2,
+      session: { id: "session-a", agent: "claude-code" },
       messages: chatMessages("/notes/a.md"),
     },
   ]);
@@ -2062,7 +2065,7 @@ test("the sent message is saved before Claude starts, and New chat and moves rew
   expect(savedChats()).toEqual([
     [
       "/notes\0/notes/a.md",
-      { version: 1, sessionId: null, messages: [expect.objectContaining({ text: "Remember me" })] },
+      { version: 2, session: null, messages: [expect.objectContaining({ text: "Remember me" })] },
     ],
   ]);
   start.resolve("process-1");
@@ -2072,7 +2075,7 @@ test("the sent message is saved before Claude starts, and New chat and moves rew
   await useClaudeStore.getState().rewriteChatPaths("/notes", "/notes/a.md", "/notes/c.md", false);
   expect(savedChats().slice(-2)).toEqual([
     ["/notes\0/notes/a.md", undefined],
-    ["/notes\0/notes/c.md", expect.objectContaining({ version: 1 })],
+    ["/notes\0/notes/c.md", expect.objectContaining({ version: 2 })],
   ]);
   await useClaudeStore.getState().newChat("/notes/c.md");
   expect(savedChats().at(-1)).toEqual(["/notes\0/notes/c.md", undefined]);
@@ -2094,4 +2097,74 @@ test("an expired Claude Code session keeps the restored thread and says to start
     "This conversation can't be continued in Claude Code any more. Start a new conversation to keep going.",
   );
   expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual(["Earlier", "Again"]);
+});
+
+const codexLine = (method: string, params: unknown) =>
+  channels.at(-1)!.onmessage({ type: "line", line: JSON.stringify({ method, params }) });
+const startArgs = (command: string) =>
+  mockedInvoke.mock.calls.filter(([c]) => c === command).at(-1)?.[1];
+
+test("switching to Codex starts a fresh thread and says it lacks the earlier messages", async () => {
+  await reopenWithSavedChat({
+    sessionId: "session-a",
+    messages: [{ id: "u1", role: "user", text: "Earlier", tools: [] }],
+  });
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, "co-writer.agent": "codex" },
+  }));
+  expect(await send("Shorten it")).toBe(true);
+  expect(startArgs("claude_start")).toBeUndefined();
+  expect(startArgs("codex_start")).toMatchObject({ resumeSessionId: null });
+  expect(chatState().notices.map((entry) => entry.text)).toEqual([
+    "This chat now runs on Codex, which doesn't have the earlier messages as context.",
+  ]);
+  codexLine("writer/thread", { threadId: "thread-1" });
+  codexLine("turn/started", { turn: { id: "turn-1" } });
+  codexLine("item/started", { item: { type: "agentMessage", id: "m1" } });
+  codexLine("item/agentMessage/delta", { itemId: "m1", delta: "Done." });
+  codexLine("turn/completed", { turn: { status: "completed" } });
+  await tick();
+  expect(chatState().status).toBe("idle");
+  expect(chatMessages("/notes/a.md").map((message) => message.text)).toEqual([
+    "Earlier",
+    "Shorten it",
+    "Done.",
+  ]);
+  expect(savedChats().at(-1)?.[1]).toMatchObject({
+    version: 2,
+    session: { id: "thread-1", agent: "codex" },
+  });
+});
+
+test("a Codex chat resumes its own thread, and a missing one says to start over", async () => {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, "co-writer.agent": "codex" },
+  }));
+  await reopenWithSavedChat({
+    version: 2,
+    session: { id: "thread-1", agent: "codex" },
+    messages: [{ id: "u1", role: "user", text: "Earlier", tools: [] }],
+  });
+  await send("Again");
+  expect(startArgs("codex_start")).toMatchObject({ resumeSessionId: "thread-1" });
+  expect(chatState().notices).toEqual([]);
+  codexLine("writer/failed", {
+    message: "thread/resume failed: no rollout found for thread id thread-1",
+  });
+  await tick();
+  expect(chatState().error).toBe(
+    "This conversation can't be continued in Codex any more. Start a new conversation to keep going.",
+  );
+});
+
+test("an unknown agent in Settings fails the send without starting anything", async () => {
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, "co-writer.agent": "gemini" },
+  }));
+  expect(await send("Hello")).toBe(false);
+  expect(chatState()).toMatchObject({
+    status: "error",
+    error: 'Unknown Co-writer agent "gemini". Choose one in Settings → Co-writer.',
+  });
+  expect(mockedInvoke.mock.calls.some(([c]) => c.endsWith("_start"))).toBe(false);
 });

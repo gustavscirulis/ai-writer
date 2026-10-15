@@ -121,7 +121,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => {
       const { path, selectedId, versions, restoring } = get();
       if (!path || !selectedId || restoring || selectedId === versions[0]?.id) return;
       if (isAgentTurnActive(path)) {
-        set({ error: "Wait for Claude to finish before restoring." });
+        set({ error: "Wait for Co-writer to finish before restoring." });
         return;
       }
       set({ restoring: true, error: null });

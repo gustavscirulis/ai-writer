@@ -18,7 +18,7 @@ const HEADER_BUTTON =
   "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]";
 
 const SOURCE_TAGS: Partial<Record<NoteVersion["source"], string>> = {
-  agent: "Claude",
+  agent: "Co-writer",
   restore: "Restored",
 };
 
