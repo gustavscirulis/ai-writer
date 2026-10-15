@@ -22,7 +22,6 @@ Co-writer is experimental and needs the [Claude Code CLI](https://code.claude.co
 - `apps/desktop/` — Tauri desktop app.
 - `apps/desktop/src/` — React frontend.
 - `apps/desktop/src-tauri/src/` — Rust commands, workspace state, watcher, updater, and CLI integration.
-- `apps/website/` — landing page.
 - `docs/` — project and agent workflow docs.
 - `SPECs/` — feature specs and design notes.
 

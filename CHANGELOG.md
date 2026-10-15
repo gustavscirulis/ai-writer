@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Removed the marketing website (`apps/website/`), its Cloudflare config and its docs. This fork doesn't use them.
+
 - The app is now called Co-writer, with its own bundle identifier, so it no longer replaces Writer and the two can be installed side by side. The terminal command is now `cowriter`. On first launch Co-writer copies your settings, recents, pins and Co-writer conversations from Writer if it finds them; Writer itself is left untouched.
 
 - Updates now come from this fork's GitHub releases (`gustavscirulis/ai-writer`) instead of upstream's. `scripts/distribute.sh` builds a signed, notarized DMG with your Developer ID, using notary credentials stored in the keychain and an updater key outside the repo, so it no longer needs a `.env`. Release notes default to the latest CHANGELOG section.
