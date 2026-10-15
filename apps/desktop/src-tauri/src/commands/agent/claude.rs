@@ -871,7 +871,7 @@ const BASE_SYSTEM_PROMPT: &str =
     "You assist a writer in a Markdown editor. Read workspace files for context.";
 const NOTE_SCOPE: &str = "Edit the assigned openFile in writer_context freely. Create or edit other notes only when the user asks; each one needs the user's approval, so use absolute paths to Markdown files inside the workspace.";
 const WORKSPACE_SCOPE: &str = "No note is open. When the user asks you to write something, create a new Markdown note for it inside the workspace with Write, using an absolute path. Edit existing notes only when the user asks. Each note you create or edit needs the user's approval.";
-const PROMPT_RULES: &str = "Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. Report changes.";
+const PROMPT_RULES: &str = "Use configured MCP tools when relevant, but do not use them to edit workspace files. Preserve frontmatter and formatting unless asked to change them. Files the user attached are listed in writer_context.files; Read each one before answering. An @Name in the user's message refers to the attached file with that name. Report changes.";
 
 fn system_prompt(has_note: bool) -> String {
     let scope = if has_note {

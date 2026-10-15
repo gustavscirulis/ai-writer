@@ -9,6 +9,7 @@ import {
   TextIcon,
 } from "@hugeicons/core-free-icons";
 import {
+  attachChatFiles,
   dismissChatFileError,
   pasteChatImage,
   pickChatFiles,
@@ -42,10 +43,16 @@ import { useSkills } from "@/hooks/use-co-writer";
 import { isWorkspaceChat } from "@/lib/agent-turn";
 import { matchSkills, slashQuery, type Skill } from "@/lib/co-writer-skills";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
+import { insertMention, mentionQuery, type MentionMatch } from "@/lib/mentions";
 import { pastedImageFile } from "@/lib/pasted-image";
+import { canonicalWikiTarget } from "@/lib/wiki-links";
+import type { SearchResult } from "@/types/fs";
+import { menuOptionId } from "./composer-menu";
 import { FileChip } from "./file-chip";
+import { MENTION_MENU_ID, MentionMenu } from "./mention-menu";
 import { FeedbackError, NotesTray } from "./notes-tray";
-import { SLASH_MENU_ID, SlashMenu, skillOptionId } from "./slash-menu";
+import { SLASH_MENU_ID, SlashMenu } from "./slash-menu";
+import { useMentionFiles } from "./use-mention-files";
 
 const MAX_INPUT_HEIGHT = 180;
 const KBD =
@@ -130,16 +137,49 @@ export function Composer() {
   const notes = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const skills = useSkills();
-  const query = slashQuery(text);
-  const matches = useMemo(
-    () => (query === null ? [] : matchSkills(query, skills)),
-    [query, skills],
+  const slash = slashQuery(text);
+  const skillMatches = useMemo(
+    () => (slash === null ? [] : matchSkills(slash, skills)),
+    [slash, skills],
   );
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState({ query, index: 0 });
-  const menuOpen = matches.length > 0 && dismissed !== text;
-  const active = highlight.query === query ? Math.min(highlight.index, matches.length - 1) : 0;
+  // The caret only counts for the draft it was read from, so a draft set from elsewhere opens no menu.
+  const [selection, setSelection] = useState({ text, caret: 0 });
+  const caret = selection.text === text ? selection.caret : null;
+  const trackCaret = (input: HTMLTextAreaElement) =>
+    setSelection({ text: input.value, caret: input.selectionStart });
+  const mention = slash === null && caret !== null ? mentionQuery(text, caret) : null;
+  const mentionFiles = useMentionFiles(mention?.query ?? null, path);
+  const pendingCaret = useRef<number | null>(null);
   const pickSkill = (skill: Skill) => setChatDraft(path, `/${skill.name} `);
+  const pickFile = (match: MentionMatch, file: SearchResult) => {
+    const next = insertMention(text, match, canonicalWikiTarget(file, mentionFiles));
+    pendingCaret.current = next.caret;
+    setChatDraft(path, next.text);
+    setSelection(next);
+    void attachChatFiles(path, [file.path]);
+  };
+  const menu =
+    skillMatches.length > 0
+      ? {
+          key: `/${slash}`,
+          id: SLASH_MENU_ID,
+          count: skillMatches.length,
+          pick: (index: number) => pickSkill(skillMatches[index]!),
+        }
+      : mention && mentionFiles.length > 0
+        ? {
+            key: `@${mention.query}`,
+            id: MENTION_MENU_ID,
+            count: mentionFiles.length,
+            pick: (index: number) => pickFile(mention, mentionFiles[index]!),
+          }
+        : null;
+  const dismissKey = `${text}\u0000${caret}`;
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState({ key: "", index: 0 });
+  const menuOpen = menu !== null && dismissed !== dismissKey;
+  const active = menu && highlight.key === menu.key ? Math.min(highlight.index, menu.count - 1) : 0;
+  const setActive = (index: number) => menu && setHighlight({ key: menu.key, index });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const setInput = useCallback(
     (input: HTMLTextAreaElement | null) => {
@@ -161,6 +201,10 @@ export function Composer() {
     if (!input) return;
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+    if (pendingCaret.current !== null) {
+      input.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }
   }, [text]);
   const send = () => {
     void sendChat(path, text, {
@@ -215,14 +259,24 @@ export function Composer() {
         data-chat-drop
         className={`relative rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
       >
-        {menuOpen && (
-          <SlashMenu
-            skills={matches}
-            active={active}
-            onActive={(index) => setHighlight({ query, index })}
-            onPick={pickSkill}
-          />
-        )}
+        {menuOpen &&
+          (menu.id === SLASH_MENU_ID ? (
+            <SlashMenu
+              skills={skillMatches}
+              active={active}
+              onActive={setActive}
+              onPick={pickSkill}
+            />
+          ) : (
+            mention && (
+              <MentionMenu
+                files={mentionFiles}
+                active={active}
+                onActive={setActive}
+                onPick={(file) => pickFile(mention, file)}
+              />
+            )
+          ))}
         {(attached.length > 0 || files.length > 0) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (
@@ -253,7 +307,11 @@ export function Composer() {
                   : "Ask anything, or describe a change…"
           }
           value={text}
-          onChange={(event) => setChatDraft(path, event.target.value)}
+          onChange={(event) => {
+            setChatDraft(path, event.target.value);
+            trackCaret(event.target);
+          }}
+          onSelect={(event) => trackCaret(event.currentTarget)}
           onPaste={(event) => {
             const image = pastedImageFile(event.clipboardData);
             if (!image) return;
@@ -262,22 +320,22 @@ export function Composer() {
           }}
           rows={2}
           aria-autocomplete="list"
-          aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
+          aria-controls={menuOpen ? menu.id : undefined}
           aria-expanded={menuOpen}
-          aria-activedescendant={menuOpen ? skillOptionId(active) : undefined}
+          aria-activedescendant={menuOpen ? menuOptionId(menu.id, active) : undefined}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
             const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
             if (menuOpen && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
               event.preventDefault();
               const step = event.key === "ArrowDown" ? 1 : -1;
-              setHighlight({ query, index: (active + step + matches.length) % matches.length });
+              setActive((active + step + menu.count) % menu.count);
             } else if (menuOpen && plain && (event.key === "Enter" || event.key === "Tab")) {
               event.preventDefault();
-              pickSkill(matches[active]!);
+              menu.pick(active);
             } else if (menuOpen && event.key === "Escape") {
               event.preventDefault();
-              setDismissed(text);
+              setDismissed(dismissKey);
             } else if (event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey) {
               event.preventDefault();
               togglePlanMode(path);

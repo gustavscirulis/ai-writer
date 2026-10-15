@@ -7,6 +7,7 @@ Users can attach any file Claude Code can read: images, PDFs, other notes, CSVs,
 - The paperclip button next to Send opens the native file picker. Multiple files can be selected, and there are no type filters.
 - ⌘V with an image on the clipboard saves it to `app_cache_dir()/chat-attachments/Pasted image YYYYMMDD-HHMMSS-xxxx.{ext}` and attaches that file. The 5 MB limit is shared with editor image paste (`lib/pasted-image.ts`). Saving prunes pasted images older than 30 days.
 - Dropping files from Finder onto the composer attaches them. The composer highlights while a drag is over it.
+- Typing `@` and picking a note attaches it and writes `@Name` into the message. See [@ mentions](chat-mentions.md).
 
 Picked and dropped paths go through `resolve_chat_files`, which returns canonical regular files. A folder or a missing file is rejected with a message such as "Projects is a folder. Attach files instead.", shown above the composer.
 
