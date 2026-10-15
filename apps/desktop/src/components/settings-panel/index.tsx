@@ -23,6 +23,8 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
       if (def.category === "Theme") continue;
       // Native code owns this list; AllowedToolsRows only lists and revokes entries.
       if (def.key === ALLOWED_TOOLS_KEY) continue;
+      // Panel open state, toggled with ⌘⇧L; Co-writer itself can't be turned off.
+      if (def.key === "appearance.agent-panel-visible") continue;
       const existing = map.get(def.category) ?? [];
       existing.push(def);
       map.set(def.category, existing);

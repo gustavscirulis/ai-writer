@@ -6,7 +6,7 @@ The vendored [ProseMark license](../apps/desktop/src/lib/prosemark-core/LICENSE)
 
 ## External Claude Code
 
-The experimental Chat feature runs the user's installed unmodified CLI. No Anthropic binary or SDK is bundled. Writer does not collect credentials or implement Claude account login; the CLI handles its own authentication and direct billing. This fork is independent of Anthropic.
+Co-writer runs the user's installed unmodified CLI. No Anthropic binary or SDK is bundled. Writer does not collect credentials or implement Claude account login; the CLI handles its own authentication and direct billing. This fork is independent of Anthropic.
 
 Anthropic's current [legal and compliance documentation](https://code.claude.com/docs/en/legal-and-compliance), checked 2026-10-10, permits running unmodified Claude Code inside products subject to Commercial Terms and its stated conditions. Preserve every built-in authentication method; users authenticate and pay directly. Do not resell/intermediate usage or collect subscription tokens. Users may sign in to the unmodified binary with their own subscription. That permission does not authorize a third-party app's own Claude login flow or credential proxy.
 

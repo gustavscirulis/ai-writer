@@ -205,7 +205,7 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
             title="Open Co-writer (⌘⇧L)"
             className="rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
           >
-            Chat
+            Co-writer
           </button>
         </div>
       )}

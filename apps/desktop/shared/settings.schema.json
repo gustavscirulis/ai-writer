@@ -389,11 +389,11 @@
     },
     {
       "key": "appearance.agent-panel-visible",
-      "label": "Show Co-writer",
-      "description": "Show the experimental Co-writer panel. Runs your installed Claude Code CLI with its own account and permissions.",
+      "label": "Co-writer Visible",
+      "description": "Whether the Co-writer panel is open",
       "category": "Co-writer",
       "type": "boolean",
-      "default": false
+      "default": true
     },
     {
       "key": "appearance.agent-panel-width",

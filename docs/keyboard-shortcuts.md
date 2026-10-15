@@ -8,7 +8,7 @@ These shortcuts are handled by the global `useKeyboardShortcuts` hook and work r
 
 | Shortcut        | Action                                                             |
 | --------------- | ------------------------------------------------------------------ |
-| Cmd+Shift+L     | Toggle experimental Co-writer panel                                |
+| Cmd+Shift+L     | Toggle Co-writer panel                                             |
 | Cmd+Shift+H     | Toggle version history for the current note (↑/↓ flip, Esc close)  |
 | Cmd+P           | File search (command palette)                                      |
 | Cmd+O           | Go to file                                                         |

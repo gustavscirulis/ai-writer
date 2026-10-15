@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Co-writer is no longer an option you turn on. Its panel is open by default, and Settings → Co-writer no longer has a Show Co-writer switch. Hide or show the panel with ⌘⇧L or the button at the top right, now labelled Co-writer instead of Chat.
+
 - The GitHub repo is now `gustavscirulis/co-writer`. Updates come from its releases; GitHub redirects the old `ai-writer` address, so 0.8.0 keeps finding updates.
 
 - Removed the marketing website (`apps/website/`), its Cloudflare config and its docs. This fork doesn't use them.
