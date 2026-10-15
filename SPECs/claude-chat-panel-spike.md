@@ -12,7 +12,7 @@ Enter sends, Shift+Enter adds a line, and IME composition does not submit. Accep
 
 ## Backend ownership
 
-`commands/agent/claude.rs` exposes note-bound start, send, stop and permission decisions, using a provider-shaped `AgentEvent` channel envelope. Only Claude is implemented; adding Codex also requires a frontend provider adapter.
+`commands/agent/claude.rs` exposes note-bound start, send, stop and permission decisions, using a provider-shaped `AgentEvent` channel envelope. Codex now runs through the same envelope; see [codex-provider.md](./codex-provider.md).
 
 Login-shell discovery resolves executable/PATH using a framed response, an eight-second timeout and successful-only cache. Startup receives root/epoch, captures a cancellation epoch before asynchronous discovery, queries native visibility outside state locks, then validates identity under the workspace root and process locks. This prevents a late start after workspace transition or window close.
 
@@ -46,4 +46,4 @@ Tests cover interleaved note starts, streams, acknowledgements and completion; s
 
 Live macOS window hide/reopen still needs a manual pass: application-service/XPC failures prevented usable native UI automation in this environment. The pre-existing Finder trash test is affected by the same service failure. This is distinct from the passing native process/CLI workflow.
 
-Future work: graceful protocol interrupt, onboarding/account recovery, a session picker (visible history persists per [persist-chat-history.md](./persist-chat-history.md)), changed-file/diff review, native GUI end-to-end automation and a separate fork's identity/releases. Codex support remains future work.
+Future work: graceful protocol interrupt, onboarding/account recovery, a session picker (visible history persists per [persist-chat-history.md](./persist-chat-history.md)), changed-file/diff review, native GUI end-to-end automation and a separate fork's identity/releases.

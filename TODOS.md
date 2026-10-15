@@ -19,6 +19,16 @@
 
 ## Done
 
+- Co-writer on Codex: [`SPECs/codex-provider.md`](SPECs/codex-provider.md). Settings → Co-writer → Agent picks Claude Code or Codex.
+  - The Codex actor (`commands/agent/codex.rs`) runs one turn per `codex app-server` process with `:read-only` permissions. Note-scoped patches go through the scope rules shared with Claude (`scope.rs`), and command escalations are declined.
+  - MCP approvals, questions and plan mode map onto the existing prompts. Plan mode becomes a second turn in the same process.
+  - The `agent_*` commands, launch, prompt and CLI discovery (`cli_env.rs`) are shared between agents.
+  - The frontend picks the agent from a provider registry (`lib/agent-providers.ts`), and `lib/codex-stream.ts` adapts Codex's stream to the existing chat events.
+  - Saved chats move to version 2 and record which agent their session belongs to. Switching agents starts fresh with a notice.
+  - Capabilities and skills are cached per agent. The Model row follows the agent, with Codex's options coming from `model/list`.
+  - Passing: Rust unit tests, Clippy and formatting, the full JS suite and checks, and the ignored real-CLI tests `real_codex_edits_note` and `real_codex_plan_mode` (Codex 0.162.1).
+  - Not yet tried in the native app: a Codex turn with a cross-note approval, a question or a skill.
+
 - Co-writer model setting: [`SPECs/claude-model-setting.md`](SPECs/claude-model-setting.md). Settings → Co-writer → Model chooses `default` (the CLI's own model), `fable`, `opus`, `sonnet` or `haiku`. `claude_start` reads the global setting and passes `--model`. Options name their versions, and Default names the model the CLI is set to run, both read from the capabilities probe (`initialize` and `get_settings`). The labels were checked in the built app. Unknown values fail the turn with an explicit error. Covered by schema and Rust unit tests, plus `e2e/specs/co-writer-model.spec.js`, which picks a model in the built app and checks that it persists. A real chat turn on a chosen model hasn't been run yet. The e2e harness now points at `Co-writer.app`; it still pointed at `Writer.app` after the rename.
 
 - Allowed tools in Preferences, grouped by source: picked the "Grouped" direction from a three-way prototype (grouped / chips / collapsed summary). `describeAllowedTool` and `groupAllowedTools` in `lib/tool-request-summary.ts` replace `allowedToolLabel`: they turn `mcp__<server>__<tool>` into a readable source and name, and put built-in tools first. The list now spans the full width of the card, under the description, with revoke buttons that show on hover and a "Revoke all" for each source, which revokes one tool after another through the existing command. Unit and render tests pass; checked in a browser with the real component and app CSS (hover, revoke, revoke all). Not yet tried in the native app.

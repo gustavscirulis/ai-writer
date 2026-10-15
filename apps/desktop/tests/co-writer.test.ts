@@ -25,7 +25,13 @@ import {
   type Capabilities,
   type Skill,
 } from "../src/lib/co-writer-skills";
-import { loadCapabilities, skillsFor, useCoWriterStore } from "../src/stores/co-writer-store";
+import {
+  capabilityKey,
+  loadCapabilities,
+  skillsFor,
+  useCoWriterStore,
+} from "../src/stores/co-writer-store";
+import { AGENTS } from "../src/lib/agent-providers";
 
 const server = (name: string, status = "connected"): McpServer => ({ name, status });
 const skill = (name: string, aliases: string[] = []): Skill => ({
@@ -94,11 +100,13 @@ describe("suggestion helpers", () => {
   });
 
   test("footnote mentions MCPs unless none are connected", () => {
-    expect(serversFootnote(servers)).toBe(
+    expect(serversFootnote(servers, "Claude Code")).toBe(
       "Runs on your Claude Code, with the same tools and MCPs.",
     );
-    expect(serversFootnote(null)).toBe("Runs on your Claude Code, with the same tools and MCPs.");
-    expect(serversFootnote([server("claude.ai Gmail", "needs-auth")])).toBe(
+    expect(serversFootnote(null, "Codex")).toBe(
+      "Runs on your Codex, with the same tools and MCPs.",
+    );
+    expect(serversFootnote([server("claude.ai Gmail", "needs-auth")], "Claude Code")).toBe(
       "Runs on your Claude Code, with the same tools.",
     );
   });
@@ -111,40 +119,57 @@ describe("co-writer store", () => {
   });
 
   const capabilities: Capabilities = { mcpServers: servers, skills: [skill("ux-copy")] };
+  const claude = AGENTS["claude-code"];
+  const cached = capabilityKey(claude, "/cached");
 
   test("shows cached servers and skills at once and refreshes them from Claude Code", async () => {
     const stored: Capabilities = { mcpServers: [server("claude.ai Slack")], skills: [] };
-    data.set("co-writer.capabilities", { "/cached": stored });
+    data.set("co-writer.capabilities", { [cached]: stored });
     let resolve!: (value: Capabilities) => void;
     vi.mocked(invoke).mockReturnValueOnce(new Promise((r) => (resolve = r)));
-    const discovery = loadCapabilities("/cached");
+    const discovery = loadCapabilities(claude, "/cached");
     await vi.waitFor(() =>
-      expect(useCoWriterStore.getState().capabilities["/cached"]).toEqual(stored),
+      expect(useCoWriterStore.getState().capabilities[cached]).toEqual(stored),
     );
     resolve(capabilities);
     await discovery;
-    expect(useCoWriterStore.getState().capabilities["/cached"]).toBe(capabilities);
-    expect(skillsFor("/cached")).toEqual([skill("ux-copy")]);
+    expect(useCoWriterStore.getState().capabilities[cached]).toBe(capabilities);
+    expect(skillsFor(claude, "/cached")).toEqual([skill("ux-copy")]);
+    expect(skillsFor(AGENTS.codex, "/cached")).toEqual([]);
     await vi.waitFor(() =>
-      expect(data.get("co-writer.capabilities")).toEqual({ "/cached": capabilities }),
+      expect(data.get("co-writer.capabilities")).toEqual({ [cached]: capabilities }),
     );
-    expect(loadCapabilities("/cached")).toBe(discovery);
+    expect(loadCapabilities(claude, "/cached")).toBe(discovery);
     expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("claude_capabilities", { root: "/cached" });
   });
 
   test("marks capabilities unavailable when Claude Code can't list them and nothing is cached", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(invoke).mockRejectedValue(new Error("Not logged in"));
-    await expect(loadCapabilities("/fail")).rejects.toThrow("Not logged in");
+    await expect(loadCapabilities(claude, "/fail")).rejects.toThrow("Not logged in");
     await vi.waitFor(() =>
-      expect(useCoWriterStore.getState().capabilities["/fail"]).toBe("unavailable"),
+      expect(useCoWriterStore.getState().capabilities[capabilityKey(claude, "/fail")]).toBe(
+        "unavailable",
+      ),
     );
-    expect(skillsFor("/fail")).toEqual([]);
+    expect(skillsFor(claude, "/fail")).toEqual([]);
     expect(error).toHaveBeenCalledWith(
       "[co-writer] Could not list MCP servers and skills",
       expect.any(Error),
     );
     error.mockRestore();
+  });
+
+  test("keeps each agent's capabilities for a workspace apart", async () => {
+    const codex: Capabilities = { mcpServers: [], skills: [skill("draft")] };
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === "codex_capabilities" ? codex : capabilities,
+    );
+    await loadCapabilities(AGENTS.codex, "/both");
+    await loadCapabilities(claude, "/both");
+    expect(skillsFor(AGENTS.codex, "/both")).toEqual([skill("draft")]);
+    expect(skillsFor(claude, "/both")).toEqual([skill("ux-copy")]);
   });
 });
 

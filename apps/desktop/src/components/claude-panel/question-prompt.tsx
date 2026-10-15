@@ -14,7 +14,7 @@ import {
   type PromptProps,
 } from "./prompt-shell";
 
-/** Claude's questions, one at a time; the answers go back together after the last one. */
+/** Co-writer's questions, one at a time; the answers go back together after the last one. */
 export function QuestionPrompt({ path, request, queued }: PromptProps) {
   const questions = useMemo(() => readQuestions(request.input), [request.input]);
   const [step, setStep] = useState(0);
@@ -83,7 +83,7 @@ export function QuestionPrompt({ path, request, queued }: PromptProps) {
         : null;
 
   return (
-    <PromptCard label="Claude's question" pending={disabled} onEscape={decline}>
+    <PromptCard label="Co-writer's question" pending={disabled} onEscape={decline}>
       <div className="flex items-center justify-between gap-3 px-1.5">
         {question.header ? (
           <span className="truncate rounded-md bg-[var(--surface-subtle)] px-1.5 text-[11px] leading-[18px] text-[var(--text-muted)] [[data-theme=dark]_&]:bg-[var(--surface-subtle-strong)]">

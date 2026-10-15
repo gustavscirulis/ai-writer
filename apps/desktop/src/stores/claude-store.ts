@@ -27,6 +27,7 @@ import {
 } from "@/lib/agent-turn";
 import type { AgentTurnOptions, SendOptions } from "@/lib/agent-request";
 import { promptContent } from "@/lib/co-writer-skills";
+import { currentAgent, isAgentId, type AgentId, type AgentProvider } from "@/lib/agent-providers";
 import { parseDocument } from "@/lib/frontmatter";
 import { getFileName } from "@/lib/paths";
 import { attachmentRange } from "@/lib/feedback-anchors";
@@ -38,11 +39,11 @@ import {
   type FeedbackBatch,
 } from "@/stores/feedback-store";
 import {
-  parseClaudeLine,
   reduceClaudeMessages,
   getClaudeActivity,
   isVisibleMessage,
   type ClaudeActivity,
+  type ClaudeEvent,
   type ChatMessage,
   type ToolPermission,
 } from "@/lib/claude-stream";
@@ -92,7 +93,7 @@ interface ClaudeState {
   releaseMentions: (path: string) => void;
   setFileError: (path: string, error: string | null) => void;
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
-  /** Replies to a request that needs the user's answer, such as Claude's questions. */
+  /** Replies to a request that needs the user's answer, such as the agent's questions. */
   answer: (path: string, id: string, answer: tauri.HostAnswer) => Promise<void>;
   setPlanMode: (path: string, planMode: boolean) => void;
   send: (path: string, text: string, options?: SendOptions) => Promise<boolean>;
@@ -105,6 +106,8 @@ interface ClaudeState {
 }
 interface Run {
   key: string;
+  agent: AgentProvider;
+  parse: (line: string) => ClaudeEvent[];
   path: string;
   turnId: string;
   root: string;
@@ -147,18 +150,28 @@ let drains = 0;
 export function chatForPath(chats: Record<string, Chat>, path: string | null) {
   return path ? (chats[documentPath(path)] ?? EMPTY_CHAT) : EMPTY_CHAT;
 }
-const EXPIRED_SESSION =
-  "This conversation can't be continued in Claude Code any more. Start a new conversation to keep going.";
+const expiredSession = (agent: AgentProvider) =>
+  `This conversation can't be continued in ${agent.label} any more. Start a new conversation to keep going.`;
 
+interface Session {
+  id: string;
+  agent: AgentId;
+}
 /** One record per canonical note path, so the visible thread and its session can't drift. */
 interface ChatRecord {
+  version: 2;
+  session: Session | null;
+  messages: ChatMessage[];
+}
+/** Before Codex, every session was Claude Code's. */
+interface ChatRecordV1 {
   version: 1;
   sessionId: string | null;
   messages: ChatMessage[];
 }
 type ChatRecords = Record<string, ChatRecord>;
 const CHATS_FILE = "chats.json";
-// Claude Code sessions belong to the root they ran in, so a nested workspace must not share them.
+// Agent sessions belong to the root they ran in, so a nested workspace must not share them.
 const recordPrefix = (root: string) => `${root}\0`;
 
 /** A tool that never finished was cut off by a quit or crash, not still running. */
@@ -192,18 +205,34 @@ function hydrate(root: string, generation: number, records: ChatRecords) {
   });
 }
 
+function readRecord(record: ChatRecord | ChatRecordV1 | undefined): ChatRecord | null {
+  if (!record || !Array.isArray(record.messages)) return null;
+  if (record.version === 1)
+    return {
+      version: 2,
+      session: record.sessionId ? { id: record.sessionId, agent: "claude-code" } : null,
+      messages: record.messages,
+    };
+  if (record.version !== 2) return null;
+  const { session } = record;
+  return session === null || (typeof session?.id === "string" && isAgentId(session.agent))
+    ? record
+    : null;
+}
+
 const loadedChats = new Map<string, Promise<ChatRecords>>();
 function loadChats(root: string) {
   let loaded = loadedChats.get(root);
   if (!loaded) {
     const generation = useWorkspaceStore.getState().workspaceGeneration;
     const prefix = recordPrefix(root);
-    loaded = readStoreEntriesStrict<ChatRecord>(CHATS_FILE).then((entries) => {
+    loaded = readStoreEntriesStrict<ChatRecord | ChatRecordV1>(CHATS_FILE).then((entries) => {
       const records: ChatRecords = {};
       for (const [entry, record] of entries) {
         if (!entry.startsWith(prefix)) continue;
         const key = entry.slice(prefix.length);
-        if (record?.version === 1 && Array.isArray(record.messages)) records[key] = record;
+        const read = readRecord(record);
+        if (read) records[key] = read;
         else console.error("[chat] Ignoring unreadable saved chat", key);
       }
       hydrate(root, generation, records);
@@ -240,7 +269,7 @@ function updateChats(root: string, update: (records: ChatRecords) => ChatRecords
   return task;
 }
 /** Snapshots the note's live messages at write time; a stale workspace keeps the stored ones. */
-function persistChat(root: string, key: string, generation: number, sessionId?: string) {
+function persistChat(root: string, key: string, generation: number, session?: Session) {
   return updateChats(root, (records) => {
     const workspace = useWorkspaceStore.getState();
     const live = workspace.root === root && workspace.workspaceGeneration === generation;
@@ -249,8 +278,8 @@ function persistChat(root: string, key: string, generation: number, sessionId?: 
       ? (useClaudeStore.getState().chats[key]?.messages ?? [])
       : (stored?.messages ?? []);
     const record: ChatRecord = {
-      version: 1,
-      sessionId: sessionId ?? stored?.sessionId ?? null,
+      version: 2,
+      session: session ?? stored?.session ?? null,
       messages: messages.filter(isVisibleMessage),
     };
     return { ...records, [key]: record };
@@ -274,7 +303,7 @@ function withChat(chats: Record<string, Chat>, path: string, update: (chat: Chat
   return before === after ? chats : { ...chats, [path]: after };
 }
 
-/** Attachment lines refer to the saved file, frontmatter included, as Claude's Read tool shows it. */
+/** Attachment lines refer to the saved file, frontmatter included, as the agent reads it. */
 function attachmentContext(path: string, attachments: SendOptions["attachments"]) {
   if (!attachments?.length) return [];
   const view = getEditorView(path);
@@ -323,7 +352,7 @@ function end(run: Run, error: string | null) {
 async function terminate(run: Run) {
   const id = run.processId;
   if (!id) return;
-  await tauri.claudeStop(id);
+  await tauri.agentStop(id);
   if (run.processId === id) run.processId = null;
 }
 function finish(run: Run): Promise<void> {
@@ -335,7 +364,7 @@ function finish(run: Run): Promise<void> {
       try {
         await terminate(run);
       } catch (error) {
-        patch(run, { error: `Could not stop Claude Code: ${errorText(error)}` });
+        patch(run, { error: `Could not stop ${run.agent.label}: ${errorText(error)}` });
         return;
       }
       if (!current(run)) return;
@@ -347,7 +376,7 @@ function finish(run: Run): Promise<void> {
           () => false,
         );
         try {
-          await persistChat(run.root, run.key, run.workspaceGeneration, run.sessionId ?? undefined);
+          await persistChat(run.root, run.key, run.workspaceGeneration, session(run));
         } catch (error) {
           if (!sessionSaved) throw error;
           run.error ??= `Could not save this chat: ${errorText(error)}`;
@@ -419,7 +448,7 @@ function notice(run: Run, text: string) {
     return { ...chat, notices: [...chat.notices, { afterId, text }].slice(-50) };
   });
 }
-/** Lock and save the note only while Claude applies an Edit/Write, then release it to the CLI. */
+/** Lock and save the note only while the agent applies an edit, then release it to the CLI. */
 async function beginEdit(run: Run, requestId: string, toolUseId: string | null, key: string) {
   const own = key === run.key;
   let edit = run.edit;
@@ -460,7 +489,7 @@ async function beginEdit(run: Run, requestId: string, toolUseId: string | null, 
   }
   if (!current(run) || run.edit !== edit || !run.processId) return;
   try {
-    await tauri.claudeEditReady(run.processId, requestId, ready);
+    await tauri.agentEditReady(run.processId, requestId, ready);
   } catch (error) {
     console.error("[chat] Could not release the AI edit", error);
   }
@@ -518,6 +547,9 @@ async function reloadAfterEdit(run: Run, edit: Edit) {
     if (failures.size) throw failures.values().next().value;
   }
 }
+function session(run: Run): Session | undefined {
+  return run.sessionId === null ? undefined : { id: run.sessionId, agent: run.agent.id };
+}
 function receive(run: Run, event: tauri.AgentEvent) {
   if (!current(run)) return;
   if (event.type === "started") {
@@ -532,7 +564,7 @@ function receive(run: Run, event: tauri.AgentEvent) {
       if (!run.ended)
         end(
           run,
-          `Claude Code exited${event.code === null ? "" : ` (${event.code})`}. Send again to resume.`,
+          `${run.agent.label} exited${event.code === null ? "" : ` (${event.code})`}. Send again to resume.`,
         );
       return;
     }
@@ -545,77 +577,81 @@ function receive(run: Run, event: tauri.AgentEvent) {
       void beginEdit(run, event.requestId, event.toolUseId, event.path);
       return;
     }
-    const parsed = parseClaudeLine(event.line);
-    if (!parsed) return;
-    if (parsed.type === "init") {
-      run.sessionId = parsed.sessionId;
-      const write = persistChat(run.root, run.key, run.workspaceGeneration, parsed.sessionId);
-      run.sessionWrite = write;
-      void write.catch((error) => {
-        end(run, `Could not save chat session: ${errorText(error)}`);
-      });
-    } else if (parsed.type === "result")
-      end(
-        run,
-        run.sessionId === null && parsed.error?.startsWith("No conversation found with session ID")
-          ? EXPIRED_SESSION
-          : parsed.error,
-      );
-    else if (parsed.type === "permission") {
-      if (run.ended || run.permissionIds.has(parsed.permission.id)) return;
-      run.permissionIds.add(parsed.permission.id);
-      updateChat(run.key, (chat) => ({
-        ...chat,
-        permissions: [...chat.permissions, parsed.permission],
-      }));
-      const active = useEditorStore.getState().activeFilePath;
-      if ((active ? documentPath(active) : WORKSPACE_CHAT) === run.key)
-        void useSettingsStore
-          .getState()
-          .setSetting("appearance.agent-panel-visible", true)
-          .catch((error) => console.error("[chat] Could not open approval panel", error));
-    } else if (parsed.type === "permission_cancel") {
-      run.permissionIds.add(parsed.id);
-      updateChat(run.key, (chat) => ({
-        ...chat,
-        permissions: chat.permissions.filter((entry) => entry.id !== parsed.id),
-      }));
-    } else if (parsed.type === "unsupported_control") {
-      throw new Error(`Unsupported interactive request: ${parsed.subtype}`);
-    } else if (!run.ended) {
-      const edit = run.edit;
-      if (
-        edit &&
-        parsed.type === "tool_results" &&
-        parsed.results.some((result) => edit.toolUseId === null || result.id === edit.toolUseId)
-      )
-        void endEdit(run).catch((error) =>
-          patch(run, {
-            error: `Could not reload your note: ${errorText(error)}. Stop the chat to retry.`,
-          }),
-        );
-      if (parsed.type === "start") {
-        run.streamingId = parsed.id;
-        run.streamingBlockIndex = 0;
-      }
-      if (parsed.type === "block_start") run.streamingBlockIndex = parsed.index;
-      updateChat(run.key, (chat) => {
-        const messages = reduceClaudeMessages(
-          chat.messages,
-          parsed,
-          run.streamingId,
-          run.streamingBlockIndex,
-        );
-        const activity = getClaudeActivity(parsed, messages, chat.activity);
-        return messages === chat.messages && activity === chat.activity
-          ? chat
-          : { ...chat, messages, activity };
-      });
-      if (parsed.type === "message_stop") run.streamingId = null;
+    for (const parsed of run.parse(event.line)) {
+      if (run.cancelled || !current(run)) return;
+      handle(run, parsed);
     }
   } catch (error) {
-    run.error = `Invalid Claude stream: ${errorText(error)}`;
+    run.error = `Invalid ${run.agent.label} stream: ${errorText(error)}`;
     void useClaudeStore.getState().stop(run.path);
+  }
+}
+function handle(run: Run, parsed: ClaudeEvent) {
+  if (parsed.type === "init") {
+    run.sessionId = parsed.sessionId;
+    const write = persistChat(run.root, run.key, run.workspaceGeneration, session(run));
+    run.sessionWrite = write;
+    void write.catch((error) => {
+      end(run, `Could not save chat session: ${errorText(error)}`);
+    });
+  } else if (parsed.type === "result")
+    end(
+      run,
+      run.sessionId === null && parsed.error && run.agent.isExpiredSession(parsed.error)
+        ? expiredSession(run.agent)
+        : parsed.error,
+    );
+  else if (parsed.type === "permission") {
+    if (run.ended || run.permissionIds.has(parsed.permission.id)) return;
+    run.permissionIds.add(parsed.permission.id);
+    updateChat(run.key, (chat) => ({
+      ...chat,
+      permissions: [...chat.permissions, parsed.permission],
+    }));
+    const active = useEditorStore.getState().activeFilePath;
+    if ((active ? documentPath(active) : WORKSPACE_CHAT) === run.key)
+      void useSettingsStore
+        .getState()
+        .setSetting("appearance.agent-panel-visible", true)
+        .catch((error) => console.error("[chat] Could not open approval panel", error));
+  } else if (parsed.type === "permission_cancel") {
+    run.permissionIds.add(parsed.id);
+    updateChat(run.key, (chat) => ({
+      ...chat,
+      permissions: chat.permissions.filter((entry) => entry.id !== parsed.id),
+    }));
+  } else if (parsed.type === "unsupported_control") {
+    throw new Error(`Unsupported interactive request: ${parsed.subtype}`);
+  } else if (!run.ended) {
+    const edit = run.edit;
+    if (
+      edit &&
+      parsed.type === "tool_results" &&
+      parsed.results.some((result) => edit.toolUseId === null || result.id === edit.toolUseId)
+    )
+      void endEdit(run).catch((error) =>
+        patch(run, {
+          error: `Could not reload your note: ${errorText(error)}. Stop the chat to retry.`,
+        }),
+      );
+    if (parsed.type === "start") {
+      run.streamingId = parsed.id;
+      run.streamingBlockIndex = 0;
+    }
+    if (parsed.type === "block_start") run.streamingBlockIndex = parsed.index;
+    updateChat(run.key, (chat) => {
+      const messages = reduceClaudeMessages(
+        chat.messages,
+        parsed,
+        run.streamingId,
+        run.streamingBlockIndex,
+      );
+      const activity = getClaudeActivity(parsed, messages, chat.activity);
+      return messages === chat.messages && activity === chat.activity
+        ? chat
+        : { ...chat, messages, activity };
+    });
+    if (parsed.type === "message_stop") run.streamingId = null;
   }
 }
 /** The request stays visible while its reply is delivered, and keeps the error if delivery fails. */
@@ -715,7 +751,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const key = documentPath(path);
     const allowsTool = always && allow;
     const request = await reply(key, id, (processId) =>
-      tauri.claudeDecidePermission(processId, id, allow, allowsTool),
+      tauri.agentDecidePermission(processId, id, allow, allowsTool),
     );
     if (!request || !allowsTool) return;
     // Native code saved the tool for every chat; requests already queued still wait for a reply.
@@ -729,7 +765,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   },
   answer: async (path, id, answer) => {
     const key = documentPath(path);
-    const request = await reply(key, id, (processId) => tauri.claudeAnswer(processId, id, answer));
+    const request = await reply(key, id, (processId) => tauri.agentAnswer(processId, id, answer));
     // Native code has left plan mode for the rest of this turn.
     if (request && answer.kind === "plan" && answer.approve) get().setPlanMode(path, false);
   },
@@ -774,6 +810,13 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       }));
       return Promise.resolve(false);
     }
+    let agent: AgentProvider;
+    try {
+      agent = currentAgent();
+    } catch (error) {
+      updateChat(key, (chat) => ({ ...chat, status: "error", error: errorText(error) }));
+      return Promise.resolve(false);
+    }
     let resolveProcessStarted!: () => void;
     const processStarted = new Promise<void>((resolve) => {
       resolveProcessStarted = resolve;
@@ -781,6 +824,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const turnId = crypto.randomUUID();
     const run: Run = {
       key,
+      agent,
+      parse: agent.createParser(),
       path,
       turnId,
       root: workspace.root,
@@ -848,12 +893,19 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         if (!current(run) || run.cancelled || run.ended) return false;
         const records = await loadChats(run.root);
         if (!current(run) || run.cancelled || run.ended) return false;
+        const stored = records[key]?.session ?? null;
+        const resume = stored?.agent === agent.id ? stored.id : null;
+        if (stored && !resume)
+          notice(
+            run,
+            `This chat now runs on ${agent.label}, which doesn't have the earlier messages as context.`,
+          );
         const channel = new Channel<tauri.AgentEvent>();
         channel.onmessage = (event) => receive(run, event);
-        const id = await tauri.claudeStart(
+        const id = await agent.start(
           run.root,
           workspace.workspaceEpoch!,
-          records[key]?.sessionId ?? null,
+          resume,
           workspaceChat ? null : path,
           chatForPath(get().chats, key).planMode,
           channel,
@@ -870,12 +922,8 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
           attachments: options ? [] : attachmentContext(path, attachments),
           ...(sentFiles.length ? { files: sentFiles } : {}),
         };
-        const content = promptContent(context, prepared, skillsFor(run.root));
-        await tauri.claudeSend(
-          id,
-          JSON.stringify({ type: "user", message: { role: "user", content } }),
-          sentFiles,
-        );
+        const content = promptContent(context, prepared, skillsFor(agent, run.root));
+        await tauri.agentSend(id, content, sentFiles);
         return true;
       } catch (error) {
         if (current(run)) {
@@ -969,7 +1017,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
         if (run.finishing) await run.finishing;
         if (current(run)) await finish(run);
       } catch (error) {
-        patch(run, { error: `Could not stop Claude Code: ${errorText(error)}` });
+        patch(run, { error: `Could not stop ${run.agent.label}: ${errorText(error)}` });
       }
     })();
     run.stopping = task;

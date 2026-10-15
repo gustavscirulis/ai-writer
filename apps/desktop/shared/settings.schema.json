@@ -404,12 +404,31 @@
       "default": 340
     },
     {
+      "key": "co-writer.agent",
+      "label": "Agent",
+      "description": "The CLI Co-writer runs on, using the account you're signed in to in your terminal. Applies from the next message, in every workspace. A chat started on the other agent continues without its earlier context.",
+      "category": "Co-writer",
+      "type": "enum",
+      "options": ["claude-code", "codex"],
+      "scope": "global",
+      "default": "claude-code"
+    },
+    {
       "key": "co-writer.model",
       "label": "Model",
-      "description": "Claude model for Co-writer chats. Default uses your Claude Code CLI's configured model. Applies from the next message, in every workspace.",
+      "description": "Claude model for Co-writer chats on Claude Code. Default uses your Claude Code CLI's configured model. Applies from the next message, in every workspace.",
       "category": "Co-writer",
       "type": "enum",
       "options": ["default", "fable", "opus", "sonnet", "haiku"],
+      "scope": "global",
+      "default": "default"
+    },
+    {
+      "key": "co-writer.codex-model",
+      "label": "Model",
+      "description": "Model for Co-writer chats on Codex. Default uses your Codex CLI's configured model. Applies from the next message, in every workspace.",
+      "category": "Co-writer",
+      "type": "string",
       "scope": "global",
       "default": "default"
     },

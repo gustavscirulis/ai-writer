@@ -213,7 +213,7 @@ export function Composer() {
   const busy = status === "running" || status === "stopping";
   const retryLabel =
     status === "stopping" && error
-      ? error.startsWith("Could not stop Claude Code:")
+      ? error.startsWith("Could not stop ")
         ? "Retry Stop"
         : "Retry reload"
       : null;

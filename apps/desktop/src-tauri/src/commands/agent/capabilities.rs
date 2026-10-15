@@ -1,4 +1,5 @@
 use super::claude::{kill_group, resolve_claude_env};
+use super::codex;
 use crate::error::AppError;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -34,7 +35,7 @@ pub struct Skill {
     aliases: Vec<String>,
 }
 
-/// A model Claude Code offers, such as `opus` resolving to Opus 5.5.
+/// A model the agent offers, such as Claude Code's `opus` resolving to Opus 5.5.
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
@@ -49,7 +50,7 @@ pub struct Capabilities {
     mcp_servers: Vec<McpServer>,
     skills: Vec<Skill>,
     models: Vec<Model>,
-    /// The model Claude Code runs when Co-writer passes no `--model`.
+    /// The model the CLI runs when Co-writer doesn't choose one.
     cli_model: Option<String>,
 }
 
@@ -240,6 +241,150 @@ pub async fn claude_capabilities(root: String) -> Result<Capabilities, AppError>
     let _ = child.wait().await;
     result
         .map_err(|_| AppError::Io("Timed out listing Claude Code's MCP servers and skills".into()))?
+        .map_err(AppError::Io)
+}
+
+fn codex_server_status(server: &Value) -> &'static str {
+    match server["runtimeStatus"].as_str() {
+        Some("connected") => "connected",
+        Some("authenticationRequired") => "needs-auth",
+        Some("failed") => "failed",
+        Some("disabled" | "cancelled") => "disabled",
+        Some(_) => "pending",
+        None if !server["toolsError"].is_null() => "failed",
+        None if server["authStatus"] == "notLoggedIn" => "needs-auth",
+        None if server["tools"]
+            .as_object()
+            .is_some_and(|tools| !tools.is_empty()) =>
+        {
+            "connected"
+        }
+        None => "pending",
+    }
+}
+
+fn codex_capabilities_from(
+    models: &Value,
+    skills: &Value,
+    servers: &Value,
+    config: Option<&Value>,
+) -> Result<Capabilities, String> {
+    let servers = servers["data"]
+        .as_array()
+        .ok_or("Codex sent an unreadable MCP server list")?;
+    let models = codex::parse_models(models);
+    let cli_model = config
+        .and_then(|config| config["config"]["model"].as_str())
+        .map(String::from)
+        .or_else(|| {
+            models
+                .iter()
+                .find(|model| model.default)
+                .map(|model| model.id.clone())
+        });
+    Ok(Capabilities {
+        mcp_servers: servers
+            .iter()
+            .filter_map(|server| {
+                Some(McpServer {
+                    name: server["name"].as_str()?.to_string(),
+                    status: codex_server_status(server).into(),
+                })
+            })
+            .collect(),
+        skills: codex::parse_skills(skills)
+            .into_iter()
+            .map(|skill| Skill {
+                name: skill.name,
+                description: skill.description,
+                argument_hint: String::new(),
+                aliases: Vec::new(),
+            })
+            .collect(),
+        models: models
+            .into_iter()
+            .map(|model| Model {
+                resolved_model: model.id.clone(),
+                value: model.id,
+                display_name: model.display_name,
+            })
+            .collect(),
+        cli_model,
+    })
+}
+
+async fn send_line(stdin: &mut tokio::process::ChildStdin, value: &Value) -> Result<(), String> {
+    stdin
+        .write_all(format!("{value}\n").as_bytes())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn read_codex_capabilities(child: &mut Child, root: &str) -> Result<Capabilities, String> {
+    let mut stdin = child.stdin.take().ok_or("Codex has no input")?;
+    let stdout = child.stdout.take().ok_or("Codex has no output")?;
+    let mut lines = BufReader::new(stdout).lines();
+    let mut results: std::collections::HashMap<u64, Result<Value, String>> = Default::default();
+    let initialize = json!({"id": 1, "method": "initialize", "params": codex::initialize_params()});
+    send_line(&mut stdin, &initialize).await?;
+    let mut queried = false;
+    while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        let Some(id) = value["id"]
+            .as_u64()
+            .filter(|_| value.get("method").is_none())
+        else {
+            continue;
+        };
+        let result = match value.get("error") {
+            Some(error) => Err(error["message"]
+                .as_str()
+                .unwrap_or("Codex rejected a request")
+                .to_string()),
+            None => Ok(value["result"].clone()),
+        };
+        if id == 1 {
+            result?;
+            let requests = [
+                json!({"method": "initialized"}),
+                json!({"id": 2, "method": "model/list", "params": {}}),
+                json!({"id": 3, "method": "skills/list", "params": {"cwds": [root]}}),
+                json!({"id": 4, "method": "mcpServerStatus/list", "params": {}}),
+                json!({"id": 5, "method": "config/read", "params": {"cwd": root}}),
+            ];
+            for request in &requests {
+                send_line(&mut stdin, request).await?;
+            }
+            queried = true;
+            continue;
+        }
+        results.insert(id, result);
+        if queried && (2..=5).all(|id| results.contains_key(&id)) {
+            let mut take = |id| results.remove(&id).unwrap_or_else(|| Err(String::new()));
+            let (models, skills, servers) = (take(2)?, take(3)?, take(4)?);
+            // An unreadable config only loses the default model's name.
+            let config = take(5).ok();
+            return codex_capabilities_from(&models, &skills, &servers, config.as_ref());
+        }
+    }
+    Err("Codex exited before listing its MCP servers and skills".into())
+}
+
+/// Lists Codex's models, skills and MCP servers before any prompt, so it costs no model call.
+#[tauri::command]
+pub async fn codex_capabilities(root: String) -> Result<Capabilities, AppError> {
+    let (binary, path) = codex::resolve_codex_env().await?;
+    let mut command = codex::app_server_command(binary, path, Path::new(&root));
+    command.stderr(Stdio::null());
+    let mut child = command.spawn()?;
+    let result =
+        tokio::time::timeout(STATUS_TIMEOUT, read_codex_capabilities(&mut child, &root)).await;
+    kill_group(&mut child);
+    let _ = child.wait().await;
+    result
+        .map_err(|_| AppError::Io("Timed out listing Codex's MCP servers and skills".into()))?
         .map_err(AppError::Io)
 }
 

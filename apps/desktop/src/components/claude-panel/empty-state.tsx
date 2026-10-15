@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowTurnBackwardIcon } from "@hugeicons/core-free-icons";
 import { focusChatComposer, sendChat, setChatDraft } from "@/hooks/use-claude";
-import { useMcpServers, useNoteIsBlank } from "@/hooks/use-co-writer";
+import { useAgent, useMcpServers, useNoteIsBlank } from "@/hooks/use-co-writer";
 import {
   newNoteSuggestions,
   serversFootnote,
@@ -22,6 +22,7 @@ function pick(path: string, suggestion: Suggestion) {
 
 export function EmptyState({ path, busy }: { path: string; busy: boolean }) {
   const loaded = useMcpServers();
+  const agent = useAgent();
   const blank = useNoteIsBlank(path);
   const servers = loaded === "unavailable" ? null : loaded;
   const suggestions = blank ? newNoteSuggestions(servers) : toolSuggestions(servers);
@@ -73,7 +74,7 @@ export function EmptyState({ path, busy }: { path: string; busy: boolean }) {
             className="co-writer-enter mt-4 text-[11.5px] leading-normal text-[var(--text-icon-muted)] [text-wrap:pretty]"
             style={stagger(6)}
           >
-            {serversFootnote(servers)}
+            {serversFootnote(servers, agent.label)}
           </p>
         </div>
       )}

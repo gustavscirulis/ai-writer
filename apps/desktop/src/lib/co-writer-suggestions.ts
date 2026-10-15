@@ -131,9 +131,9 @@ export function suggestionIcon(tool: string) {
   return KNOWN.find((entry) => entry.name === tool)?.icon ?? Plug01Icon;
 }
 
-/** `null` servers means Claude Code couldn't report them. */
-export function serversFootnote(servers: McpServer[] | null) {
+/** `null` servers means the agent couldn't report them. */
+export function serversFootnote(servers: McpServer[] | null, agent: string) {
   return servers && !connectedServers(servers).length
-    ? "Runs on your Claude Code, with the same tools."
-    : "Runs on your Claude Code, with the same tools and MCPs.";
+    ? `Runs on your ${agent}, with the same tools.`
+    : `Runs on your ${agent}, with the same tools and MCPs.`;
 }
