@@ -22,7 +22,6 @@ How to cut a signed, notarized macOS release of this fork and publish it to `gus
    Paste the contents of `~/.tauri/writer-updater.key.pub` into `plugins.updater.pubkey` in `apps/desktop/src-tauri/tauri.conf.json` and commit it. The script refuses to release while the two disagree. A key stored elsewhere can be passed with `TAURI_SIGNING_PRIVATE_KEY=/path/to/key`.
 
 4. `gh auth login` with push access to `gustavscirulis/co-writer`.
-5. **Xcode 26 or later.** Tauri compiles `icons/icon.icon` into `Assets.car` with `actool`. With an older Xcode it logs an error and ships only the `icon.icns` fallback.
 
 ## Step 1 — Bump the version
 
@@ -73,18 +72,16 @@ Confirm `https://github.com/gustavscirulis/co-writer/releases/latest/download/la
 - **`gh release create` fails because the release exists.** An earlier run got that far. Check the existing release before deleting anything, since it may already be live.
 - **The tag push failed.** The draft exists; run `git push origin v<version>`.
 - **You don't publish the draft.** Delete it on GitHub, then `git tag -d v<version> && git push origin :refs/tags/v<version>`.
-- **`Failed to create app Assets.car: failed to run actool`.** Run `actool` yourself to see the error. If it says "Bad file descriptor" for every `.icon`, the `ibtoold` daemon is stuck, for example after a run from a sandboxed shell. Run `pkill -x ibtoold` and build again.
 
 ## App icon
 
-`apps/desktop/src-tauri/icons/icon.icon` is the Icon Composer source. macOS 26 and later use it. The PNG, `icon.icns` and `icon.ico` files are fallbacks rendered from it. After you change the icon, regenerate them, then revert `icons/android` and `icons/ios`, which the desktop app doesn't use:
+`apps/desktop/src-tauri/icons/icon.icon` is the Icon Composer source; edit it in Icon Composer. The build doesn't read it. It bundles the compiled `icons/Assets.car`, which macOS 26 and later use, and `icon.icns` for older macOS. After you change the icon, regenerate those files and the PNG and `icon.ico` fallbacks with Xcode 26 or later:
 
 ```sh
-"/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool" \
-  apps/desktop/src-tauri/icons/icon.icon --export-image --output-file /tmp/icon-1024.png \
-  --platform macOS --rendition Default --width 1024 --height 1024 --scale 1
-cd apps/desktop && vp exec tauri icon /tmp/icon-1024.png
+./scripts/app-icon.sh
 ```
+
+The build doesn't compile `icon.icon` because Tauri runs `actool` with stdin closed. `actool` then fails with "Bad file descriptor", and the shared `ibtoold` daemon keeps failing every later call until it restarts. The script runs `actool` with stdin open. If it still reports "Bad file descriptor", run `pkill -x ibtoold` and try again.
 
 ## Merging from upstream
 

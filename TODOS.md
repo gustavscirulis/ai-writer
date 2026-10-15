@@ -19,7 +19,7 @@
 
 ## Done
 
-- New app icon from Icon Composer: `icons/icon.icon` is listed in `bundle.icon`, and Tauri compiles it into `Assets.car` (`CFBundleIconName`). The PNG, icns and ico fallbacks are re-rendered from it with `ictool` and `tauri icon`. This needed Tauri CLI 2.12 (now in the pnpm catalog), since 2.10 ignores `.icon`. A debug `.app` build includes `Assets.car`, with `CFBundleIconName=Icon` and `CFBundleIconFile=icon.icns`. `docs/releasing.md` covers the Xcode 26 requirement, regenerating the icon and a stuck `ibtoold`.
+- New app icon from Icon Composer: `icons/icon.icon` is the source. `scripts/app-icon.sh` compiles it into `icons/Assets.car` and re-renders the PNG, icns and ico fallbacks. `bundle.icon` lists the precompiled `Assets.car`, which Tauri copies as-is (`CFBundleIconName`), instead of the `.icon`. Tauri runs `actool` with stdin closed, which fails and leaves `ibtoold` failing every later call. This needed Tauri CLI 2.12 (now in the pnpm catalog), since 2.10 ignores icon catalogs. A debug `.app` build bundles `Assets.car` byte-for-byte, with `CFBundleIconName=Icon` and `CFBundleIconFile=icon.icns`, even while `ibtoold` was deliberately broken. See `docs/releasing.md` → App icon.
 
 - Co-writer on Codex: [`SPECs/codex-provider.md`](SPECs/codex-provider.md). Settings → Co-writer → Agent picks Claude Code or Codex.
   - The Codex actor (`commands/agent/codex.rs`) runs one turn per `codex app-server` process with `:read-only` permissions. Note-scoped patches go through the scope rules shared with Claude (`scope.rs`), and command escalations are declined.
