@@ -30,6 +30,14 @@ export function useAllowedTools(isActive: boolean) {
     return () => window.removeEventListener("focus", refresh);
   }, [isActive, run]);
 
-  const revoke = useCallback((tool: string) => run(() => tauri.revokeCoWriterTool(tool)), [run]);
+  const revoke = useCallback(
+    (revoked: string[]) =>
+      run(async () => {
+        let next: string[] = [];
+        for (const tool of revoked) next = await tauri.revokeCoWriterTool(tool);
+        return next;
+      }),
+    [run],
+  );
   return { tools, error, revoke };
 }

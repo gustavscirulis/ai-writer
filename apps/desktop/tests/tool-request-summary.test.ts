@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
-  allowedToolLabel,
   alwaysAllowLabel,
+  describeAllowedTool,
+  groupAllowedTools,
   summarizeToolRequest,
 } from "../src/lib/tool-request-summary";
 
@@ -75,12 +76,36 @@ describe("alwaysAllowLabel", () => {
   ])("%s", (tool, label) => expect(alwaysAllowLabel(tool)).toBe(label));
 });
 
-describe("allowedToolLabel", () => {
+describe("describeAllowedTool", () => {
   test.each([
-    ["Read", "Read files"],
-    ["WebFetch", "Fetch web pages"],
-    ["Write", "Create or replace other notes"],
-    ["mcp__notes__search_all", "Use search_all from notes"],
-    ["Unknown", "Use Unknown"],
-  ])("%s", (tool, label) => expect(allowedToolLabel(tool)).toBe(label));
+    ["Read", "Co-writer", "Read files"],
+    ["Write", "Co-writer", "Create or replace other notes"],
+    ["Unknown", "Co-writer", "Unknown"],
+    ["mcp__notes__search_all", "Notes", "Search all"],
+    ["mcp__plugin_acme_wiki__employee_search", "Wiki", "Employee search"],
+    ["mcp__claude_ai_Google_Drive__read_file_content", "Google Drive", "Read file content"],
+    ["mcp__claude-in-chrome__tabs_context_mcp", "Claude in Chrome", "Tabs context"],
+  ])("%s", (tool, source, name) =>
+    expect(describeAllowedTool(tool)).toEqual({ tool, source, name }),
+  );
+});
+
+describe("groupAllowedTools", () => {
+  test("puts built-in tools first, then servers in the order they appear", () => {
+    const groups = groupAllowedTools([
+      "mcp__claude_ai_Granola__list_meetings",
+      "Write",
+      "mcp__plugin_acme_wiki__search",
+      "mcp__claude_ai_Granola__get_meetings",
+    ]);
+    expect(groups.map((g) => [g.source, g.tools.map((t) => t.name)])).toEqual([
+      ["Co-writer", ["Create or replace other notes"]],
+      ["Granola", ["List meetings", "Get meetings"]],
+      ["Wiki", ["Search"]],
+    ]);
+  });
+
+  test("leaves out the built-in group when it is empty", () => {
+    expect(groupAllowedTools(["mcp__notes__search"]).map((g) => g.source)).toEqual(["Notes"]);
+  });
 });

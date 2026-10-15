@@ -46,16 +46,16 @@ describe("Settings → Co-writer allowed tools", function () {
     await settingsCommand.waitForExist({ timeout: 5_000 });
     await settingsCommand.click();
 
-    const revokeRead = await $('button[aria-label="Revoke Read files"]');
+    const revokeRead = await $('button[aria-label="Revoke Read files (Co-writer)"]');
     await revokeRead.waitForExist({ timeout: 5_000 });
     await browser.execute((el) => el.scrollIntoView({ block: "center" }), revokeRead);
     await browser.pause(300);
-    ok(await $('button[aria-label="Revoke Use search from notes"]').isExisting());
+    ok(await $('button[aria-label="Revoke Search (Notes)"]').isExisting());
     const coWriter = '//section[.//h2[normalize-space()="Co-writer"]]';
     ok(!(await $(`${coWriter}//*[normalize-space()="Show Co-writer"]`).isExisting()));
     ok(!(await $(`${coWriter}//*[normalize-space()="Co-writer Visible"]`).isExisting()));
     ok(await $(`${coWriter}//*[normalize-space()="Panel Width"]`).isExisting());
-    ok(await $(`${coWriter}//button[@aria-label="Revoke Read files"]`).isExisting());
+    ok(await $(`${coWriter}//button[@aria-label="Revoke Read files (Co-writer)"]`).isExisting());
     ok(
       !(await $(
         '//section[.//h2[normalize-space()="Co-writer"]]//button[normalize-space()="+ Add"]',
@@ -63,16 +63,19 @@ describe("Settings → Co-writer allowed tools", function () {
     );
     if (SCREENSHOTS) await browser.saveScreenshot(`${SCREENSHOTS}/allowed-tools-before.png`);
 
+    await revokeRead.moveTo();
     await revokeRead.click();
     await browser.waitUntil(
-      async () => !(await $('button[aria-label="Revoke Read files"]').isExisting()),
+      async () => !(await $('button[aria-label="Revoke Read files (Co-writer)"]').isExisting()),
       { timeout: 5_000, timeoutMsg: "Read stayed listed after Revoke" },
     );
     deepStrictEqual(await invoke("co_writer_allowed_tools"), { value: ["mcp__notes__search"] });
     await browser.pause(300);
     if (SCREENSHOTS) await browser.saveScreenshot(`${SCREENSHOTS}/allowed-tools-after.png`);
 
-    await $('button[aria-label="Revoke Use search from notes"]').click();
+    const revokeSearch = await $('button[aria-label="Revoke Search (Notes)"]');
+    await revokeSearch.moveTo();
+    await revokeSearch.click();
     await $('//*[normalize-space()="Nothing yet."]').waitForExist({ timeout: 5_000 });
     deepStrictEqual(await invoke("co_writer_allowed_tools"), { value: [] });
   });
