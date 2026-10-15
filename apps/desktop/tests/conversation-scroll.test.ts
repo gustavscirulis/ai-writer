@@ -2,21 +2,22 @@ import { beforeEach, expect, test, vi } from "vite-plus/test";
 const react = vi.hoisted(() => ({
   refs: [] as { current: unknown }[],
   index: 0,
-  effect: () => {},
+  effects: [] as (() => void)[],
 }));
 vi.mock("react", () => ({
   useRef: (value: unknown) => (react.refs[react.index++] ??= { current: value }),
   useCallback: (callback: unknown) => callback,
   useLayoutEffect: (effect: () => void) => {
-    react.effect = effect;
+    react.effects.push(effect);
   },
 }));
 import { useConversationScroll } from "../src/components/claude-panel/use-conversation-scroll";
 
-function render(anchorId: string | undefined) {
+function render(anchorId: string | undefined, empty = false) {
   react.index = 0;
-  const result = useConversationScroll(anchorId);
-  react.effect();
+  react.effects = [];
+  const result = useConversationScroll(anchorId, empty);
+  for (const effect of react.effects) effect();
   return result;
 }
 
@@ -147,6 +148,17 @@ test("pins a newly sent message to the top and holds it there while the reply gr
 
     render("u1");
     expect(setTop).not.toHaveBeenCalled();
+
+    render(undefined, true);
+    expect(spacer.style.height).toBe("");
+    expect(setTop).toHaveBeenCalledWith(0);
+    contents.offsetHeight = 372;
+    resize();
+    expect(spacer.style.height).toBe("");
+
+    contents.offsetHeight = 1000;
+    render("u1");
+    expect(spacer.style.height).toBe("264px");
   } finally {
     vi.unstubAllGlobals();
   }

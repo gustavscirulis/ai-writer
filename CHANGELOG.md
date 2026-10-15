@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- Starting a new Co-writer conversation after sending messages shows the empty state the right way: the heading is at the top, the suggestions sit at the bottom, and there's no scrolling. Before, the panel sometimes kept the scroll space from the last conversation, so it opened partly scrolled with empty space under the suggestions.
+
 - Version history shows all of Claude's edits from one Co-writer reply as a single version, so you can review the reply in one diff. Before, every edit Claude made showed up as its own version. A new reply, or a save of your own in between, still starts a new version.
 
 ## 2026-10-14

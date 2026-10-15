@@ -41,6 +41,7 @@ export function MessageList() {
   const lastId = last?.id;
   const { scrollRef, spacerRef } = useConversationScroll(
     last?.role === "user" ? last.id : undefined,
+    messages.length === 0,
   );
   const turns = groupTurns(messages, notices);
   return (
