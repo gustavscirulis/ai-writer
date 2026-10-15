@@ -19,6 +19,8 @@
 
 ## Done
 
+- Remove the marketing website: deleted `apps/website/`, `wrangler.jsonc`, `docs/website-deploy.md` and `docs/website-analytics.md`, plus the website-only catalog entries, the `website>vite` override, the Wrangler ignore patterns and the doc-index lines. Older Done entries and specs about the website are kept as history.
+
 - Rename to Co-writer: [`SPECs/rename-to-co-writer.md`](SPECs/rename-to-co-writer.md). New product name and identifier (`com.gustavscirulis.cowriter`), `cowriter` CLI, renamed menus, dialogs, window title and agent messages, and release script and docs updated for the new bundle names. On launch, `legacy_app_data.rs` copies upstream's `com.writer-computer` app data into the new folder once, through a staging folder, skipping telemetry and updater files; unit tests cover copy, skip, existing target, missing source and a stale staging folder. Icon unchanged. Not yet tried as a built bundle.
 
 - Release pipeline for the fork: `scripts/distribute.sh` publishes drafts to `gustavscirulis/ai-writer`. It finds the Developer ID identity, notarizes the DMG through a `notarytool` keychain profile, staples it and checks it with `spctl`, and stops before building if the updater key doesn't match the pubkey or endpoint in `tauri.conf.json`. The updater endpoint now points at the fork. `docs/releasing.md` covers the one-time setup. Branch, argument and help paths were run; a full release needs the user's keychain credentials and the new updater pubkey, so it hasn't run yet.
