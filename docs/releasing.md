@@ -1,6 +1,6 @@
 # Releasing Co-writer
 
-How to cut a signed, notarized macOS release of this fork and publish it to `gustavscirulis/ai-writer` so the in-app updater picks it up. Releases run locally on the maintainer's Mac, not in CI, because they need the Developer ID certificate in the keychain.
+How to cut a signed, notarized macOS release of this fork and publish it to `gustavscirulis/co-writer` so the in-app updater picks it up. Releases run locally on the maintainer's Mac, not in CI, because they need the Developer ID certificate in the keychain.
 
 ## One-time setup
 
@@ -21,7 +21,7 @@ How to cut a signed, notarized macOS release of this fork and publish it to `gus
 
    Paste the contents of `~/.tauri/writer-updater.key.pub` into `plugins.updater.pubkey` in `apps/desktop/src-tauri/tauri.conf.json` and commit it. The script refuses to release while the two disagree. A key stored elsewhere can be passed with `TAURI_SIGNING_PRIVATE_KEY=/path/to/key`.
 
-4. `gh auth login` with push access to `gustavscirulis/ai-writer`.
+4. `gh auth login` with push access to `gustavscirulis/co-writer`.
 
 ## Step 1 — Bump the version
 
@@ -53,7 +53,7 @@ The script:
 3. Builds `Co-writer.app` and the DMG with `vp exec tauri build --bundles app,dmg`. Tauri signs them with the hardened runtime and produces the updater tarball and its signature.
 4. Signs the DMG, submits it to Apple with `notarytool`, and waits. Anything other than `Accepted` stops the script and prints Apple's log.
 5. Staples the ticket to the DMG and checks it with `spctl`.
-6. Writes `latest.json` and creates a **draft** release on `gustavscirulis/ai-writer` with the DMG, `Co-writer.app.tar.gz`, and `latest.json`.
+6. Writes `latest.json` and creates a **draft** release on `gustavscirulis/co-writer` with the DMG, `Co-writer.app.tar.gz`, and `latest.json`.
 7. Tags the commit `v<version>`, pushes the tag, and prints the DMG path and draft URL.
 
 Expect several minutes, mostly the release build and notarization.
@@ -62,7 +62,7 @@ Expect several minutes, mostly the release build and notarization.
 
 Open the draft URL, check the three assets and the notes, and click **Publish release**. The in-app updater ignores drafts. Share the DMG's download link from the published release.
 
-Confirm `https://github.com/gustavscirulis/ai-writer/releases/latest/download/latest.json` shows the new version.
+Confirm `https://github.com/gustavscirulis/co-writer/releases/latest/download/latest.json` shows the new version.
 
 ## When things go wrong
 

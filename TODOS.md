@@ -19,6 +19,8 @@
 
 ## Done
 
+- Rename the GitHub repo to `gustavscirulis/co-writer`: updater endpoint, `RELEASE_REPO`, README and `docs/releasing.md` point at the new name. Checked that the old `latest.json` URL redirects to the new repo.
+
 - Remove the marketing website: deleted `apps/website/`, `wrangler.jsonc`, `docs/website-deploy.md` and `docs/website-analytics.md`, plus the website-only catalog entries, the `website>vite` override, the Wrangler ignore patterns and the doc-index lines. Older Done entries and specs about the website are kept as history.
 
 - Rename to Co-writer: [`SPECs/rename-to-co-writer.md`](SPECs/rename-to-co-writer.md). New product name and identifier (`com.gustavscirulis.cowriter`), `cowriter` CLI, renamed menus, dialogs, window title and agent messages, and release script and docs updated for the new bundle names. On launch, `legacy_app_data.rs` copies upstream's `com.writer-computer` app data into the new folder once, through a staging folder, skipping telemetry and updater files; unit tests cover copy, skip, existing target, missing source and a stale staging folder. Icon unchanged. Not yet tried as a built bundle.

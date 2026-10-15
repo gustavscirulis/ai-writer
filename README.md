@@ -13,7 +13,7 @@ Co-writer is a fork of [Writer](https://github.com/joelbqz/writer-computer). It 
 - **Embeds.** Fenced ` ```html embed ` blocks run live HTML, CSS and JavaScript in a sandbox inside the note, for prototypes, charts and diagrams.
 - **No telemetry.** Co-writer sends no usage data.
 - **Its own app.** A separate name, bundle identifier and `cowriter` terminal command. On first launch it imports your settings from Writer if you have it installed.
-- **Separate releases.** Builds are published on [this repo's releases](https://github.com/gustavscirulis/ai-writer/releases), and the in-app updater follows them instead of upstream's.
+- **Separate releases.** Builds are published on [this repo's releases](https://github.com/gustavscirulis/co-writer/releases), and the in-app updater follows them instead of upstream's.
 
 Co-writer is experimental and needs the [Claude Code CLI](https://code.claude.com) installed and signed in. Co-writer doesn't bundle it or handle your Claude account. See [`docs/third-party.md`](./docs/third-party.md) for license and attribution notes, and [`CHANGELOG.md`](./CHANGELOG.md) for everything that has changed since 2026-10-10, when this fork started.
 

@@ -2,6 +2,8 @@
 
 ## 2026-10-15
 
+- The GitHub repo is now `gustavscirulis/co-writer`. Updates come from its releases; GitHub redirects the old `ai-writer` address, so 0.8.0 keeps finding updates.
+
 - Removed the marketing website (`apps/website/`), its Cloudflare config and its docs. This fork doesn't use them.
 
 - The app is now called Co-writer, with its own bundle identifier, so it no longer replaces Writer and the two can be installed side by side. The terminal command is now `cowriter`. On first launch Co-writer copies your settings, recents, pins and Co-writer conversations from Writer if it finds them; Writer itself is left untouched.
