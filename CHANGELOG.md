@@ -2,6 +2,10 @@
 
 ## 2026-10-15
 
+- Updates now come from this fork's GitHub releases (`gustavscirulis/ai-writer`) instead of upstream's. `scripts/distribute.sh` builds a signed, notarized DMG with your Developer ID, using notary credentials stored in the keychain and an updater key outside the repo, so it no longer needs a `.env`. Release notes default to the latest CHANGELOG section.
+
+- Writer no longer sends usage telemetry. The first-run consent prompt and the Privacy section in Preferences are gone, and nothing is reported anywhere.
+
 - Mention a note in Co-writer. Type @ in the message box and pick a note: its name goes into your message as a pill and the note is attached, so Co-writer reads it before answering. Backspace removes the whole pill and detaches the note. The pill stays in the conversation after you send, and clicking it opens the note. A bare @ lists your recent notes; keep typing to search the workspace. Use ↑/↓ and Enter or Tab to pick, or Escape to close the list. Only notes are listed; attach images, PDFs and other files with the + button, by pasting or by dropping them.
 
 - Starting a new Co-writer conversation after sending messages shows the empty state the right way: the heading is at the top, the suggestions sit at the bottom, and there's no scrolling. Before, the panel sometimes kept the scroll space from the last conversation, so it opened partly scrolled with empty space under the suggestions.

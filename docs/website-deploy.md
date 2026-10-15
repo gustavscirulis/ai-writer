@@ -23,13 +23,12 @@ vp run website#build
 vp dlx wrangler deploy --config wrangler.jsonc
 ```
 
-The `source .env` line is what supplies the analytics key: the site shares the
-desktop app's PostHog project via `WRITER_POSTHOG_KEY`, and the website build
-does not load that file on its own. The key is read by the **build**, not by the
+The `source .env` line is what supplies the analytics key
+(`WRITER_POSTHOG_KEY`); the website build does not load that file on its own. The key is read by the **build**, not by the
 Worker — it is inlined into the client bundle, so a Cloudflare Worker variable
 or secret has no effect, and building without it deploys a site that sends
 nothing. Only `WRITER_POSTHOG_KEY` and `WRITER_POSTHOG_HOST` are bridged into
-the bundle by name; the signing credentials in that same `.env` are not, and
+the bundle by name; any other secrets in that same `.env` are not, and
 `apps/website/vite.config.ts` explains why it has to stay that way. See
 [website-analytics.md](./website-analytics.md).
 

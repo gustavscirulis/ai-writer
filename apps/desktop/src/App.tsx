@@ -1,6 +1,5 @@
 import { AppLayout } from "./components/app-layout";
 import { CommandPalette } from "./components/command-palette";
-import { TelemetryConsentDialog } from "./components/telemetry-consent-dialog";
 import { WindowTitle } from "./components/window-title";
 import { useIsStartupResolved } from "./hooks/use-workspace";
 import { useFileWatcher } from "./hooks/use-file-watcher";
@@ -32,7 +31,6 @@ function App() {
       <WindowTitle />
       <AppLayout />
       <CommandPalette />
-      <TelemetryConsentDialog />
     </>
   );
 }

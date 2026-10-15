@@ -512,7 +512,6 @@ pub fn create_file_impl(path: &str) -> Result<FileContent, AppError> {
         let _ = fs::remove_file(&file_path);
         return Err(AppError::Io(error.to_string()));
     }
-    crate::telemetry::track("file_created");
     Ok(FileContent {
         canonical_path: fs::canonicalize(&file_path)?.to_string_lossy().into_owned(),
         path: path.to_string(),
@@ -542,7 +541,6 @@ pub fn create_directory_impl(path: &str) -> Result<DirEntry, AppError> {
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    crate::telemetry::track("folder_created");
     Ok(DirEntry {
         name,
         path: path.to_string(),
