@@ -3,8 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$ROOT_DIR/.env"
-RELEASE_REPO="joelbqz/writer-computer"
+RELEASE_REPO="gustavscirulis/ai-writer"
+TAURI_CONF="$ROOT_DIR/apps/desktop/src-tauri/tauri.conf.json"
+
+NOTARY_PROFILE="${WRITER_NOTARY_PROFILE:-writer-notary}"
+export TAURI_SIGNING_PRIVATE_KEY="${TAURI_SIGNING_PRIVATE_KEY:-$HOME/.tauri/writer-updater.key}"
+
+usage() {
+  echo "Usage: $0 [--notes-file <path>]"
+  echo "Without --notes-file, the latest section of CHANGELOG.md becomes the release notes."
+}
 
 NOTES_FILE=""
 while [ $# -gt 0 ]; do
@@ -17,61 +25,27 @@ while [ $# -gt 0 ]; do
       NOTES_FILE="${1#*=}"
       shift
       ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
     *)
       echo "Error: unknown argument: $1"
-      echo "Usage: $0 --notes-file <path>"
+      usage
       exit 1
       ;;
   esac
 done
 
 if [ -z "$NOTES_FILE" ]; then
-  echo "Error: --notes-file <path> is required"
-  echo "Pass a markdown file with the user-facing release notes (drafted by the agent from CHANGELOG.md)."
-  exit 1
+  NOTES_FILE="$(mktemp -t writer-release-notes)"
+  awk '/^## /{n++; if (n == 2) exit; next} n == 1' "$ROOT_DIR/CHANGELOG.md" >"$NOTES_FILE"
 fi
-if [ ! -s "$NOTES_FILE" ]; then
-  echo "Error: notes file is missing or empty: $NOTES_FILE"
-  exit 1
-fi
-
-# Load environment variables
-if [ ! -f "$ENV_FILE" ]; then
-  echo "Error: .env file not found at $ENV_FILE"
-  echo ""
-  echo "Create it with:"
-  echo "  APPLE_SIGNING_IDENTITY=\"Developer ID Application: Your Name (TEAMID)\""
-  echo "  APPLE_ID=\"your@apple.id\""
-  echo "  APPLE_PASSWORD=\"xxxx-xxxx-xxxx-xxxx\"  # app-specific password"
-  echo "  APPLE_TEAM_ID=\"XXXXXXXXXX\""
-  echo "  TAURI_SIGNING_PRIVATE_KEY=\"/absolute/path/to/writer-updater-key\""
-  echo "  TAURI_SIGNING_PRIVATE_KEY_PASSWORD=\"\"  # empty if keypair has no password"
+if [ ! -s "$NOTES_FILE" ] || ! grep -q '[^[:space:]]' "$NOTES_FILE"; then
+  echo "Error: release notes are empty: $NOTES_FILE"
   exit 1
 fi
 
-set -a
-source "$ENV_FILE"
-set +a
-
-for var in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID TAURI_SIGNING_PRIVATE_KEY; do
-  if [ -z "${!var:-}" ]; then
-    echo "Error: $var is not set in .env"
-    exit 1
-  fi
-done
-
-# `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is optional but tauri-cli checks the env
-# var is present — export an empty default so the build doesn't fail on macOS.
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
-
-# Read version from tauri.conf.json
-TAURI_CONF="$ROOT_DIR/apps/desktop/src-tauri/tauri.conf.json"
-VERSION=$(python3 -c "import json; print(json.load(open('$TAURI_CONF'))['version'])")
-TAG="v$VERSION"
-
-# Pre-flight: must be on master, clean, in sync with origin, and the tag must
-# not already exist anywhere. These checks are cheap — fail before the long
-# release build rather than after.
 CURRENT_BRANCH=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)
 if [ "$CURRENT_BRANCH" != "master" ]; then
   echo "Error: releases must be cut from master, currently on '$CURRENT_BRANCH'"
@@ -83,6 +57,64 @@ if ! git -C "$ROOT_DIR" diff-index --quiet HEAD --; then
   git -C "$ROOT_DIR" status --short
   exit 1
 fi
+
+# --- Signing pre-flight: fail before the long build, not after it. ---
+
+if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+  IDENTITIES=$(security find-identity -v -p codesigning | grep -o '"Developer ID Application: [^"]*"' | sort -u | tr -d '"' || true)
+  IDENTITY_COUNT=$(printf '%s' "$IDENTITIES" | grep -c . || true)
+  if [ "$IDENTITY_COUNT" -eq 0 ]; then
+    echo "Error: no 'Developer ID Application' signing identity found in the keychain."
+    exit 1
+  fi
+  if [ "$IDENTITY_COUNT" -gt 1 ]; then
+    echo "Error: several Developer ID identities found; pick one with APPLE_SIGNING_IDENTITY=..."
+    echo "$IDENTITIES"
+    exit 1
+  fi
+  APPLE_SIGNING_IDENTITY="$IDENTITIES"
+fi
+export APPLE_SIGNING_IDENTITY
+echo "Signing as: $APPLE_SIGNING_IDENTITY"
+
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  echo "Error: notary keychain profile '$NOTARY_PROFILE' is missing or invalid. Create it once with:"
+  echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <apple-id> --team-id <TEAMID>"
+  exit 1
+fi
+
+if [ ! -f "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+  echo "Error: updater signing key not found at $TAURI_SIGNING_PRIVATE_KEY"
+  echo "Generate it once with: (cd apps/desktop && vp exec tauri signer generate -w ~/.tauri/writer-updater.key)"
+  exit 1
+fi
+
+# An update signed with a key that doesn't match the shipped pubkey is rejected
+# by every installed copy, so a mismatch has to stop the release here.
+CONF_PUBKEY=$(python3 -c "import json; print(json.load(open('$TAURI_CONF'))['plugins']['updater']['pubkey'])")
+if [ -f "$TAURI_SIGNING_PRIVATE_KEY.pub" ] && [ "$(tr -d '[:space:]' <"$TAURI_SIGNING_PRIVATE_KEY.pub")" != "$CONF_PUBKEY" ]; then
+  echo "Error: $TAURI_SIGNING_PRIVATE_KEY.pub does not match plugins.updater.pubkey in tauri.conf.json"
+  exit 1
+fi
+if ! grep -q "github.com/$RELEASE_REPO/releases" "$TAURI_CONF"; then
+  echo "Error: the updater endpoint in tauri.conf.json does not point at $RELEASE_REPO"
+  exit 1
+fi
+
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+x}" ]; then
+  read -rsp "Updater key password (Enter if none): " TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+  echo
+fi
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+# Tauri notarizes on its own when these are set; notarization happens below
+# through the keychain profile instead, so keep Tauri to signing only.
+unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+
+VERSION=$(python3 -c "import json; print(json.load(open('$TAURI_CONF'))['version'])")
+TAG="v$VERSION"
+
+# --- Git pre-flight: in sync with origin, tag unused. ---
 
 echo "Fetching origin to verify sync..."
 git -C "$ROOT_DIR" fetch origin master --tags
@@ -107,14 +139,12 @@ if git -C "$ROOT_DIR" ls-remote --tags --exit-code origin "refs/tags/$TAG" >/dev
   exit 1
 fi
 
-# Push master so the commit the release points at is on origin before we build.
-# Idempotent if local already matches origin.
 echo "Pushing master to origin..."
 git -C "$ROOT_DIR" push origin master
 
-echo "Building Writer $TAG..."
+# --- Build and sign. ---
 
-# Build signed and notarized DMG + updater artifacts (.app.tar.gz + .sig).
+echo "Building Writer $TAG..."
 cd "$ROOT_DIR/apps/desktop"
 vp exec tauri build --bundles app,dmg
 
@@ -122,15 +152,15 @@ BUNDLE_DIR="$ROOT_DIR/apps/desktop/src-tauri/target/release/bundle"
 DMG_DIR="$BUNDLE_DIR/dmg"
 MACOS_DIR="$BUNDLE_DIR/macos"
 
-DMG_FILE=$(ls "$DMG_DIR"/*.dmg 2>/dev/null | head -1 || true)
+DMG_FILE=$(ls "$DMG_DIR"/*"_${VERSION}_"*.dmg 2>/dev/null | head -1 || true)
+APP_FILE="$MACOS_DIR/Writer.app"
 TAR_FILE=$(ls "$MACOS_DIR"/*.app.tar.gz 2>/dev/null | head -1 || true)
 SIG_FILE=$(ls "$MACOS_DIR"/*.app.tar.gz.sig 2>/dev/null | head -1 || true)
 
 if [ -z "$DMG_FILE" ]; then
-  echo "Error: No DMG found in $DMG_DIR"
+  echo "Error: No DMG for $VERSION found in $DMG_DIR"
   exit 1
 fi
-
 if [ -z "$TAR_FILE" ] || [ -z "$SIG_FILE" ]; then
   echo "Error: Updater artifacts missing in $MACOS_DIR"
   echo "  Expected: *.app.tar.gz and *.app.tar.gz.sig"
@@ -138,11 +168,30 @@ if [ -z "$TAR_FILE" ] || [ -z "$SIG_FILE" ]; then
   exit 1
 fi
 
+codesign --verify --deep --strict "$APP_FILE"
+codesign --force --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$DMG_FILE"
+
+# --- Notarize and staple. Notarizing the DMG covers the app inside it. ---
+
+echo "Submitting $(basename "$DMG_FILE") for notarization (this can take several minutes)..."
+NOTARY_JSON=$(xcrun notarytool submit "$DMG_FILE" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json)
+NOTARY_STATUS=$(printf '%s' "$NOTARY_JSON" | python3 -c "import json, sys; print(json.load(sys.stdin).get('status', ''))")
+NOTARY_ID=$(printf '%s' "$NOTARY_JSON" | python3 -c "import json, sys; print(json.load(sys.stdin).get('id', ''))")
+if [ "$NOTARY_STATUS" != "Accepted" ]; then
+  echo "Error: notarization returned '$NOTARY_STATUS' (submission $NOTARY_ID). Apple's log:"
+  xcrun notarytool log "$NOTARY_ID" --keychain-profile "$NOTARY_PROFILE" || true
+  exit 1
+fi
+
+xcrun stapler staple "$DMG_FILE"
+spctl --assess --type open --context context:primary-signature --verbose "$DMG_FILE"
+
 echo ""
 echo "Built: $(basename "$DMG_FILE") ($(du -h "$DMG_FILE" | cut -f1))"
 echo "Built: $(basename "$TAR_FILE") ($(du -h "$TAR_FILE" | cut -f1))"
 
-# Determine target triple for latest.json (arm64 host → aarch64).
+# --- Updater manifest. ---
+
 HOST_ARCH=$(uname -m)
 case "$HOST_ARCH" in
   arm64|aarch64) TARGET="darwin-aarch64" ;;
@@ -177,8 +226,8 @@ PY
 
 echo "Built: latest.json ($TARGET)"
 
-# Create a DRAFT GitHub Release with DMG, updater tarball, signed manifest,
-# and the agent-drafted user-facing notes.
+# --- Draft release + tag. ---
+
 echo ""
 echo "Creating draft release $TAG on $RELEASE_REPO..."
 
@@ -190,13 +239,13 @@ gh release create "$TAG" "$DMG_FILE" "$TAR_FILE" "$LATEST_JSON" \
 
 DRAFT_URL=$(gh release view "$TAG" --repo "$RELEASE_REPO" --json url --jq '.url')
 
-# Tag this repo so the release artifact is pinned to a specific commit. If you
-# end up abandoning the draft, delete the tag manually.
+# If you abandon the draft, delete this tag manually.
 echo ""
 echo "Tagging $TAG locally and pushing to origin..."
 git -C "$ROOT_DIR" tag "$TAG"
 git -C "$ROOT_DIR" push origin "$TAG"
 
 echo ""
+echo "Notarized DMG: $DMG_FILE"
 echo "Draft created: $DRAFT_URL"
 echo "Review the notes and click Publish to ship it."
