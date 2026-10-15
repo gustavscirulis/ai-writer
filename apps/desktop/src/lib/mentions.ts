@@ -49,7 +49,22 @@ export function mentionRanges(text: string, mentions: Mention[]): MentionRange[]
     }
   }
   found.sort((a, b) => a.from - b.from || b.to - a.to);
-  return found.filter((range, index) => index === 0 || range.from >= found[index - 1]!.to);
+  const kept: MentionRange[] = [];
+  for (const range of found) if (range.from >= (kept[kept.length - 1]?.to ?? 0)) kept.push(range);
+  return kept;
+}
+
+/** The text cut into plain runs and pills, in order. */
+export function splitMentions(text: string, ranges: MentionRange[]) {
+  const parts: { from: number; text: string; path: string | null }[] = [];
+  let at = 0;
+  for (const range of ranges) {
+    if (range.from > at) parts.push({ from: at, text: text.slice(at, range.from), path: null });
+    parts.push({ from: range.from, text: text.slice(range.from, range.to), path: range.path });
+    at = range.to;
+  }
+  if (at < text.length) parts.push({ from: at, text: text.slice(at), path: null });
+  return parts;
 }
 
 /** Backspace or Delete next to a mention removes all of it. */

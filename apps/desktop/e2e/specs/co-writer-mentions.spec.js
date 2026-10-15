@@ -95,7 +95,7 @@ describe("Co-writer @ mentions", function () {
     await press("Enter");
     await browser.waitUntil(async () => !(await menu().isExisting()), { timeout: 5_000 });
     strictEqual(await composer().getValue(), "match @Mention target e2e ");
-    const pill = $("[data-mention-pill]");
+    const pill = $("[data-chat-composer] [data-mention-pill]");
     await pill.waitForExist({ timeout: 5_000, timeoutMsg: "the mentioned note has no pill" });
     strictEqual(await pill.getText(), "@Mention target e2e");
     ok(
@@ -132,5 +132,26 @@ describe("Co-writer @ mentions", function () {
     await type("me@mention");
     await browser.pause(300);
     ok(!(await menu().isExisting()), "menu opened for an email-like word");
+  });
+
+  // Sends a real turn, so it needs a signed-in Claude Code CLI; the turn is stopped right away.
+  it("the sent message keeps the mention as a pill instead of a chip", async function () {
+    this.timeout(60_000);
+    await type("summarize @mention-tar");
+    await menu().waitForExist({ timeout: 10_000 });
+    await press("Enter");
+    await $("[data-chat-composer] [data-mention-pill]").waitForExist({ timeout: 5_000 });
+    await press("Enter");
+    const sent = $('article[aria-label="You"] button[data-mention-pill]');
+    await sent.waitForExist({ timeout: 10_000, timeoutMsg: "the sent message has no pill" });
+    strictEqual(await sent.getText(), "@Mention target e2e");
+    ok(
+      !(await $('article[aria-label="You"] [aria-label="Attached files"]').isExisting()),
+      "the mentioned note also shows as a chip on the sent message",
+    );
+    await browser.pause(800);
+    await shot("mentions-sent");
+    const stop = $('button[aria-label="Stop"]');
+    if (await stop.isExisting()) await stop.click();
   });
 });

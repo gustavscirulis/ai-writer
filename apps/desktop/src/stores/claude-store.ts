@@ -821,6 +821,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       tools: [],
       ...(attachments?.length ? { attachments } : {}),
       ...(sentFiles.length ? { files: sentFiles } : {}),
+      ...(sentMentions.length ? { mentions: sentMentions } : {}),
     };
     updateChat(key, (chat) => ({
       ...chat,

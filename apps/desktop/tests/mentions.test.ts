@@ -40,6 +40,10 @@ test("pills are whole-word @labels, and the longer label wins where two overlap"
     { from: 0, to: 8, path: "/plan-v2.md" },
     { from: 13, to: 18, path: "/plan.md" },
   ]);
+  const plans = [plan, planV2, { path: "/plan-v2-final.md", label: "Plan v2 final" }];
+  expect(mentionRanges("@Plan v2 final", plans)).toEqual([
+    { from: 0, to: 14, path: "/plan-v2-final.md" },
+  ]);
 });
 
 test("Backspace or Delete at a pill removes all of it, and the caret can't stop inside one", () => {

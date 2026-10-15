@@ -58,7 +58,7 @@ import { canonicalWikiTarget } from "@/lib/wiki-links";
 import type { SearchResult } from "@/types/fs";
 import { menuOptionId } from "./composer-menu";
 import { FileChip } from "./file-chip";
-import { COMPOSER_TEXT, MentionBackdrop } from "./mention-backdrop";
+import { COMPOSER_TEXT, MentionBackdrop } from "./mention-pills";
 import { MENTION_MENU_ID, MentionMenu } from "./mention-menu";
 import { FeedbackError, NotesTray } from "./notes-tray";
 import { SLASH_MENU_ID, SlashMenu } from "./slash-menu";

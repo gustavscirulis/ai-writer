@@ -508,7 +508,7 @@ test("a mentioned note stays attached only while its pill is in the draft", () =
   store.setDraft("/notes/a.md", "match @Style gui, please");
   expect(chatState()).toMatchObject({ files: ["/tmp/diagram.png"], mentions: [] });
 });
-test("a failed send puts the draft's mentions back with it", async () => {
+test("a sent message keeps its mentions, and a failed send puts them back in the draft", async () => {
   mockedInvoke.mockImplementation((command, args) =>
     command === "claude_send"
       ? Promise.reject(new Error("Couldn't start."))
@@ -520,6 +520,7 @@ test("a failed send puts the draft's mentions back with it", async () => {
   store.addMention("/notes/a.md", mention);
   const sending = send("match @Style", { files: ["/notes/style.md"] });
   expect(chatState()).toMatchObject({ draft: "", files: [], mentions: [] });
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ mentions: [mention] });
   expect(await sending).toBe(false);
   expect(chatState()).toMatchObject({
     draft: "match @Style",

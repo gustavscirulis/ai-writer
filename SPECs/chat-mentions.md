@@ -31,13 +31,16 @@ A mentioned note shows as a pill around its `@Name` in the message, not as a chi
 
 Nothing changes on send: the files go out in `writer_context.files` and Claude may Read them without a prompt that turn. The system prompt tells Claude that `@Name` in the message refers to the attached file with that name.
 
+## In the thread
+
+Sending records the draft's mentions on the user message (`ChatMessage.mentions`, saved with the chat), so the sent text shows each `@Name` as the same pill. Clicking one opens the note. Mentioned notes don't repeat as chips under the message; other attached files still do. Messages without mentions, including ones sent before this, render as before.
+
 ## Limits
 
 - Queued messages carry no files (see [the queue](chat-queue.md)). Queuing a message with mentions turns them into ordinary chips that stay in the composer, and the queued text keeps only `@Name`.
-- The sent message shows `@Name` as plain text, with the mentioned notes as file chips under it.
 - Replacing the pill programmatically resets the textarea's undo history, so ⌘Z doesn't bring a deleted pill back.
 - No workspace, no menu.
 
 ## Validation
 
-Helper tests cover when the query opens, where the mention goes, finding pills, deleting them and moving the caret out of them. Store tests cover a note leaving with its pill and a failed send putting mentions back. A render test covers the menu markup. `e2e/specs/co-writer-mentions.spec.js` picks a seeded note in the built app, checks the pill and that no chip shows, and removes the pill with one Backspace.
+Helper tests cover when the query opens, where the mention goes, finding pills, deleting them and moving the caret out of them. Store tests cover a note leaving with its pill, a sent message keeping its mentions and a failed send putting them back. Render tests cover the menu markup and pills in a sent message. `e2e/specs/co-writer-mentions.spec.js` picks a seeded note in the built app, checks the pill and that no chip shows, removes the pill with one Backspace, and sends a mention to check the pill in the thread.
