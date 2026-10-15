@@ -19,6 +19,8 @@
 
 ## Done
 
+- New app icon from Icon Composer: `icons/icon.icon` is listed in `bundle.icon`, and Tauri compiles it into `Assets.car` (`CFBundleIconName`). The PNG, icns and ico fallbacks are re-rendered from it with `ictool` and `tauri icon`. This needed Tauri CLI 2.12 (now in the pnpm catalog), since 2.10 ignores `.icon`. A debug `.app` build includes `Assets.car`, with `CFBundleIconName=Icon` and `CFBundleIconFile=icon.icns`. `docs/releasing.md` covers the Xcode 26 requirement, regenerating the icon and a stuck `ibtoold`.
+
 - Co-writer on Codex: [`SPECs/codex-provider.md`](SPECs/codex-provider.md). Settings → Co-writer → Agent picks Claude Code or Codex.
   - The Codex actor (`commands/agent/codex.rs`) runs one turn per `codex app-server` process with `:read-only` permissions. Note-scoped patches go through the scope rules shared with Claude (`scope.rs`), and command escalations are declined.
   - MCP approvals, questions and plan mode map onto the existing prompts. Plan mode becomes a second turn in the same process.
