@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-15
+
+- Version history shows all of Claude's edits from one Co-writer reply as a single version, so you can review the reply in one diff. Before, every edit Claude made showed up as its own version. A new reply, or a save of your own in between, still starts a new version.
+
 ## 2026-10-14
 
 - Use Co-writer without opening a note. On a new tab, open Co-writer and ask it to write something; it creates a new note for it once you approve. When it does, the conversation moves to that note and the new tab becomes the note, so you can keep going there. A conversation that doesn't create a note stays on the new tab and is there next time you open one.

@@ -3,6 +3,8 @@ use crate::error::AppError;
 use crate::history::{self, Source, VersionMeta};
 use crate::state::{AppState, WorkspaceState};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -33,6 +35,33 @@ fn emit_changed(app: &tauri::AppHandle, root: &Path, rel: &Path) {
     let _ = app.emit("history:changed", HistoryChanged { path });
 }
 
+/// Record a version and track the agent turn it belongs to. Only a recorded
+/// change moves the group, so the no-op baseline captured before each Claude
+/// edit doesn't split one turn into a version per edit.
+fn record_grouped(
+    groups: &mut HashMap<PathBuf, String>,
+    root: &Path,
+    rel: &Path,
+    content: &str,
+    source: Source,
+    group: Option<String>,
+    now: SystemTime,
+) -> io::Result<bool> {
+    let same_group = group.is_some() && groups.get(rel) == group.as_ref();
+    let changed = history::record(root, rel, content, source, same_group, now)?;
+    if changed {
+        match group {
+            Some(group) if source == Source::Agent => {
+                groups.insert(rel.to_path_buf(), group);
+            }
+            _ => {
+                groups.remove(rel);
+            }
+        }
+    }
+    Ok(changed)
+}
+
 fn record(
     app: &tauri::AppHandle,
     state: &WorkspaceState,
@@ -43,16 +72,15 @@ fn record(
     group: Option<String>,
 ) -> Result<(), AppError> {
     let mut groups = state.history_groups.lock();
-    let same_group = group.is_some() && groups.get(rel) == group.as_ref();
-    let changed = history::record(root, rel, content, source, same_group, SystemTime::now())?;
-    match group {
-        Some(group) if source == Source::Agent => {
-            groups.insert(rel.to_path_buf(), group);
-        }
-        _ => {
-            groups.remove(rel);
-        }
-    }
+    let changed = record_grouped(
+        &mut groups,
+        root,
+        rel,
+        content,
+        source,
+        group,
+        SystemTime::now(),
+    )?;
     drop(groups);
     if changed {
         emit_changed(app, root, rel);
@@ -186,4 +214,66 @@ pub async fn history_restore(
         Ok(content)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, UNIX_EPOCH};
+    use tempfile::TempDir;
+
+    #[test]
+    fn baselines_between_edits_keep_one_version_per_turn() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let rel = Path::new("note.md");
+        let mut groups = HashMap::new();
+        let mut minute = 0;
+        let mut rec = |content: &str, source: Source, turn: Option<&str>| {
+            minute += 1;
+            let now = UNIX_EPOCH + Duration::from_secs(1_760_000_000 + minute * 60);
+            let group = turn.map(str::to_string);
+            record_grouped(&mut groups, &root, rel, content, source, group, now).unwrap()
+        };
+        // Each Claude edit is preceded by an `external` baseline, a no-op mid-turn.
+        let steps = [
+            ("a", Source::User, None),
+            ("a", Source::External, None),
+            ("b", Source::Agent, Some("t1")),
+            ("b", Source::External, None),
+            ("c", Source::Agent, Some("t1")),
+            ("d", Source::User, None),
+            ("e", Source::Agent, Some("t1")),
+            ("e", Source::External, None),
+            ("f", Source::Agent, Some("t2")),
+            ("g", Source::External, None),
+            ("h", Source::Agent, Some("t2")),
+            ("h", Source::Agent, Some("t3")),
+            ("i", Source::Agent, Some("t3")),
+        ];
+        for (content, source, turn) in steps {
+            rec(content, source, turn);
+        }
+        let versions: Vec<(Source, String)> = history::list(&root, rel)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .map(|v| (v.source, history::read(&root, rel, &v.id).unwrap()))
+            .collect();
+        let expected = [
+            (Source::User, "a"),
+            (Source::Agent, "c"),
+            (Source::User, "d"),
+            (Source::Agent, "e"),
+            (Source::Agent, "f"),
+            (Source::External, "g"),
+            (Source::Agent, "h"),
+            (Source::Agent, "i"),
+        ];
+        let expected: Vec<(Source, String)> = expected
+            .into_iter()
+            .map(|(s, c)| (s, c.to_string()))
+            .collect();
+        assert_eq!(versions, expected);
+    }
 }
