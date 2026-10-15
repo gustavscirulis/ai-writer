@@ -100,12 +100,12 @@ const INIT_ID: &str = "writer-initialize";
 const HOOK_ID: &str = "writer-note-scope";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
 const EDIT_SAVE_FAILED: &str =
-    "Writer could not save the user's latest edits to this note. Read it again before editing.";
+    "Co-writer could not save the user's latest edits to this note. Read it again before editing.";
 // Normal CLI startup now includes MCP/plugin connections (typically up to 30s).
 // Keep initialization bounded while allowing those connections to finish.
 const INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(60);
 
-// These tools don't use Writer's built-in file edit path. MCP servers own their
+// These tools don't use Co-writer's built-in file edit path. MCP servers own their
 // side effects; requests requiring permission retain the host approval flow.
 fn uses_host_permission(tool: &str) -> bool {
     matches!(
@@ -213,16 +213,16 @@ fn resolve_target(path: &Path) -> std::io::Result<(PathBuf, bool)> {
 
 fn workspace_denial(root: &Path, target: &Path) -> Option<&'static str> {
     let Ok(relative) = target.strip_prefix(root) else {
-        return Some("Writer can edit only notes inside this workspace.");
+        return Some("Co-writer can edit only notes inside this workspace.");
     };
     if relative
         .components()
         .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
     {
-        return Some("Writer can't edit files in hidden folders.");
+        return Some("Co-writer can't edit files in hidden folders.");
     }
     if !crate::open_target::is_markdown(target) {
-        return Some("Writer can create and edit only Markdown notes.");
+        return Some("Co-writer can create and edit only Markdown notes.");
     }
     None
 }
@@ -377,7 +377,7 @@ impl Scope {
     }
     async fn hook(&self, request: &Value) -> Result<Value, String> {
         if request["callback_id"] != HOOK_ID {
-            return Err("Unknown Writer scope callback".into());
+            return Err("Unknown Co-writer scope callback".into());
         }
         let input = &request["input"];
         let tool = input["tool_name"]
@@ -387,7 +387,7 @@ impl Scope {
             return Err(format!("Unsupported scoped tool: {tool}"));
         }
         if !self.active {
-            return Ok(denied_hook("No active Writer turn."));
+            return Ok(denied_hook("No active Co-writer turn."));
         }
         if tool == "Read" && self.attached_read(&input["tool_input"]).await? {
             return Ok(
@@ -421,7 +421,7 @@ impl Scope {
         if matches!(tool, "Edit" | "Write") {
             if !self.active {
                 return Ok(Some(
-                    json!({"behavior": "deny", "message": "No active Writer turn."}),
+                    json!({"behavior": "deny", "message": "No active Co-writer turn."}),
                 ));
             }
             if !request["input"].is_object() {
@@ -469,7 +469,7 @@ impl Scope {
             }
             if tool == "AskUserQuestion" && question_texts(&request["input"]).is_err() {
                 return Ok(Some(
-                    json!({"behavior": "deny", "message": "Writer couldn't show these questions to the user."}),
+                    json!({"behavior": "deny", "message": "Co-writer couldn't show these questions to the user."}),
                 ));
             }
             self.permissions
@@ -478,7 +478,7 @@ impl Scope {
         }
         if !self.active || !uses_host_permission(tool) {
             return Ok(Some(
-                json!({"behavior": "deny", "message": "This tool is unavailable outside an active Writer turn or its permitted tool set."}),
+                json!({"behavior": "deny", "message": "This tool is unavailable outside an active Co-writer turn or its permitted tool set."}),
             ));
         }
         let input = request["input"]
@@ -563,7 +563,7 @@ impl Scope {
     }
     fn decision(&mut self, id: &str, allow: bool, always: bool) -> Result<Decision, String> {
         if !self.active {
-            return Err("No active Writer turn".into());
+            return Err("No active Co-writer turn".into());
         }
         if self
             .permissions
@@ -583,7 +583,7 @@ impl Scope {
         if !allow {
             return Ok(Decision::Reply(response(
                 id,
-                json!({"behavior": "deny", "message": "Denied by the user in Writer."}),
+                json!({"behavior": "deny", "message": "Denied by the user in Co-writer."}),
             )));
         }
         if always {
@@ -654,7 +654,7 @@ impl Scope {
     /// A copy of the retained input; the request stays pending until a valid answer.
     fn interactive_input(&self, id: &str, expected: &str) -> Result<Value, String> {
         if !self.active {
-            return Err("No active Writer turn".into());
+            return Err("No active Co-writer turn".into());
         }
         match self.permissions.get(id) {
             Some((tool, input)) if tool == expected => Ok(input.clone()),
@@ -692,7 +692,7 @@ fn user_frame(line: &str) -> Result<(), String> {
         || !value["message"]["content"].is_string()
     {
         return Err(
-            "Writer accepts only user messages; native code owns agent control replies".into(),
+            "Co-writer accepts only user messages; native code owns agent control replies".into(),
         );
     }
     Ok(())
@@ -751,7 +751,7 @@ async fn run_process(
         tokio::select! {
             biased;
             _ = cancel.changed() => { kill_group(&mut child); break child.wait().await; }
-            _ = &mut initialization_deadline, if scope.as_ref().is_some_and(|s| !s.initialized) => { failure = Some("Claude Code did not initialize Writer's edit scope".into()); }
+            _ = &mut initialization_deadline, if scope.as_ref().is_some_and(|s| !s.initialized) => { failure = Some("Claude Code did not initialize Co-writer's edit scope".into()); }
             status = child.wait() => { break status; }
             next = input.recv() => {
                 let Some(next) = next else { kill_group(&mut child); break child.wait().await; };
@@ -770,7 +770,7 @@ async fn run_process(
                         match scope.as_mut().ok_or_else(|| "No scoped process".to_string()).and_then(|s| s.answer(&request_id, answer)) {
                             Ok(Decision::Reply(value)) => (value.to_string(), ack),
                             Ok(Decision::Hold(event)) => {
-                                if events.send(event).is_err() { failure = Some("Writer's event channel closed".into()); }
+                                if events.send(event).is_err() { failure = Some("Co-writer's event channel closed".into()); }
                                 let _ = ack.send(Ok(()));
                                 continue;
                             }
@@ -794,7 +794,7 @@ async fn run_process(
                     let value: Value = match serde_json::from_str(&line) { Ok(value) => value, Err(error) => { failure = Some(format!("Invalid Claude stream: {error}")); continue; } };
                     if value["type"] == "control_response" {
                         if value["response"]["request_id"] != INIT_ID || value["response"]["subtype"] != "success" || scope.initialized {
-                            failure = Some("Claude Code rejected Writer's edit-scope initialization".into()); continue;
+                            failure = Some("Claude Code rejected Co-writer's edit-scope initialization".into()); continue;
                         }
                         scope.initialized = true;
                         if let Some(ready) = ready.take() { let _ = ready.send(Ok(())); }
@@ -815,7 +815,7 @@ async fn run_process(
                         match reply {
                             Ok(Some(reply)) => {
                                 if let Some(event) = scope.defer_edit(id, request, &reply) {
-                                    if events.send(event).is_err() { failure = Some("Writer's event channel closed".into()); }
+                                    if events.send(event).is_err() { failure = Some("Co-writer's event channel closed".into()); }
                                     continue;
                                 }
                                 failure = write_line(&mut stdin, &response(id, reply).to_string(), &mut cancel).await.err();
@@ -826,9 +826,9 @@ async fn run_process(
                         }
                     }
                     if value["type"] == "result" { scope.active = false; scope.permissions.clear(); scope.targets.clear(); scope.edits.clear(); }
-                    if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Writer's event channel closed".into()); continue; }
+                    if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); continue; }
                     if value["type"] == "result" { kill_group(&mut child); break child.wait().await; }
-                } else if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Writer's event channel closed".into()); }
+                } else if events.send(AgentEvent::Claude { line }).is_err() { failure = Some("Co-writer's event channel closed".into()); }
             }
         }
     };
@@ -912,7 +912,7 @@ pub(super) fn always_allow_set(tools: Vec<String>) -> Result<HashSet<String>, St
             if matches!(tool.as_str(), "Edit" | "Write") || uses_host_permission(&tool) {
                 Ok(tool)
             } else {
-                Err(format!("Writer can't always allow {tool}"))
+                Err(format!("Co-writer can't always allow {tool}"))
             }
         })
         .collect()

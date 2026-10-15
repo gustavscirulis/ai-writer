@@ -346,7 +346,7 @@
     {
       "key": "workspace.default-terminal",
       "label": "Default Terminal",
-      "description": "Terminal application name on macOS, or executable name/full path on Windows and Linux. Leave blank for Writer's platform default; arguments are not supported.",
+      "description": "Terminal application name on macOS, or executable name/full path on Windows and Linux. Leave blank for Co-writer's platform default; arguments are not supported.",
       "category": "Workspace",
       "type": "string",
       "placeholder": "Platform default",

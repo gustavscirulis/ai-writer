@@ -39,7 +39,7 @@ export function useFeedbackPersistence() {
             if (requestId !== id) return;
             resumeFeedbackPersistence(`window:${id}`);
             window.alert(
-              `Could not save feedback: ${error instanceof Error ? error.message : String(error)}. Writer has stayed open.`,
+              `Could not save feedback: ${error instanceof Error ? error.message : String(error)}. Co-writer has stayed open.`,
             );
             await invoke("feedback_persistence_ack", { requestId: id, success: false });
           }

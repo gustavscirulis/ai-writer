@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Writer",
+  "productName": "Co-writer",
   "version": "0.8.0",
-  "identifier": "com.writer-computer",
+  "identifier": "com.gustavscirulis.cowriter",
   "build": {
     "beforeDevCommand": "vp dev",
     "devUrl": "http://localhost:1420",

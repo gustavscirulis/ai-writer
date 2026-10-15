@@ -30,7 +30,7 @@ Input path
   └─ otherwise  → None (lenient) / Error (strict CLI)
 ```
 
-## 1. Cold Start (`writer .`, Finder open, dock drop while not running)
+## 1. Cold Start (`cowriter .`, Finder open, dock drop while not running)
 
 The `writer` symlink invokes the same binary as the GUI app. `main.rs`
 dispatches on argv\[0\]: basename `writer` → CLI launcher, `Writer` → Tauri app.
@@ -159,7 +159,7 @@ main window while `startup_open` is still readable instead of spawning a new one
 
 ## 4. Second Launch (Single-Instance Plugin)
 
-When Writer is already running and the user runs `writer .` again, the OS hands
+When Co-writer is already running and the user runs `cowriter .` again, the OS hands
 the second process's argv to the existing process via
 `tauri-plugin-single-instance`.
 

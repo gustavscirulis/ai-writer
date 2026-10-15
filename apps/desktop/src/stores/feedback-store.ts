@@ -507,7 +507,7 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   },
   begin: (path, ids) => {
     const state = get();
-    if (closing) throw new Error("Writer is saving feedback before closing.");
+    if (closing) throw new Error("Co-writer is saving feedback before closing.");
     if (!state.root || !state.loaded) throw new Error("Wait for saved feedback to load.");
     set((state) => ({ turnErrors: { ...state.turnErrors, [path]: null } }));
     if (
