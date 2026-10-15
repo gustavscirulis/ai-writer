@@ -19,6 +19,8 @@
 
 ## Done
 
+- Allowed tools in Preferences, grouped by source: picked the "Grouped" direction from a three-way prototype (grouped / chips / collapsed summary). `describeAllowedTool` and `groupAllowedTools` in `lib/tool-request-summary.ts` replace `allowedToolLabel`: they turn `mcp__<server>__<tool>` into a readable source and name, and put built-in tools first. The list now spans the full width of the card, under the description, with revoke buttons that show on hover and a "Revoke all" for each source, which revokes one tool after another through the existing command. Unit and render tests pass; checked in a browser with the real component and app CSS (hover, revoke, revoke all). Not yet tried in the native app.
+
 - Remove the Show Co-writer setting: the panel opens by default and is hidden or shown only with ⌘⇧L, the top-right button (renamed from Chat to Co-writer) or the panel's close button. Dropped the "experimental" wording from the README and docs.
 
 - Rename the GitHub repo to `gustavscirulis/co-writer`: updater endpoint, `RELEASE_REPO`, README and `docs/releasing.md` point at the new name. Checked that the old `latest.json` URL redirects to the new repo.
