@@ -8,14 +8,14 @@ It is built with Tauri v2, React, Zustand, CodeMirror, and Rust. The app keeps d
 
 Co-writer is a fork of [Writer](https://github.com/joelbqz/writer-computer). It adds an AI writing partner and ships as its own app, so it can sit next to Writer without replacing it. The main differences:
 
-- **Co-writer.** A panel (⌘⇧L) that runs your installed Claude Code CLI next to the note, with its own sign-in and permissions. Ask it to edit the note, select text or ⌥-click a paragraph to point it at something, queue messages, attach files, mention other notes with @, and use your Claude Code skills and MCP servers. Each note keeps its own conversation. Claude edits the open note directly, and asks before reading other files, writing other notes or using tools, unless you've allowed that kind of request.
-- **Version history.** Go back to earlier versions of a note (⌘⇧H). All of Claude's edits from one reply are saved as a single version.
+- **Co-writer.** A panel (⌘⇧L) that runs your installed Claude Code or Codex CLI next to the note, with its own sign-in and permissions. Choose the agent in Settings → Co-writer → Agent. Ask it to edit the note, select text or ⌥-click a paragraph to point it at something, queue messages, attach files, mention other notes with @, and use your skills and MCP servers. Each note keeps its own conversation. The agent edits the open note directly, and asks before writing other notes or using tools, unless you've allowed that kind of request. Claude Code also asks before reading files outside the workspace. Codex can read them without asking.
+- **Version history.** Go back to earlier versions of a note (⌘⇧H). All of the agent's edits from one reply are saved as a single version.
 - **Embeds.** Fenced ` ```html embed ` blocks run live HTML, CSS and JavaScript in a sandbox inside the note, for prototypes, charts and diagrams.
 - **No telemetry.** Co-writer sends no usage data.
 - **Its own app.** A separate name, bundle identifier and `cowriter` terminal command. On first launch it imports your settings from Writer if you have it installed.
 - **Separate releases.** Builds are published on [this repo's releases](https://github.com/gustavscirulis/co-writer/releases), and the in-app updater follows them instead of upstream's.
 
-Co-writer needs the [Claude Code CLI](https://code.claude.com) installed and signed in. Co-writer doesn't bundle it or handle your Claude account. See [`docs/third-party.md`](./docs/third-party.md) for license and attribution notes, and [`CHANGELOG.md`](./CHANGELOG.md) for everything that has changed since 2026-10-10, when this fork started.
+Co-writer needs the [Claude Code CLI](https://code.claude.com) (2.1.296 or later) or the [Codex CLI](https://github.com/openai/codex) (0.162.1 or later) installed and signed in. Co-writer bundles neither and doesn't handle your accounts. See [`docs/third-party.md`](./docs/third-party.md) for license and attribution notes, and [`CHANGELOG.md`](./CHANGELOG.md) for everything that has changed since 2026-10-10, when this fork started.
 
 ## Repository
 
