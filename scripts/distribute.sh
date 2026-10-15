@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RELEASE_REPO="gustavscirulis/ai-writer"
+RELEASE_REPO="gustavscirulis/co-writer"
 TAURI_CONF="$ROOT_DIR/apps/desktop/src-tauri/tauri.conf.json"
 
 NOTARY_PROFILE="${WRITER_NOTARY_PROFILE:-writer-notary}"
