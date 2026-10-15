@@ -404,6 +404,16 @@
       "default": 340
     },
     {
+      "key": "co-writer.model",
+      "label": "Model",
+      "description": "Claude model for Co-writer chats. Default uses your Claude Code CLI's configured model. Applies from the next message, in every workspace.",
+      "category": "Co-writer",
+      "type": "enum",
+      "options": ["default", "fable", "opus", "sonnet", "haiku"],
+      "scope": "global",
+      "default": "default"
+    },
+    {
       "key": "co-writer.allowed-tools",
       "label": "Allowed Without Asking",
       "description": "Tools Co-writer may use without asking, added when you choose \"don't ask again\" on a request. Applies in every workspace.",

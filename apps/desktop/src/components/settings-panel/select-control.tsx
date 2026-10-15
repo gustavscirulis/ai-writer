@@ -2,6 +2,7 @@ interface SelectControlProps {
   value: string;
   options: string[];
   onChange: (value: string) => void;
+  optionLabel?: (option: string) => string;
   ariaLabel?: string;
   disabled?: boolean;
   className?: string;
@@ -12,6 +13,7 @@ export function SelectControl({
   value,
   options,
   onChange,
+  optionLabel,
   ariaLabel,
   disabled = false,
   className = "",
@@ -26,7 +28,7 @@ export function SelectControl({
     >
       {options.map((option) => (
         <option key={option} value={option}>
-          {option}
+          {optionLabel ? optionLabel(option) : option}
         </option>
       ))}
     </select>

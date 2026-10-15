@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { isWorkspaceChat } from "@/lib/agent-turn";
+import { modelOptionLabel } from "@/lib/claude-models";
 import { isBlankNote, type McpServer } from "@/lib/co-writer-suggestions";
 import type { Skill } from "@/lib/co-writer-skills";
 import { loadCapabilities, useCoWriterStore } from "@/stores/co-writer-store";
@@ -28,6 +29,23 @@ export function useMcpServers(): McpServerList | null {
 export function useSkills() {
   const capabilities = useCapabilities();
   return capabilities && capabilities !== "unavailable" ? capabilities.skills : NO_SKILLS;
+}
+
+/** Labels `co-writer.model` options with the versions Claude Code reports, asking it only when `load` is set. */
+export function useModelOptionLabel(load: boolean) {
+  const root = useWorkspaceStore((s) => s.root);
+  useEffect(() => {
+    if (load && root) void loadCapabilities(root);
+  }, [load, root]);
+  const capabilities = useCoWriterStore((s) => (root ? s.capabilities[root] : undefined));
+  return useCallback(
+    (option: string) =>
+      modelOptionLabel(
+        option,
+        capabilities && capabilities !== "unavailable" ? capabilities : null,
+      ),
+    [capabilities],
+  );
 }
 
 /** Whether the note has nothing to work on yet; `null` while it loads. No note counts as blank. */
