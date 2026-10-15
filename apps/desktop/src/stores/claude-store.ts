@@ -30,6 +30,7 @@ import { promptContent } from "@/lib/co-writer-skills";
 import { parseDocument } from "@/lib/frontmatter";
 import { getFileName } from "@/lib/paths";
 import { attachmentRange } from "@/lib/feedback-anchors";
+import { mentionRanges, type Mention } from "@/lib/mentions";
 import {
   isQueueReady,
   reconcileFeedbackAfterTurn,
@@ -55,6 +56,8 @@ export interface Chat {
   draft: string;
   /** Files attached to the draft, as canonical paths. */
   files: string[];
+  /** Files in `files` that show as an `@label` pill in the draft instead of a chip. */
+  mentions: Mention[];
   /** Why the last attempt to attach files failed; cleared by the next attach. */
   fileError: string | null;
   activity: ClaudeActivity;
@@ -69,6 +72,7 @@ export const EMPTY_CHAT: Chat = {
   messages: [],
   draft: "",
   files: [],
+  mentions: [],
   fileError: null,
   activity: null,
   status: "idle",
@@ -82,6 +86,10 @@ interface ClaudeState {
   setDraft: (path: string, draft: string) => void;
   addFiles: (path: string, files: string[]) => void;
   removeFile: (path: string, file: string) => void;
+  /** Attaches a file whose `@label` is already in the draft. */
+  addMention: (path: string, mention: Mention) => void;
+  /** Turns the draft's mentions into ordinary file chips. */
+  releaseMentions: (path: string) => void;
   setFileError: (path: string, error: string | null) => void;
   decidePermission: (path: string, id: string, allow: boolean, always?: boolean) => Promise<void>;
   /** Replies to a request that needs the user's answer, such as Claude's questions. */
@@ -652,7 +660,20 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
   setDraft: (path, draft) => {
     const key = documentPath(path);
     if (chatForPath(get().chats, path).draft === draft) return;
-    set((state) => ({ chats: withChat(state.chats, key, (chat) => ({ ...chat, draft })) }));
+    set((state) => ({
+      chats: withChat(state.chats, key, (chat) => {
+        const kept = chat.mentions.filter((mention) => mentionRanges(draft, [mention]).length);
+        if (kept.length === chat.mentions.length) return { ...chat, draft };
+        // A mention whose pill is gone from the draft takes its file with it.
+        const dropped = chat.mentions.filter((mention) => !kept.includes(mention));
+        return {
+          ...chat,
+          draft,
+          mentions: kept,
+          files: chat.files.filter((file) => !dropped.some((mention) => mention.path === file)),
+        };
+      }),
+    }));
   },
   addFiles: (path, files) => {
     updateChat(documentPath(path), (chat) => ({
@@ -666,6 +687,23 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       chat.files.includes(file)
         ? { ...chat, files: chat.files.filter((entry) => entry !== file) }
         : chat,
+    );
+  },
+  addMention: (path, mention) => {
+    updateChat(documentPath(path), (chat) =>
+      mentionRanges(chat.draft, [mention]).length
+        ? {
+            ...chat,
+            files: chat.files.includes(mention.path) ? chat.files : [...chat.files, mention.path],
+            mentions: [...chat.mentions.filter((entry) => entry.path !== mention.path), mention],
+            fileError: null,
+          }
+        : chat,
+    );
+  },
+  releaseMentions: (path) => {
+    updateChat(documentPath(path), (chat) =>
+      chat.mentions.length ? { ...chat, mentions: [] } : chat,
     );
   },
   setFileError: (path, error) => {
@@ -772,6 +810,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     runs.set(key, run);
     const draft = get().chats[key]?.draft;
     const restore = !options && draft === text ? draft : null;
+    const sentMentions = restore !== null ? (get().chats[key]?.mentions ?? []) : [];
     const sentFiles = options ? [] : (files ?? []);
     const sentFeedback =
       options || !feedbackIds?.length ? [] : useFeedbackStore.getState().take(path, feedbackIds);
@@ -782,6 +821,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       tools: [],
       ...(attachments?.length ? { attachments } : {}),
       ...(sentFiles.length ? { files: sentFiles } : {}),
+      ...(sentMentions.length ? { mentions: sentMentions } : {}),
     };
     updateChat(key, (chat) => ({
       ...chat,
@@ -790,7 +830,7 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
       activity: "thinking",
       error: null,
       permissions: [],
-      ...(restore !== null ? { draft: "" } : {}),
+      ...(restore !== null ? { draft: "", mentions: [] } : {}),
       ...(sentFiles.length
         ? { files: chat.files.filter((file) => !sentFiles.includes(file)) }
         : {}),
@@ -847,7 +887,9 @@ export const useClaudeStore = create<ClaudeState>((set, get) => ({
     const settled = task
       .then((ok) => {
         if (!ok && !run.cancelled && restore !== null && current(run))
-          updateChat(key, (chat) => (chat.draft === "" ? { ...chat, draft: restore } : chat));
+          updateChat(key, (chat) =>
+            chat.draft === "" ? { ...chat, draft: restore, mentions: sentMentions } : chat,
+          );
         if (!ok && !run.cancelled && sentFiles.length && current(run))
           updateChat(key, (chat) => ({
             ...chat,

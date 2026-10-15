@@ -10,6 +10,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import {
   dismissChatFileError,
+  mentionChatFile,
+  releaseChatMentions,
   pasteChatImage,
   pickChatFiles,
   removeChatFile,
@@ -23,6 +25,7 @@ import {
   focusChatComposer,
   useChatFiles,
   useChatFileError,
+  useChatMentions,
   usePlanMode,
   togglePlanMode,
   useChatPath,
@@ -42,10 +45,24 @@ import { useSkills } from "@/hooks/use-co-writer";
 import { isWorkspaceChat } from "@/lib/agent-turn";
 import { matchSkills, slashQuery, type Skill } from "@/lib/co-writer-skills";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
+import {
+  deleteMention,
+  insertMention,
+  mentionQuery,
+  mentionRanges,
+  snapOutOfMention,
+  type MentionMatch,
+} from "@/lib/mentions";
 import { pastedImageFile } from "@/lib/pasted-image";
+import { canonicalWikiTarget } from "@/lib/wiki-links";
+import type { SearchResult } from "@/types/fs";
+import { menuOptionId } from "./composer-menu";
 import { FileChip } from "./file-chip";
+import { COMPOSER_TEXT, MentionBackdrop } from "./mention-pills";
+import { MENTION_MENU_ID, MentionMenu } from "./mention-menu";
 import { FeedbackError, NotesTray } from "./notes-tray";
-import { SLASH_MENU_ID, SlashMenu, skillOptionId } from "./slash-menu";
+import { SLASH_MENU_ID, SlashMenu } from "./slash-menu";
+import { useMentionFiles } from "./use-mention-files";
 
 const MAX_INPUT_HEIGHT = 180;
 const KBD =
@@ -117,6 +134,12 @@ export function Composer() {
   const error = useChatError(path);
   const items = useDocumentFeedback(path);
   const files = useChatFiles(path);
+  const mentions = useChatMentions(path);
+  const pills = useMemo(() => mentionRanges(text, mentions), [text, mentions]);
+  const chips = useMemo(
+    () => files.filter((file) => !mentions.some((mention) => mention.path === file)),
+    [files, mentions],
+  );
   const planMode = usePlanMode(path);
   const dropActive = useChatDropActive();
   const attached = useMemo(
@@ -130,16 +153,55 @@ export function Composer() {
   const notes = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const skills = useSkills();
-  const query = slashQuery(text);
-  const matches = useMemo(
-    () => (query === null ? [] : matchSkills(query, skills)),
-    [query, skills],
+  const slash = slashQuery(text);
+  const skillMatches = useMemo(
+    () => (slash === null ? [] : matchSkills(slash, skills)),
+    [slash, skills],
   );
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const [highlight, setHighlight] = useState({ query, index: 0 });
-  const menuOpen = matches.length > 0 && dismissed !== text;
-  const active = highlight.query === query ? Math.min(highlight.index, matches.length - 1) : 0;
+  // The caret only counts for the draft it was read from, so a draft set from elsewhere opens no menu.
+  const [selection, setSelection] = useState({ text, caret: 0 });
+  const caret = selection.text === text ? selection.caret : null;
+  const trackCaret = (input: HTMLTextAreaElement) =>
+    setSelection({ text: input.value, caret: input.selectionStart });
+  const typed = slash === null && caret !== null ? mentionQuery(text, caret) : null;
+  // Right after a one-word pill the caret also reads as `@word`; that's the pill, not a search.
+  const mention = typed && !pills.some((pill) => pill.from === typed.from) ? typed : null;
+  const mentionFiles = useMentionFiles(mention?.query ?? null, path);
+  const pendingCaret = useRef<number | null>(null);
   const pickSkill = (skill: Skill) => setChatDraft(path, `/${skill.name} `);
+  const pickFile = (match: MentionMatch, file: SearchResult) => {
+    const label = canonicalWikiTarget(file, mentionFiles);
+    edit(insertMention(text, match, label));
+    void mentionChatFile(path, file.path, label);
+  };
+  const edit = (next: { text: string; caret: number }) => {
+    pendingCaret.current = next.caret;
+    setChatDraft(path, next.text);
+    setSelection(next);
+  };
+  const [scrollTop, setScrollTop] = useState(0);
+  const menu =
+    skillMatches.length > 0
+      ? {
+          key: `/${slash}`,
+          id: SLASH_MENU_ID,
+          count: skillMatches.length,
+          pick: (index: number) => pickSkill(skillMatches[index]!),
+        }
+      : mention && mentionFiles.length > 0
+        ? {
+            key: `@${mention.query}`,
+            id: MENTION_MENU_ID,
+            count: mentionFiles.length,
+            pick: (index: number) => pickFile(mention, mentionFiles[index]!),
+          }
+        : null;
+  const dismissKey = `${text}\u0000${caret}`;
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState({ key: "", index: 0 });
+  const menuOpen = menu !== null && dismissed !== dismissKey;
+  const active = menu && highlight.key === menu.key ? Math.min(highlight.index, menu.count - 1) : 0;
+  const setActive = (index: number) => menu && setHighlight({ key: menu.key, index });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const setInput = useCallback(
     (input: HTMLTextAreaElement | null) => {
@@ -161,6 +223,10 @@ export function Composer() {
     if (!input) return;
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+    if (pendingCaret.current !== null) {
+      input.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }
   }, [text]);
   const send = () => {
     void sendChat(path, text, {
@@ -176,6 +242,8 @@ export function Composer() {
     if (!queues) return;
     if (!empty) {
       if (!saveFeedbackNotes(path, text)) return;
+      // Queued messages carry no files, so mentioned notes stay behind as chips.
+      releaseChatMentions(path);
       setChatDraft(path, "");
       clearAttachmentHighlight();
     }
@@ -215,20 +283,30 @@ export function Composer() {
         data-chat-drop
         className={`relative rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
       >
-        {menuOpen && (
-          <SlashMenu
-            skills={matches}
-            active={active}
-            onActive={(index) => setHighlight({ query, index })}
-            onPick={pickSkill}
-          />
-        )}
-        {(attached.length > 0 || files.length > 0) && (
+        {menuOpen &&
+          (menu.id === SLASH_MENU_ID ? (
+            <SlashMenu
+              skills={skillMatches}
+              active={active}
+              onActive={setActive}
+              onPick={pickSkill}
+            />
+          ) : (
+            mention && (
+              <MentionMenu
+                files={mentionFiles}
+                active={active}
+                onActive={setActive}
+                onPick={(file) => pickFile(mention, file)}
+              />
+            )
+          ))}
+        {(attached.length > 0 || chips.length > 0) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (
               <AttachmentChip key={item.id} item={item} />
             ))}
-            {files.map((file) => (
+            {chips.map((file) => (
               <FileChip
                 key={file}
                 path={file}
@@ -240,68 +318,104 @@ export function Composer() {
             ))}
           </div>
         )}
-        <textarea
-          ref={setInput}
-          aria-label="Message"
-          placeholder={
-            attached.length
-              ? "What should change here?"
-              : busy && queues
-                ? "Queue a follow-up…"
-                : planMode
-                  ? "Describe what you want planned…"
-                  : "Ask anything, or describe a change…"
-          }
-          value={text}
-          onChange={(event) => setChatDraft(path, event.target.value)}
-          onPaste={(event) => {
-            const image = pastedImageFile(event.clipboardData);
-            if (!image) return;
-            event.preventDefault();
-            void pasteChatImage(path, image);
-          }}
-          rows={2}
-          aria-autocomplete="list"
-          aria-controls={menuOpen ? SLASH_MENU_ID : undefined}
-          aria-expanded={menuOpen}
-          aria-activedescendant={menuOpen ? skillOptionId(active) : undefined}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
-            if (menuOpen && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-              event.preventDefault();
-              const step = event.key === "ArrowDown" ? 1 : -1;
-              setHighlight({ query, index: (active + step + matches.length) % matches.length });
-            } else if (menuOpen && plain && (event.key === "Enter" || event.key === "Tab")) {
-              event.preventDefault();
-              pickSkill(matches[active]!);
-            } else if (menuOpen && event.key === "Escape") {
-              event.preventDefault();
-              setDismissed(text);
-            } else if (event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey) {
-              event.preventDefault();
-              togglePlanMode(path);
-            } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              queue(empty);
-            } else if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            } else if (event.key === "Backspace" && !text && files.length) {
-              event.preventDefault();
-              removeChatFile(path, files[files.length - 1]!);
-            } else if (event.key === "Backspace" && !text && attached.length) {
-              event.preventDefault();
-              removeFeedback(path, attached[attached.length - 1]!.id);
-              clearAttachmentHighlight();
-            } else if (event.key === "Escape" && attached.length) {
-              event.preventDefault();
-              clearAttachedFeedback(path);
-              clearAttachmentHighlight();
+        <div className="relative">
+          <MentionBackdrop text={text} pills={pills} scrollTop={scrollTop} />
+          <textarea
+            ref={setInput}
+            aria-label="Message"
+            placeholder={
+              attached.length
+                ? "What should change here?"
+                : busy && queues
+                  ? "Queue a follow-up…"
+                  : planMode
+                    ? "Describe what you want planned…"
+                    : "Ask anything, or describe a change…"
             }
-          }}
-          className="block w-full resize-none overflow-y-auto bg-transparent text-[13.5px] leading-[1.55] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-        />
+            value={text}
+            onChange={(event) => {
+              setChatDraft(path, event.target.value);
+              trackCaret(event.target);
+            }}
+            onSelect={(event) => {
+              const input = event.currentTarget;
+              if (input.selectionStart === input.selectionEnd) {
+                const snapped = snapOutOfMention(pills, input.selectionStart, caret);
+                if (snapped !== input.selectionStart) input.setSelectionRange(snapped, snapped);
+              }
+              trackCaret(input);
+            }}
+            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+            onPaste={(event) => {
+              const image = pastedImageFile(event.clipboardData);
+              if (!image) return;
+              event.preventDefault();
+              void pasteChatImage(path, image);
+            }}
+            rows={2}
+            aria-autocomplete="list"
+            aria-controls={menuOpen ? menu.id : undefined}
+            aria-expanded={menuOpen}
+            aria-activedescendant={menuOpen ? menuOptionId(menu.id, active) : undefined}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              const plain = !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+              if (menuOpen && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                setActive((active + step + menu.count) % menu.count);
+              } else if (menuOpen && plain && (event.key === "Enter" || event.key === "Tab")) {
+                event.preventDefault();
+                menu.pick(active);
+              } else if (menuOpen && event.key === "Escape") {
+                event.preventDefault();
+                setDismissed(dismissKey);
+              } else if (
+                event.key === "Tab" &&
+                event.shiftKey &&
+                !event.metaKey &&
+                !event.ctrlKey
+              ) {
+                event.preventDefault();
+                togglePlanMode(path);
+              } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                queue(empty);
+              } else if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              } else if (
+                (event.key === "Backspace" || event.key === "Delete") &&
+                plain &&
+                event.currentTarget.selectionStart === event.currentTarget.selectionEnd &&
+                pills.length
+              ) {
+                const next = deleteMention(
+                  text,
+                  pills,
+                  event.currentTarget.selectionStart,
+                  event.key,
+                );
+                if (next) {
+                  event.preventDefault();
+                  edit(next);
+                }
+              } else if (event.key === "Backspace" && !text && chips.length) {
+                event.preventDefault();
+                removeChatFile(path, chips[chips.length - 1]!);
+              } else if (event.key === "Backspace" && !text && attached.length) {
+                event.preventDefault();
+                removeFeedback(path, attached[attached.length - 1]!.id);
+                clearAttachmentHighlight();
+              } else if (event.key === "Escape" && attached.length) {
+                event.preventDefault();
+                clearAttachedFeedback(path);
+                clearAttachmentHighlight();
+              }
+            }}
+            className={`${COMPOSER_TEXT} relative block w-full resize-none overflow-y-auto bg-transparent text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]`}
+          />
+        </div>
         <div className="mt-1 flex items-center justify-between gap-2">
           <div className="-ml-1.5 flex min-w-0 items-center gap-1">
             <button

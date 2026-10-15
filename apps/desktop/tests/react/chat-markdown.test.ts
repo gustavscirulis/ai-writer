@@ -120,6 +120,28 @@ test("assistant integration renders every text step as Markdown while user text 
   expect(user).not.toContain("<strong>");
 });
 
+test("a sent message shows its mentions as pills and only its other files as chips", () => {
+  const html = renderToStaticMarkup(
+    createElement(UserMessage, {
+      message: {
+        id: "u",
+        role: "user",
+        text: "match @Style guide",
+        tools: [],
+        files: ["/vault/Style guide.md", "/tmp/diagram.png"],
+        mentions: [{ path: "/vault/Style guide.md", label: "Style guide" }],
+      },
+      path: null,
+    }),
+  );
+  expect(html).toContain("match <button");
+  expect(html).toMatch(
+    /data-mention-pill="true" title="\/vault\/Style guide.md"[^>]*>@Style guide</,
+  );
+  expect(html).toContain('title="/tmp/diagram.png"');
+  expect(html).not.toContain('<span title="/vault/Style guide.md"');
+});
+
 test("assistant turn keeps tool summaries in chronological order between text steps", () => {
   const tool = (id: string) => ({ id, name: "Write", done: true });
   const messages: ChatMessage[] = [

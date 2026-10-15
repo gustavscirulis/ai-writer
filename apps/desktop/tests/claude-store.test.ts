@@ -491,6 +491,43 @@ test("a failed send puts its attached files back in the composer", async () => {
   expect(chatState().files).toEqual(["/tmp/diagram.png", "/tmp/later.pdf"]);
   expect(chatState().error).toContain("Couldn't find diagram.png.");
 });
+test("a mentioned note stays attached only while its pill is in the draft", () => {
+  const store = useClaudeStore.getState();
+  const mention = { path: "/notes/style.md", label: "Style guide" };
+  store.addMention("/notes/a.md", mention);
+  expect(chatState().files).toEqual([]);
+  store.addFiles("/notes/a.md", ["/tmp/diagram.png"]);
+  store.setDraft("/notes/a.md", "match @Style guide ");
+  store.addMention("/notes/a.md", mention);
+  expect(chatState()).toMatchObject({
+    files: ["/tmp/diagram.png", "/notes/style.md"],
+    mentions: [mention],
+  });
+  store.setDraft("/notes/a.md", "match @Style guide, please");
+  expect(chatState().mentions).toEqual([mention]);
+  store.setDraft("/notes/a.md", "match @Style gui, please");
+  expect(chatState()).toMatchObject({ files: ["/tmp/diagram.png"], mentions: [] });
+});
+test("a sent message keeps its mentions, and a failed send puts them back in the draft", async () => {
+  mockedInvoke.mockImplementation((command, args) =>
+    command === "claude_send"
+      ? Promise.reject(new Error("Couldn't start."))
+      : defaultInvoke(command, args),
+  );
+  const store = useClaudeStore.getState();
+  const mention = { path: "/notes/style.md", label: "Style" };
+  store.setDraft("/notes/a.md", "match @Style");
+  store.addMention("/notes/a.md", mention);
+  const sending = send("match @Style", { files: ["/notes/style.md"] });
+  expect(chatState()).toMatchObject({ draft: "", files: [], mentions: [] });
+  expect(chatMessages("/notes/a.md")[0]).toMatchObject({ mentions: [mention] });
+  expect(await sending).toBe(false);
+  expect(chatState()).toMatchObject({
+    draft: "match @Style",
+    files: ["/notes/style.md"],
+    mentions: [mention],
+  });
+});
 test("attached feedback leaves the composer on send and returns only if delivery fails", async () => {
   const start = deferred<string>();
   mockedInvoke.mockImplementation((command, args) =>

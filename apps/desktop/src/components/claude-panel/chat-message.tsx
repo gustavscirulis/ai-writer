@@ -18,6 +18,7 @@ import { getFileName, getRelativePath } from "@/lib/paths";
 import { attachmentLabel } from "@/lib/feedback-anchors";
 import { openLinkedFile } from "@/hooks/editor-api";
 import { useWorkspaceRoot } from "@/hooks/use-workspace";
+import { MentionText } from "./mention-pills";
 import { FileChip } from "./file-chip";
 import { MarkdownReply } from "./markdown-reply";
 import {
@@ -232,15 +233,18 @@ export const UserMessage = memo(function UserMessage({
 }) {
   const quotes = message.attachments?.filter((attachment) => attachment.note === undefined) ?? [];
   const notes = message.attachments?.filter((attachment) => attachment.note !== undefined) ?? [];
+  const mentions = message.mentions ?? [];
+  const chips =
+    message.files?.filter((file) => !mentions.some((mention) => mention.path === file)) ?? [];
   return (
     <article
       aria-label="You"
       data-message-id={message.id}
       className="chat-enter flex flex-col items-end gap-1.5"
     >
-      {message.files?.length ? (
+      {chips.length ? (
         <div aria-label="Attached files" className="flex max-w-[85%] flex-wrap justify-end gap-1">
-          {message.files.map((file) => (
+          {chips.map((file) => (
             <FileChip key={file} path={file} />
           ))}
         </div>
@@ -287,7 +291,7 @@ export const UserMessage = memo(function UserMessage({
         data-chat-selectable
         className="max-w-[85%] whitespace-pre-wrap break-words rounded-[16px_16px_5px_16px] bg-[var(--surface-subtle)] px-[13px] py-[9px] text-[13px] leading-[1.55] text-[var(--text-primary)] [[data-theme=dark]_&]:bg-[var(--surface-subtle-strong)]"
       >
-        {message.text}
+        {mentions.length ? <MentionText text={message.text} mentions={mentions} /> : message.text}
       </p>
     </article>
   );

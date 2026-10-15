@@ -131,6 +131,20 @@ export async function attachChatFiles(path: string, paths: string[]) {
   }
   focusChatComposer(path);
 }
+export function useChatMentions(path: string | null) {
+  return useClaudeStore((s) => chatForPath(s.chats, path).mentions);
+}
+export async function mentionChatFile(path: string, file: string, label: string) {
+  const store = useClaudeStore.getState();
+  try {
+    const [resolved] = await tauri.resolveChatFiles([file]);
+    if (resolved) store.addMention(path, { path: resolved, label });
+  } catch (error) {
+    store.setFileError(path, errorText(error));
+  }
+}
+export const releaseChatMentions = (path: string) =>
+  useClaudeStore.getState().releaseMentions(path);
 export async function pickChatFiles(path: string) {
   try {
     await attachChatFiles(path, await tauri.pickChatFiles());

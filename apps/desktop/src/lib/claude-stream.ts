@@ -1,3 +1,4 @@
+import type { Mention } from "@/lib/mentions";
 import type { FeedbackAnchor } from "@/lib/feedback-anchors";
 
 /** Text the user pointed at when sending; `note` is set when it was a saved note. */
@@ -47,6 +48,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   /** Absolute paths of files attached to a user message. */
   files?: string[];
+  /** Files in `files` the text mentions as `@label`, shown as pills there. */
+  mentions?: Mention[];
   textBlocks?: { key: string; text: string; snapshotId?: string; snapshotIndex?: number }[];
 }
 export function isVisibleMessage(message: ChatMessage) {
