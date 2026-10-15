@@ -19,6 +19,8 @@
 
 ## Done
 
+- Remove the Show Co-writer setting: the panel opens by default and is hidden or shown only with ⌘⇧L, the Chat button or the panel's close button. Dropped the "experimental" wording from the README and docs.
+
 - Rename the GitHub repo to `gustavscirulis/co-writer`: updater endpoint, `RELEASE_REPO`, README and `docs/releasing.md` point at the new name. Checked that the old `latest.json` URL redirects to the new repo.
 
 - Remove the marketing website: deleted `apps/website/`, `wrangler.jsonc`, `docs/website-deploy.md` and `docs/website-analytics.md`, plus the website-only catalog entries, the `website>vite` override, the Wrangler ignore patterns and the doc-index lines. Older Done entries and specs about the website are kept as history.
