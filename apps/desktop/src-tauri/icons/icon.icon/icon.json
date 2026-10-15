@@ -9,12 +9,13 @@
     {
       "layers" : [
         {
+          "blend-mode" : "plus-darker",
           "image-name" : "download.svg",
           "name" : "download",
           "position" : {
             "scale" : 3.4,
             "translation-in-points" : [
-              285.78499999999997,
+              263.54499999999996,
               0
             ]
           }
@@ -25,7 +26,7 @@
           "position" : {
             "scale" : 3.4,
             "translation-in-points" : [
-              -90,
+              -49,
               0
             ]
           }
