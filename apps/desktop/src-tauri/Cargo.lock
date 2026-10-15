@@ -867,8 +867,6 @@ dependencies = [
  "objc2",
  "parking_lot",
  "regex-lite",
- "reqwest",
- "rustls",
  "serde",
  "serde_json",
  "tauri",
