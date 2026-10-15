@@ -79,7 +79,7 @@ describe("Co-writer @ mentions", function () {
     for (const path of [notePath, mentionedPath]) if (path) await invoke("delete_entry", { path });
   });
 
-  it("lists matching notes after @ and inserts the picked one with a chip", async function () {
+  it("lists matching notes after @ and inserts the picked one as one pill that Backspace removes", async function () {
     this.timeout(30_000);
     await type("match @mention-tar");
     await menu().waitForExist({ timeout: 10_000, timeoutMsg: "mention menu never appeared" });
@@ -95,11 +95,29 @@ describe("Co-writer @ mentions", function () {
     await press("Enter");
     await browser.waitUntil(async () => !(await menu().isExisting()), { timeout: 5_000 });
     strictEqual(await composer().getValue(), "match @Mention target e2e ");
-    await $(`[data-chat-composer] span[title="${mentionedPath}"]`).waitForExist({
-      timeout: 5_000,
-      timeoutMsg: "the mentioned note was not attached",
-    });
+    const pill = $("[data-mention-pill]");
+    await pill.waitForExist({ timeout: 5_000, timeoutMsg: "the mentioned note has no pill" });
+    strictEqual(await pill.getText(), "@Mention target e2e");
+    ok(
+      !(await $(`[data-chat-composer] span[title="${mentionedPath}"]`).isExisting()),
+      "the mentioned note also shows as a chip",
+    );
     await shot("mentions-picked");
+
+    await browser.execute(() => {
+      const input = document.querySelector('textarea[aria-label="Message"]');
+      input.setSelectionRange(25, 25);
+    });
+    await press("Backspace");
+    await browser.waitUntil(async () => (await composer().getValue()) === "match  ", {
+      timeout: 5_000,
+      timeoutMsg: "Backspace didn't remove the whole pill",
+    });
+    ok(!(await pill.isExisting()), "the pill outlived its text");
+    ok(
+      !(await $(`[data-chat-composer] span[title="${mentionedPath}"]`).isExisting()),
+      "the note stayed attached as a chip",
+    );
   });
 
   it("a bare @ lists recent notes, and Escape keeps the draft", async function () {

@@ -6,6 +6,18 @@ export interface MentionMatch {
   to: number;
 }
 
+/** A note mentioned in the draft as `@label`. */
+export interface Mention {
+  path: string;
+  label: string;
+}
+
+export interface MentionRange {
+  from: number;
+  to: number;
+  path: string;
+}
+
 /** The word being typed after an `@` that starts the draft or follows whitespace. */
 export function mentionQuery(text: string, caret: number): MentionMatch | null {
   const match = /(?:^|\s)@([^\s@]*)$/.exec(text.slice(0, caret));
@@ -21,4 +33,44 @@ export function insertMention(text: string, match: MentionMatch, label: string) 
     text: text.slice(0, match.from) + mention + (rest.startsWith(" ") ? rest.slice(1) : rest),
     caret: match.from + mention.length,
   };
+}
+
+const WORD = /[\p{L}\p{N}_]/u;
+
+/** Where each `@label` stands as a whole word; a longer label wins where two overlap. */
+export function mentionRanges(text: string, mentions: Mention[]): MentionRange[] {
+  const found: MentionRange[] = [];
+  for (const { path, label } of mentions) {
+    const token = `@${label}`;
+    for (let from = text.indexOf(token); from !== -1; from = text.indexOf(token, from + 1)) {
+      const to = from + token.length;
+      if ((from === 0 || /\s/.test(text[from - 1]!)) && !WORD.test(text[to] ?? ""))
+        found.push({ from, to, path });
+    }
+  }
+  found.sort((a, b) => a.from - b.from || b.to - a.to);
+  return found.filter((range, index) => index === 0 || range.from >= found[index - 1]!.to);
+}
+
+/** Backspace or Delete next to a mention removes all of it. */
+export function deleteMention(
+  text: string,
+  ranges: MentionRange[],
+  caret: number,
+  key: "Backspace" | "Delete",
+) {
+  const range = ranges.find((r) =>
+    key === "Backspace" ? r.from < caret && caret <= r.to : r.from <= caret && caret < r.to,
+  );
+  if (!range) return null;
+  return { text: text.slice(0, range.from) + text.slice(range.to), caret: range.from };
+}
+
+/** Moves a caret that landed inside a mention to the edge it was heading for, or the nearer one. */
+export function snapOutOfMention(ranges: MentionRange[], caret: number, previous: number | null) {
+  const range = ranges.find((r) => r.from < caret && caret < r.to);
+  if (!range) return caret;
+  if (previous === range.from) return range.to;
+  if (previous === range.to) return range.from;
+  return caret - range.from < range.to - caret ? range.from : range.to;
 }

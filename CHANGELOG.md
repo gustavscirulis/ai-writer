@@ -2,7 +2,7 @@
 
 ## 2026-10-15
 
-- Mention a note in Co-writer. Type @ in the message box and pick a note: its name goes into your message and the note is attached, so Co-writer reads it before answering. A bare @ lists your recent notes; keep typing to search the workspace. Use ↑/↓ and Enter or Tab to pick, or Escape to close the list. Only notes are listed; attach images, PDFs and other files with the + button, by pasting or by dropping them.
+- Mention a note in Co-writer. Type @ in the message box and pick a note: its name goes into your message as a pill and the note is attached, so Co-writer reads it before answering. Backspace removes the whole pill and detaches the note. A bare @ lists your recent notes; keep typing to search the workspace. Use ↑/↓ and Enter or Tab to pick, or Escape to close the list. Only notes are listed; attach images, PDFs and other files with the + button, by pasting or by dropping them.
 
 - Starting a new Co-writer conversation after sending messages shows the empty state the right way: the heading is at the top, the suggestions sit at the bottom, and there's no scrolling. Before, the panel sometimes kept the scroll space from the last conversation, so it opened partly scrolled with empty space under the suggestions.
 

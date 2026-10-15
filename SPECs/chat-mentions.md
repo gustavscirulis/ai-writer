@@ -1,6 +1,6 @@
 # @ mentions in Co-writer
 
-Typing `@` in the Co-writer composer lists notes in the workspace. Picking one writes `@Name` into the message and attaches the note, so Claude reads it before answering. It's a faster way to do what the paperclip does, without leaving the sentence.
+Typing `@` in the Co-writer composer lists notes in the workspace. Picking one writes `@Name` into the message as a pill and attaches the note, so Claude reads it before answering. It's a faster way to do what the paperclip does, without leaving the sentence.
 
 ## Menu
 
@@ -16,9 +16,16 @@ The `/` skills menu takes precedence when both could open, which only happens fo
 
 ## Picking
 
-Picking replaces `@word` with `@Name ` and puts the caret after it. The name is the note's file name without `.md`, or its path in the workspace when two notes share a name, as with `[[` links. The note is added to the composer's files through `attachChatFiles`, so it gets a chip, de-duplication and the file error line like any other [attached file](chat-file-attachments.md).
+Picking replaces `@word` with `@Name ` and puts the caret after it. The name is the note's file name without `.md`, or its path in the workspace when two notes share a name, as with `[[` links. The note is resolved like any other [attached file](chat-file-attachments.md), with the same file error line, then recorded in `Chat.mentions` and added to `Chat.files`.
 
-The chip decides what Claude reads. Removing it leaves the `@Name` text, and deleting the text leaves the chip.
+## Pills
+
+A mentioned note shows as a pill around its `@Name` in the message, not as a chip above it. The textarea stays a textarea: `MentionBackdrop` draws the pills behind its transparent background with the same text metrics and scroll offset.
+
+- Backspace right after a pill, or Delete right before one, removes the whole pill.
+- The caret can't stop inside a pill. Arrow keys jump over it, and a click inside moves the caret to the nearer edge.
+- The pill decides what Claude reads. `Chat.mentions` keeps a note only while its `@Name` stands in the draft as a whole word, so deleting the pill, or editing its text in any other way, detaches the note too.
+- Right after a one-word pill the caret also reads as `@word`; that doesn't open the menu.
 
 ## Sending
 
@@ -26,10 +33,11 @@ Nothing changes on send: the files go out in `writer_context.files` and Claude m
 
 ## Limits
 
-- Queued messages carry no files (see [the queue](chat-queue.md)), so a mention typed into a queued message leaves its note in the composer, and the queued text keeps only `@Name`.
-- The sent message shows `@Name` as typed, with the file chips under it as usual.
+- Queued messages carry no files (see [the queue](chat-queue.md)). Queuing a message with mentions turns them into ordinary chips that stay in the composer, and the queued text keeps only `@Name`.
+- The sent message shows `@Name` as plain text, with the mentioned notes as file chips under it.
+- Replacing the pill programmatically resets the textarea's undo history, so ⌘Z doesn't bring a deleted pill back.
 - No workspace, no menu.
 
 ## Validation
 
-Helper tests cover when the query opens and where the mention goes. A render test covers the menu markup. `e2e/specs/co-writer-mentions.spec.js` picks a seeded note in the built app and checks the text and the chip.
+Helper tests cover when the query opens, where the mention goes, finding pills, deleting them and moving the caret out of them. Store tests cover a note leaving with its pill and a failed send putting mentions back. A render test covers the menu markup. `e2e/specs/co-writer-mentions.spec.js` picks a seeded note in the built app, checks the pill and that no chip shows, and removes the pill with one Backspace.
