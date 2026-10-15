@@ -14,6 +14,7 @@ use tokio::{
 
 const INITIALIZE_ID: &str = "writer-initialize";
 const STATUS_ID: &str = "writer-mcp-status";
+const SETTINGS_ID: &str = "writer-settings";
 // MCP and plugin connections can take up to 30s, as in a Co-writer turn.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -33,17 +34,30 @@ pub struct Skill {
     aliases: Vec<String>,
 }
 
+/// A model Claude Code offers, such as `opus` resolving to Opus 5.5.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Model {
+    value: String,
+    display_name: String,
+    resolved_model: String,
+}
+
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     mcp_servers: Vec<McpServer>,
     skills: Vec<Skill>,
+    models: Vec<Model>,
+    /// The model Claude Code runs when Co-writer passes no `--model`.
+    cli_model: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
 enum Reply {
-    Skills(Vec<Skill>),
+    Initialized(Vec<Skill>, Vec<Model>),
     Servers(Vec<McpServer>),
+    CliModel(Option<String>),
 }
 
 fn status_command(binary: PathBuf, path: String, root: &Path) -> Command {
@@ -109,6 +123,25 @@ fn parse_skills(body: &Value) -> Result<Vec<Skill>, String> {
         .collect())
 }
 
+// Model names only label the model setting, so an older CLI without them keeps its skills.
+fn parse_models(body: &Value) -> Vec<Model> {
+    body["models"]
+        .as_array()
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| {
+                    Some(Model {
+                        value: model["value"].as_str()?.to_string(),
+                        display_name: model["displayName"].as_str()?.to_string(),
+                        resolved_model: text(&model["resolvedModel"]),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn parse_servers(body: &Value) -> Result<Vec<McpServer>, String> {
     let servers = body["mcpServers"]
         .as_array()
@@ -133,6 +166,7 @@ fn parse_reply(value: &Value) -> Option<Result<Reply, String>> {
     let failure = match id {
         INITIALIZE_ID => "Claude Code could not list its skills",
         STATUS_ID => "Claude Code could not list its MCP servers",
+        SETTINGS_ID => "Claude Code could not report its model",
         _ => return None,
     };
     if response["subtype"] != "success" {
@@ -142,10 +176,14 @@ fn parse_reply(value: &Value) -> Option<Result<Reply, String>> {
             .to_string()));
     }
     let body = &response["response"];
-    Some(if id == INITIALIZE_ID {
-        parse_skills(body).map(Reply::Skills)
-    } else {
-        parse_servers(body).map(Reply::Servers)
+    Some(match id {
+        INITIALIZE_ID => {
+            parse_skills(body).map(|skills| Reply::Initialized(skills, parse_models(body)))
+        }
+        STATUS_ID => parse_servers(body).map(Reply::Servers),
+        _ => Ok(Reply::CliModel(
+            body["applied"]["model"].as_str().map(String::from),
+        )),
     })
 }
 
@@ -155,6 +193,7 @@ async fn read_capabilities(child: &mut Child) -> Result<Capabilities, String> {
     let requests = [
         json!({"type": "control_request", "request_id": INITIALIZE_ID, "request": {"subtype": "initialize"}}),
         json!({"type": "control_request", "request_id": STATUS_ID, "request": {"subtype": "mcp_status"}}),
+        json!({"type": "control_request", "request_id": SETTINGS_ID, "request": {"subtype": "get_settings"}}),
     ];
     for request in requests {
         stdin
@@ -162,7 +201,7 @@ async fn read_capabilities(child: &mut Child) -> Result<Capabilities, String> {
             .await
             .map_err(|e| e.to_string())?;
     }
-    let (mut skills, mut servers) = (None, None);
+    let (mut initialized, mut servers, mut cli_model) = (None, None, None);
     let mut lines = BufReader::new(stdout).lines();
     while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
         let Some(reply) = serde_json::from_str(&line)
@@ -172,13 +211,18 @@ async fn read_capabilities(child: &mut Child) -> Result<Capabilities, String> {
             continue;
         };
         match reply? {
-            Reply::Skills(list) => skills = Some(list),
+            Reply::Initialized(skills, models) => initialized = Some((skills, models)),
             Reply::Servers(list) => servers = Some(list),
+            Reply::CliModel(model) => cli_model = Some(model),
         }
-        if let (Some(skills), Some(mcp_servers)) = (&mut skills, &mut servers) {
+        if let (Some((skills, models)), Some(mcp_servers), Some(cli_model)) =
+            (&mut initialized, &mut servers, &mut cli_model)
+        {
             return Ok(Capabilities {
                 mcp_servers: std::mem::take(mcp_servers),
                 skills: std::mem::take(skills),
+                models: std::mem::take(models),
+                cli_model: cli_model.take(),
             });
         }
     }
@@ -253,20 +297,59 @@ mod tests {
         ]}}});
         assert_eq!(
             parse_reply(&line),
-            Some(Ok(Reply::Skills(vec![
-                Skill {
-                    name: "ux-copy".into(),
-                    description: "Write UX copy (user)".into(),
-                    argument_hint: String::new(),
-                    aliases: vec![],
-                },
-                Skill {
-                    name: "pdf".into(),
-                    description: "PDFs".into(),
-                    argument_hint: "<file>".into(),
-                    aliases: vec!["anthropic-skills:pdf".into()],
-                },
-            ])))
+            Some(Ok(Reply::Initialized(
+                vec![
+                    Skill {
+                        name: "ux-copy".into(),
+                        description: "Write UX copy (user)".into(),
+                        argument_hint: String::new(),
+                        aliases: vec![],
+                    },
+                    Skill {
+                        name: "pdf".into(),
+                        description: "PDFs".into(),
+                        argument_hint: "<file>".into(),
+                        aliases: vec!["anthropic-skills:pdf".into()],
+                    },
+                ],
+                vec![]
+            )))
+        );
+    }
+
+    #[test]
+    fn lists_models_from_initialize_and_the_cli_model_from_settings() {
+        let line = json!({"type": "control_response", "response": {"request_id": INITIALIZE_ID, "subtype": "success", "response": {"commands": [], "models": [
+            {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)"},
+            {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5", "supportsEffort": true},
+            {"value": "nameless"}
+        ]}}});
+        assert_eq!(
+            parse_reply(&line),
+            Some(Ok(Reply::Initialized(
+                vec![],
+                vec![
+                    Model {
+                        value: "default".into(),
+                        display_name: "Default (recommended)".into(),
+                        resolved_model: "claude-opus-5-5".into(),
+                    },
+                    Model {
+                        value: "opus".into(),
+                        display_name: "Opus 5.5".into(),
+                        resolved_model: "claude-opus-5-5".into(),
+                    },
+                ]
+            )))
+        );
+        let settings = |applied| json!({"type": "control_response", "response": {"request_id": SETTINGS_ID, "subtype": "success", "response": {"effective": {}, "applied": applied}}});
+        assert_eq!(
+            parse_reply(&settings(json!({"model": "claude-opus-5-5[1m]"}))),
+            Some(Ok(Reply::CliModel(Some("claude-opus-5-5[1m]".into()))))
+        );
+        assert_eq!(
+            parse_reply(&settings(json!({"model": null}))),
+            Some(Ok(Reply::CliModel(None)))
         );
     }
 
@@ -281,6 +364,11 @@ mod tests {
         assert_eq!(
             parse_reply(&failed),
             Some(Err("Claude Code could not list its skills".into()))
+        );
+        let failed = json!({"type": "control_response", "response": {"request_id": SETTINGS_ID, "subtype": "error"}});
+        assert_eq!(
+            parse_reply(&failed),
+            Some(Err("Claude Code could not report its model".into()))
         );
         for id in [STATUS_ID, INITIALIZE_ID] {
             let malformed = json!({"type": "control_response", "response": {"request_id": id, "subtype": "success", "response": {}}});
@@ -305,5 +393,9 @@ mod tests {
             .iter()
             .all(|server| !server.name.is_empty()));
         assert!(!capabilities.skills.is_empty());
+        assert!(capabilities
+            .models
+            .iter()
+            .any(|model| model.value == "opus"));
     }
 }

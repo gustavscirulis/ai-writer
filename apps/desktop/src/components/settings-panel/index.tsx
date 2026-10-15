@@ -3,7 +3,13 @@ import { useAllSettings, useResetSetting, useSetSetting } from "@/hooks/use-sett
 import { SETTINGS_SCHEMA, type SettingDef } from "@/lib/settings-schema";
 import { SettingControl } from "./setting-control";
 import { ThemesSection } from "./themes-section";
-import { ALLOWED_TOOLS_KEY, AllowedToolsRows, CO_WRITER_CATEGORY } from "./co-writer-section";
+import {
+  ALLOWED_TOOLS_KEY,
+  AllowedToolsRows,
+  CO_WRITER_CATEGORY,
+  MODEL_KEY,
+} from "./co-writer-section";
+import { useModelOptionLabel } from "@/hooks/use-co-writer";
 import { EditorScrollContainer } from "@/components/editor-area/editor-scroll-container";
 
 /** Section that renders above the Themes block. The schema-driven section
@@ -15,6 +21,7 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
   const settings = useAllSettings();
   const setSetting = useSetSetting();
   const resetSetting = useResetSetting();
+  const modelOptionLabel = useModelOptionLabel(isActive);
 
   const categories = useMemo(() => {
     const map = new Map<string, SettingDef[]>();
@@ -52,6 +59,7 @@ export function SettingsPanel({ isActive }: { isActive: boolean }) {
                 onChange={(value) => setSetting(def.key, value)}
                 onReset={() => void resetSetting(def.key)}
                 isModified={isModified(def)}
+                optionLabel={def.key === MODEL_KEY ? modelOptionLabel : undefined}
               />
             </div>
           ))}

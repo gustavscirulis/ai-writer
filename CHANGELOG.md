@@ -2,7 +2,7 @@
 
 ## 2026-10-15
 
-- Choose which Claude model Co-writer uses in Settings → Co-writer → Model: Fable, Opus, Sonnet, Haiku, or Default to keep your Claude Code CLI's own model. Changes apply from your next message.
+- Choose which Claude model Co-writer uses in Settings → Co-writer → Model: Fable, Opus, Sonnet, Haiku, or Default to keep your Claude Code CLI's own model. Each choice shows the version it runs, and Default shows which model your CLI is set to use (for example "Default · Opus 5.5 (1M context)"). Changes apply from your next message.
 
 - The "Allowed without asking" list in Preferences is easier to read. Tools are grouped by where they come from (Co-writer, Google Drive, Granola and so on) and go by plain names like "List meetings" instead of their full internal ID, which still shows when you hover. Hover a tool to revoke it, or hover a group to revoke all its tools at once.
 

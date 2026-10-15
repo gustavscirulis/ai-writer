@@ -1,3 +1,4 @@
+import type { ModelInfo } from "@/lib/claude-models";
 import type { McpServer } from "@/lib/co-writer-suggestions";
 
 /** A Claude Code skill or custom command, run by typing `/name`. */
@@ -8,7 +9,7 @@ export interface Skill {
   aliases: string[];
 }
 
-export interface Capabilities {
+export interface Capabilities extends ModelInfo {
   mcpServers: McpServer[];
   skills: Skill[];
 }

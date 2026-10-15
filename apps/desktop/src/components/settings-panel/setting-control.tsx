@@ -9,6 +9,8 @@ interface SettingControlProps {
   onChange: (value: unknown) => void | Promise<void>;
   onReset: () => void;
   isModified: boolean;
+  /** Display text for enum options; the stored value shows when omitted. */
+  optionLabel?: (option: string) => string;
 }
 
 function BooleanControl({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
@@ -86,12 +88,16 @@ function EnumControl({
   value,
   options,
   onChange,
+  optionLabel,
 }: {
   value: string;
   options: string[];
   onChange: (v: string) => void;
+  optionLabel?: (option: string) => string;
 }) {
-  return <SelectControl value={value} options={options} onChange={onChange} />;
+  return (
+    <SelectControl value={value} options={options} onChange={onChange} optionLabel={optionLabel} />
+  );
 }
 
 const HEX_RE = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i;
@@ -231,10 +237,12 @@ function Control({
   def,
   value,
   onChange,
+  optionLabel,
 }: {
   def: SettingDef;
   value: unknown;
   onChange: (value: unknown) => void | Promise<void>;
+  optionLabel?: (option: string) => string;
 }) {
   switch (def.type) {
     case "boolean":
@@ -249,7 +257,12 @@ function Control({
       return <FontControl def={def} value={value as string} onChange={onChange} />;
     case "enum":
       return (
-        <EnumControl value={value as string} options={def.options ?? []} onChange={onChange} />
+        <EnumControl
+          value={value as string}
+          options={def.options ?? []}
+          onChange={onChange}
+          optionLabel={optionLabel}
+        />
       );
     case "list":
       return <ListControl value={(value as string[]) ?? []} onChange={onChange} />;
@@ -268,7 +281,14 @@ function Control({
   }
 }
 
-export function SettingControl({ def, value, onChange, onReset, isModified }: SettingControlProps) {
+export function SettingControl({
+  def,
+  value,
+  onChange,
+  onReset,
+  isModified,
+  optionLabel,
+}: SettingControlProps) {
   return (
     <div className="flex items-start justify-between gap-4 px-4 py-3.5">
       <div className="min-w-0 flex-1">
@@ -289,7 +309,7 @@ export function SettingControl({ def, value, onChange, onReset, isModified }: Se
         >
           Reset
         </button>
-        <Control def={def} value={value} onChange={onChange} />
+        <Control def={def} value={value} onChange={onChange} optionLabel={optionLabel} />
       </div>
     </div>
   );
