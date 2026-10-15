@@ -19,6 +19,8 @@
 
 ## Done
 
+- One version per Claude turn in version history. The `external` baseline captured before each Claude edit was a no-op but still cleared the turn's group in `commands/history.rs`, so every Edit/Write became its own version. Now only a recorded version changes the group (`record_grouped`). A command-layer test runs the real baseline → agent sequence across turns, user saves and outside edits. Rust tests, Clippy and formatting pass. Not yet tried in the native app with a real turn.
+
 - Co-writer without an open note: [`SPECs/co-writer-without-note.md`](SPECs/co-writer-without-note.md). Launcher tabs get one workspace conversation (`WORKSPACE_CHAT`); `claude_start` takes an optional note path, so every write needs approval. The first note the conversation creates takes it over, session included, and replaces the launcher tab. The queue and version history stay note-only. Rust, store and full JS suites, checks, Clippy and formatting pass. Not yet tried in the native app with a real turn.
 
 - Co-writer queue: when Claude is idle and the queue has ready items, Enter (and the Send button) adds the draft to the end of the queue and sends everything as one turn through `sendQueue`. Before, Enter sent only the draft and left the queue behind. Composer files stay in the composer, the same as with ⌘↵. With nothing queued, Enter sends normally; while Claude is busy, Enter still queues. A WebDriver run of the built app (`e2e/specs/co-writer-queue.spec.js`) queues two messages, presses Enter on a third, and checks they're sent as one turn in order.

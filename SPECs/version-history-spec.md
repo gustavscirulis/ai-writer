@@ -18,7 +18,7 @@ Every workspace note gets durable version history, in the style of Google Docs. 
 
 - Content identical to the latest version is never recorded again.
 - User saves are coalesced into the latest `user` version while it was updated less than 5 minutes ago and created less than 60 minutes ago.
-- Agent writes from the same Claude turn coalesce into one version, keyed by turn id (`WorkspaceState.history_groups`).
+- Agent writes from the same Claude turn coalesce into one version, keyed by turn id (`WorkspaceState.history_groups`). Only a capture that records something moves the group: a recorded agent write sets it, and any other recorded version clears it. The no-op baseline taken before each Claude edit therefore doesn't split a turn.
 - `restore` and `external` versions are always new, and any non-user version ends the current user run.
 
 Capture points:
