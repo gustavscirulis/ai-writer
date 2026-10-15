@@ -73,6 +73,16 @@ Confirm `https://github.com/gustavscirulis/co-writer/releases/latest/download/la
 - **The tag push failed.** The draft exists; run `git push origin v<version>`.
 - **You don't publish the draft.** Delete it on GitHub, then `git tag -d v<version> && git push origin :refs/tags/v<version>`.
 
+## App icon
+
+`apps/desktop/src-tauri/icons/icon.icon` is the Icon Composer source; edit it in Icon Composer. The build doesn't read it. It bundles the compiled `icons/Assets.car`, which macOS 26 and later use, and `icon.icns` for older macOS. After you change the icon, regenerate those files and the PNG and `icon.ico` fallbacks with Xcode 26 or later:
+
+```sh
+./scripts/app-icon.sh
+```
+
+The build doesn't compile `icon.icon` because Tauri runs `actool` with stdin closed. `actool` then fails with "Bad file descriptor", and the shared `ibtoold` daemon keeps failing every later call until it restarts. The script runs `actool` with stdin open. If it still reports "Bad file descriptor", run `pkill -x ibtoold` and try again.
+
 ## Merging from upstream
 
 Upstream (`joelbqz/writer-computer`) uses its own updater endpoint, pubkey, and release repo. When merging from it, keep this fork's values in `tauri.conf.json` (`plugins.updater`) and `RELEASE_REPO` in `scripts/distribute.sh`.
