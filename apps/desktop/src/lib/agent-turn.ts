@@ -66,7 +66,7 @@ export function isPathMutating() {
 }
 /** Relocation and an agent handoff acquire mutually exclusive synchronous ownership. */
 export function beginPathMutation() {
-  if (appClosing) throw new Error("Writer is saving feedback before closing.");
+  if (appClosing) throw new Error("Co-writer is saving feedback before closing.");
   if (isAgentTurnActive()) throw new Error("Wait for the AI to finish before moving files.");
   pathMutations++;
   let released = false;

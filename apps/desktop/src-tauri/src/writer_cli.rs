@@ -1,4 +1,4 @@
-//! Implementation of the standalone `writer` shell launcher.
+//! Implementation of the standalone `cowriter` shell launcher.
 //!
 //! The CLI itself is kept dependency-free: argv parsing is hand-rolled and
 //! launch behavior is abstracted behind [`Launcher`] so tests can inject a
@@ -15,20 +15,20 @@ const EXIT_USAGE: u8 = 2;
 const EXIT_RUNTIME: u8 = 3;
 
 pub const USAGE: &str = "\
-Usage: writer [PATH]
+Usage: cowriter [PATH]
 
-Open a folder or markdown file in the Writer desktop app.
+Open a folder or markdown file in the Co-writer desktop app.
 
 Arguments:
   PATH              Directory or .md/.markdown file to open. If omitted,
-                    Writer launches with no target.
+                    Co-writer launches with no target.
 
 Options:
   -h, --help        Print this help and exit.
   -V, --version     Print version and exit.
 
 Environment:
-  WRITER_APP_PATH   Override the path to the Writer bundle (macOS) or
+  COCOWRITER_APP_PATH Override the path to the Co-writer bundle (macOS) or
                     binary (Linux/Windows). Useful for development builds.
 ";
 
@@ -96,9 +96,9 @@ fn resolve_input_path(input: &Path, cwd: &Path) -> PathBuf {
 
 /// Trait boundary between the CLI's decision logic and the actual process
 /// spawn. Lets tests observe the exact path that would be handed to the app
-/// without requiring Writer to be installed.
+/// without requiring Co-writer to be installed.
 pub trait Launcher {
-    /// Launch the Writer app. `target` is `None` for the no-arg case.
+    /// Launch the Co-writer app. `target` is `None` for the no-arg case.
     fn launch(&self, target: Option<&Path>) -> Result<(), LaunchError>;
 }
 
@@ -112,7 +112,7 @@ impl std::fmt::Display for LaunchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AppNotFound(msg) => write!(f, "{msg}"),
-            Self::Io(err) => write!(f, "could not launch Writer: {err}"),
+            Self::Io(err) => write!(f, "could not launch Co-writer: {err}"),
         }
     }
 }
@@ -136,13 +136,13 @@ impl Launcher for SystemLauncher {
 fn launch_system(target: Option<&Path>) -> Result<(), LaunchError> {
     use std::process::Command;
 
-    let mut cmd = if let Some(override_path) = std::env::var_os("WRITER_APP_PATH") {
+    let mut cmd = if let Some(override_path) = std::env::var_os("COWRITER_APP_PATH") {
         let mut c = Command::new("open");
         c.arg("-a").arg(override_path);
         c
     } else {
         let mut c = Command::new("open");
-        c.arg("-a").arg("Writer");
+        c.arg("-a").arg("Co-writer");
         c
     };
 
@@ -153,7 +153,7 @@ fn launch_system(target: Option<&Path>) -> Result<(), LaunchError> {
     let status = cmd.status()?;
     if !status.success() {
         return Err(LaunchError::AppNotFound(
-            "Writer is not installed. Install it from the DMG or set WRITER_APP_PATH.".into(),
+            "Co-writer is not installed. Install it from the DMG or set COWRITER_APP_PATH.".into(),
         ));
     }
     Ok(())
@@ -163,7 +163,7 @@ fn launch_system(target: Option<&Path>) -> Result<(), LaunchError> {
 fn launch_system(target: Option<&Path>) -> Result<(), LaunchError> {
     use std::process::Command;
 
-    let program = std::env::var_os("WRITER_APP_PATH").unwrap_or_else(|| {
+    let program = std::env::var_os("COWRITER_APP_PATH").unwrap_or_else(|| {
         if cfg!(target_os = "windows") {
             "writer.exe".into()
         } else {
@@ -180,7 +180,7 @@ fn launch_system(target: Option<&Path>) -> Result<(), LaunchError> {
         Ok(_) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Err(LaunchError::AppNotFound(format!(
-                "could not find the Writer binary ({}). Install Writer or set WRITER_APP_PATH.",
+                "could not find the Co-writer binary ({}). Install Co-writer or set COWRITER_APP_PATH.",
                 program.to_string_lossy()
             )))
         }
@@ -196,7 +196,7 @@ pub fn run<L: Launcher>(argv: Vec<OsString>, cwd: &Path, launcher: &L) -> ExitCo
             ExitCode::from(EXIT_SUCCESS)
         }
         Ok(ParsedArgs::Version) => {
-            println!("writer {VERSION}");
+            println!("cowriter {VERSION}");
             ExitCode::from(EXIT_SUCCESS)
         }
         Ok(ParsedArgs::Open { path }) => run_open(path, cwd, launcher),
@@ -243,13 +243,13 @@ fn canonical_target(payload: &PendingOpenPayload) -> PathBuf {
 }
 
 fn fail_usage(err: ParseError) {
-    eprintln!("writer: {err}");
+    eprintln!("cowriter: {err}");
     eprintln!();
     eprint!("{USAGE}");
 }
 
 fn fail_runtime(err: &dyn std::fmt::Display) {
-    eprintln!("writer: {err}");
+    eprintln!("cowriter: {err}");
 }
 
 #[cfg(test)]
@@ -303,11 +303,11 @@ mod tests {
     #[test]
     fn parse_help_flags() {
         assert_eq!(
-            parse_args(&argv(&["writer", "--help"])).unwrap(),
+            parse_args(&argv(&["cowriter", "--help"])).unwrap(),
             ParsedArgs::Help
         );
         assert_eq!(
-            parse_args(&argv(&["writer", "-h"])).unwrap(),
+            parse_args(&argv(&["cowriter", "-h"])).unwrap(),
             ParsedArgs::Help
         );
     }
@@ -315,11 +315,11 @@ mod tests {
     #[test]
     fn parse_version_flags() {
         assert_eq!(
-            parse_args(&argv(&["writer", "--version"])).unwrap(),
+            parse_args(&argv(&["cowriter", "--version"])).unwrap(),
             ParsedArgs::Version
         );
         assert_eq!(
-            parse_args(&argv(&["writer", "-V"])).unwrap(),
+            parse_args(&argv(&["cowriter", "-V"])).unwrap(),
             ParsedArgs::Version
         );
     }
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn parse_no_args() {
         assert_eq!(
-            parse_args(&argv(&["writer"])).unwrap(),
+            parse_args(&argv(&["cowriter"])).unwrap(),
             ParsedArgs::Open { path: None }
         );
     }
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn parse_single_path() {
         assert_eq!(
-            parse_args(&argv(&["writer", "."])).unwrap(),
+            parse_args(&argv(&["cowriter", "."])).unwrap(),
             ParsedArgs::Open {
                 path: Some(PathBuf::from("."))
             }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn parse_rejects_multiple_positional() {
         assert!(matches!(
-            parse_args(&argv(&["writer", "a", "b"])),
+            parse_args(&argv(&["cowriter", "a", "b"])),
             Err(ParseError::TooManyArgs)
         ));
     }
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn parse_rejects_unknown_flag() {
         assert!(matches!(
-            parse_args(&argv(&["writer", "--bogus"])),
+            parse_args(&argv(&["cowriter", "--bogus"])),
             Err(ParseError::UnknownFlag(_))
         ));
     }
@@ -362,7 +362,7 @@ mod tests {
     fn run_no_args_launches_with_none() {
         let cwd = tempdir().unwrap();
         let launcher = FakeLauncher::new();
-        let code = run(argv(&["writer"]), cwd.path(), &launcher);
+        let code = run(argv(&["cowriter"]), cwd.path(), &launcher);
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(EXIT_SUCCESS))
@@ -377,7 +377,7 @@ mod tests {
         fs::create_dir(&target).unwrap();
 
         let launcher = FakeLauncher::new();
-        let _ = run(argv(&["writer", "project"]), cwd.path(), &launcher);
+        let _ = run(argv(&["cowriter", "project"]), cwd.path(), &launcher);
 
         let calls = launcher.calls.borrow();
         assert_eq!(calls.len(), 1);
@@ -391,7 +391,7 @@ mod tests {
         fs::write(&md, "").unwrap();
 
         let launcher = FakeLauncher::new();
-        let _ = run(argv(&["writer", "note.md"]), cwd.path(), &launcher);
+        let _ = run(argv(&["cowriter", "note.md"]), cwd.path(), &launcher);
 
         let calls = launcher.calls.borrow();
         assert_eq!(calls[0].as_ref().unwrap(), &md.canonicalize().unwrap());
@@ -404,7 +404,7 @@ mod tests {
         fs::write(&img, "").unwrap();
 
         let launcher = FakeLauncher::new();
-        let code = run(argv(&["writer", "pic.png"]), cwd.path(), &launcher);
+        let code = run(argv(&["cowriter", "pic.png"]), cwd.path(), &launcher);
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(EXIT_RUNTIME))
@@ -416,7 +416,7 @@ mod tests {
     fn run_missing_path_is_runtime_error() {
         let cwd = tempdir().unwrap();
         let launcher = FakeLauncher::new();
-        let code = run(argv(&["writer", "nope.md"]), cwd.path(), &launcher);
+        let code = run(argv(&["cowriter", "nope.md"]), cwd.path(), &launcher);
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(EXIT_RUNTIME))
@@ -428,7 +428,7 @@ mod tests {
     fn run_bad_flag_is_usage_error() {
         let cwd = tempdir().unwrap();
         let launcher = FakeLauncher::new();
-        let code = run(argv(&["writer", "--nope"]), cwd.path(), &launcher);
+        let code = run(argv(&["cowriter", "--nope"]), cwd.path(), &launcher);
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(EXIT_USAGE))
@@ -440,7 +440,7 @@ mod tests {
     fn run_propagates_launcher_failure_as_runtime_error() {
         let cwd = tempdir().unwrap();
         let launcher = FakeLauncher::failing(LaunchError::AppNotFound("nope".into()));
-        let code = run(argv(&["writer"]), cwd.path(), &launcher);
+        let code = run(argv(&["cowriter"]), cwd.path(), &launcher);
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(EXIT_RUNTIME))

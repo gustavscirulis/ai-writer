@@ -1,4 +1,4 @@
-# Releasing Writer
+# Releasing Co-writer
 
 How to cut a signed, notarized macOS release of this fork and publish it to `gustavscirulis/ai-writer` so the in-app updater picks it up. Releases run locally on the maintainer's Mac, not in CI, because they need the Developer ID certificate in the keychain.
 
@@ -13,7 +13,7 @@ How to cut a signed, notarized macOS release of this fork and publish it to `gus
 
    A different profile name works if you set `WRITER_NOTARY_PROFILE`.
 
-3. **Updater signing key.** Generate it outside the repo and back it up. If you lose it, nobody who installed Writer can update again.
+3. **Updater signing key.** Generate it outside the repo and back it up. If you lose it, nobody who installed Co-writer can update again.
 
    ```sh
    cd apps/desktop && vp exec tauri signer generate -w ~/.tauri/writer-updater.key
@@ -50,10 +50,10 @@ The script:
 
 1. Checks you're on `master` with a clean tree, then checks signing: the Developer ID identity, the notary profile, the updater key, and that the key matches the pubkey and endpoint in `tauri.conf.json`. It asks for the updater key password (press Enter if it has none; set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to skip the prompt).
 2. Checks that local `master` is a fast-forward of origin and that the tag doesn't exist, then pushes `master`.
-3. Builds `Writer.app` and the DMG with `vp exec tauri build --bundles app,dmg`. Tauri signs them with the hardened runtime and produces the updater tarball and its signature.
+3. Builds `Co-writer.app` and the DMG with `vp exec tauri build --bundles app,dmg`. Tauri signs them with the hardened runtime and produces the updater tarball and its signature.
 4. Signs the DMG, submits it to Apple with `notarytool`, and waits. Anything other than `Accepted` stops the script and prints Apple's log.
 5. Staples the ticket to the DMG and checks it with `spctl`.
-6. Writes `latest.json` and creates a **draft** release on `gustavscirulis/ai-writer` with the DMG, `Writer.app.tar.gz`, and `latest.json`.
+6. Writes `latest.json` and creates a **draft** release on `gustavscirulis/ai-writer` with the DMG, `Co-writer.app.tar.gz`, and `latest.json`.
 7. Tags the commit `v<version>`, pushes the tag, and prints the DMG path and draft URL.
 
 Expect several minutes, mostly the release build and notarization.

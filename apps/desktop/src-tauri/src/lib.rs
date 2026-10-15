@@ -7,6 +7,7 @@ mod error;
 mod feedback_persistence;
 mod history;
 mod ignore;
+mod legacy_app_data;
 #[cfg(target_os = "macos")]
 mod macos;
 pub mod open_target;
@@ -30,9 +31,9 @@ use tauri::{Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent};
 use tauri_plugin_window_state::StateFlags;
 
 #[cfg(target_os = "macos")]
-const CLI_MENU_INSTALL_LABEL: &str = "Install 'writer' Command Line Tool…";
+const CLI_MENU_INSTALL_LABEL: &str = "Install 'cowriter' Command Line Tool…";
 #[cfg(target_os = "macos")]
-const CLI_MENU_UNINSTALL_LABEL: &str = "Uninstall 'writer' Command Line Tool…";
+const CLI_MENU_UNINSTALL_LABEL: &str = "Uninstall 'cowriter' Command Line Tool…";
 
 #[cfg(target_os = "macos")]
 struct CliMenuItem(MenuItem<tauri::Wry>);
@@ -307,8 +308,12 @@ fn install_app_menu(
     let cli_item = MenuItemBuilder::with_id("cli.toggle", CLI_MENU_INSTALL_LABEL).build(app)?;
 
     let app_submenu = {
-        let b = SubmenuBuilder::new(app, "Writer")
-            .item(&PredefinedMenuItem::about(app, Some("About Writer"), None)?)
+        let b = SubmenuBuilder::new(app, "Co-writer")
+            .item(&PredefinedMenuItem::about(
+                app,
+                Some("About Co-writer"),
+                None,
+            )?)
             .separator()
             .item(&check_item)
             .separator()
@@ -425,18 +430,18 @@ fn run_cli_install(app: tauri::AppHandle) {
                 refresh_cli_menu(&app);
                 app.dialog()
                     .message(format!(
-                        "The `writer` command is now installed at {}.\n\nRun `writer .` from any terminal to open the current folder.",
+                        "The `cowriter` command is now installed at {}.\n\nRun `cowriter .` from any terminal to open the current folder.",
                         status.target
                     ))
                     .kind(MessageDialogKind::Info)
-                    .title("Writer CLI Installed")
+                    .title("Co-writer CLI Installed")
                     .show(|_| {});
             }
             Err(err) => {
                 app.dialog()
-                    .message(format!("Could not install the writer command.\n\n{err}"))
+                    .message(format!("Could not install the cowriter command.\n\n{err}"))
                     .kind(MessageDialogKind::Error)
-                    .title("Writer CLI")
+                    .title("Co-writer CLI")
                     .show(|_| {});
             }
         }
@@ -452,18 +457,18 @@ fn run_cli_uninstall(app: tauri::AppHandle) {
                 refresh_cli_menu(&app);
                 app.dialog()
                     .message(format!(
-                        "The `writer` command has been removed from {}.",
+                        "The `cowriter` command has been removed from {}.",
                         status.target
                     ))
                     .kind(MessageDialogKind::Info)
-                    .title("Writer CLI Removed")
+                    .title("Co-writer CLI Removed")
                     .show(|_| {});
             }
             Err(err) => {
                 app.dialog()
-                    .message(format!("Could not remove the writer command.\n\n{err}"))
+                    .message(format!("Could not remove the cowriter command.\n\n{err}"))
                     .kind(MessageDialogKind::Error)
-                    .title("Writer CLI")
+                    .title("Co-writer CLI")
                     .show(|_| {});
             }
         }
@@ -508,6 +513,9 @@ fn handle_single_instance(app: &tauri::AppHandle, argv: Vec<String>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    legacy_app_data::import(&context.config().identifier);
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             handle_single_instance(app, argv);
@@ -653,7 +661,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             commands::shell_install::uninstall_cli,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|_app, _event| {
             if let RunEvent::ExitRequested { api, .. } = &_event {

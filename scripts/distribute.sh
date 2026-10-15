@@ -144,7 +144,7 @@ git -C "$ROOT_DIR" push origin master
 
 # --- Build and sign. ---
 
-echo "Building Writer $TAG..."
+echo "Building Co-writer $TAG..."
 cd "$ROOT_DIR/apps/desktop"
 vp exec tauri build --bundles app,dmg
 
@@ -153,7 +153,7 @@ DMG_DIR="$BUNDLE_DIR/dmg"
 MACOS_DIR="$BUNDLE_DIR/macos"
 
 DMG_FILE=$(ls "$DMG_DIR"/*"_${VERSION}_"*.dmg 2>/dev/null | head -1 || true)
-APP_FILE="$MACOS_DIR/Writer.app"
+APP_FILE="$MACOS_DIR/Co-writer.app"
 TAR_FILE=$(ls "$MACOS_DIR"/*.app.tar.gz 2>/dev/null | head -1 || true)
 SIG_FILE=$(ls "$MACOS_DIR"/*.app.tar.gz.sig 2>/dev/null | head -1 || true)
 
@@ -202,7 +202,7 @@ esac
 SIGNATURE=$(cat "$SIG_FILE")
 TAR_NAME=$(basename "$TAR_FILE")
 PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-NOTES="Writer $TAG"
+NOTES="Co-writer $TAG"
 DOWNLOAD_URL="https://github.com/$RELEASE_REPO/releases/download/$TAG/$TAR_NAME"
 
 LATEST_JSON="$BUNDLE_DIR/latest.json"
@@ -233,7 +233,7 @@ echo "Creating draft release $TAG on $RELEASE_REPO..."
 
 gh release create "$TAG" "$DMG_FILE" "$TAR_FILE" "$LATEST_JSON" \
   --repo "$RELEASE_REPO" \
-  --title "Writer $TAG" \
+  --title "Co-writer $TAG" \
   --notes-file "$NOTES_FILE" \
   --draft
 
