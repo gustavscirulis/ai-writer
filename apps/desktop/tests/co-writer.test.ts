@@ -181,11 +181,14 @@ describe("skills", () => {
     skill("pdf", ["anthropic-skills:pdf"]),
   ];
 
-  test("the menu opens only while the draft is a single slash word", () => {
-    expect(slashQuery("/")).toBe("");
-    expect(slashQuery("/ux")).toBe("ux");
-    expect(slashQuery("/ux-copy ")).toBeNull();
-    expect(slashQuery("draft /ux")).toBeNull();
+  test("the menu opens for a slash word at the caret that starts the draft or follows whitespace", () => {
+    expect(slashQuery("/", 1)).toEqual({ query: "", from: 0, to: 1 });
+    expect(slashQuery("/ux", 3)).toEqual({ query: "ux", from: 0, to: 3 });
+    expect(slashQuery("draft /ux", 9)).toEqual({ query: "ux", from: 6, to: 9 });
+    expect(slashQuery("a\n/ux and more", 5)).toEqual({ query: "ux", from: 2, to: 5 });
+    expect(slashQuery("/ux-copy ", 9)).toBeNull();
+    expect(slashQuery("and/or", 4)).toBeNull();
+    expect(slashQuery("draft /ux", 3)).toBeNull();
   });
 
   test("name and namespaced-name prefixes rank above substrings", () => {
@@ -208,5 +211,21 @@ describe("skills", () => {
       `${block}\n\n/Users/me/notes.md is wrong`,
     );
     expect(promptContent(context, "/ux-copywriter", skills)).toBe(`${block}\n\n/ux-copywriter`);
+  });
+
+  test("a skill typed mid-message moves to the front; only the first one moves", () => {
+    const block = "<writer_context>{}</writer_context>";
+    expect(promptContent({}, "tighten the signup button /ux-copy please", skills)).toBe(
+      `/ux-copy tighten the signup button please\n\n${block}`,
+    );
+    expect(promptContent({}, "make a summary /anthropic-skills:pdf", skills)).toBe(
+      `/anthropic-skills:pdf make a summary\n\n${block}`,
+    );
+    expect(promptContent({}, "intro\n/ux-copy then\n/pdf", skills)).toBe(
+      `/ux-copy intro\nthen\n/pdf\n\n${block}`,
+    );
+    expect(promptContent({}, "see /Users/me/a.md and/or /zzz", skills)).toBe(
+      `${block}\n\nsee /Users/me/a.md and/or /zzz`,
+    );
   });
 });

@@ -97,6 +97,31 @@ describe("Co-writer skills menu", function () {
     await shot("skills-picked");
   });
 
+  it("opens after text already in the draft and completes in place", async function () {
+    await browser.execute(() => {
+      const input = document.querySelector('textarea[aria-label="Message"]');
+      input.focus();
+      input.select();
+      document.execCommand("insertText", false, "tighten this /ux");
+    });
+    await menu().waitForExist({ timeout: 5_000 });
+    const name = await browser.execute(
+      () =>
+        document.querySelector('[aria-label="Skills"] [aria-selected="true"] span span')
+          ?.textContent,
+    );
+    await shot("skills-menu-mid-draft");
+    await press("Enter");
+    await browser.waitUntil(async () => !(await menu().isExisting()), { timeout: 5_000 });
+    const draft = `tighten this ${name} `;
+    strictEqual(await composer().getValue(), draft);
+    const caret = await browser.execute(
+      () => document.querySelector('textarea[aria-label="Message"]').selectionStart,
+    );
+    strictEqual(caret, draft.length);
+    await shot("skills-picked-mid-draft");
+  });
+
   it("Escape dismisses the menu and keeps the draft", async function () {
     await browser.execute(() => {
       const input = document.querySelector('textarea[aria-label="Message"]');

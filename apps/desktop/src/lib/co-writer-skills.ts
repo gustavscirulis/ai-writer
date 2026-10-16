@@ -1,5 +1,6 @@
 import type { ModelInfo } from "@/lib/claude-models";
 import type { McpServer } from "@/lib/co-writer-suggestions";
+import type { MentionMatch } from "@/lib/mentions";
 
 /** A Claude Code skill or custom command, run by typing `/name`. */
 export interface Skill {
@@ -16,9 +17,12 @@ export interface Capabilities extends ModelInfo {
 
 const MAX_MATCHES = 50;
 
-/** The word being typed after a leading `/`, while the draft is still only that word. */
-export function slashQuery(draft: string) {
-  return /^\/(\S*)$/.exec(draft)?.[1] ?? null;
+/** The word being typed after a `/` that starts the draft or follows whitespace. */
+export function slashQuery(text: string, caret: number): MentionMatch | null {
+  const match = /(?:^|\s)\/(\S*)$/.exec(text.slice(0, caret));
+  if (!match) return null;
+  const query = match[1]!;
+  return { query, from: caret - query.length - 1, to: caret };
 }
 
 /** Name prefixes (including the part after a `plugin:` namespace) rank above substrings. */
@@ -37,14 +41,27 @@ export function matchSkills(query: string, skills: Skill[]) {
     .map((match) => match.skill);
 }
 
-function startsWithSkill(text: string, skills: Skill[]) {
-  const name = /^\/(\S+)/.exec(text)?.[1];
-  return !!name && skills.some((skill) => skill.name === name || skill.aliases.includes(name));
+/** The text with its first `/skill` word moved to the front, or null when it names no skill. */
+function skillFirst(text: string, skills: Skill[]) {
+  for (const match of text.matchAll(/(^|\s)\/(\S+)/g)) {
+    const name = match[2]!;
+    if (!skills.some((skill) => skill.name === name || skill.aliases.includes(name))) continue;
+    if (match.index === 0) return text;
+    const from = match.index + match[1]!.length;
+    const before = text.slice(0, from);
+    const after = text.slice(from + name.length + 1);
+    const rest = /^[ \t]/.test(after)
+      ? before + after.slice(1)
+      : before.replace(/[ \t]+$/, "") + after;
+    return `/${name} ${rest.trim()}`.trimEnd();
+  }
+  return null;
 }
 
-/** Claude Code only runs a skill when the message starts with `/name`, so the
- * context goes after it there; other text that starts with `/`, like a path, stays as typed. */
+/** Claude Code and Codex only run a skill when the message starts with `/name`, so a skill
+ * typed later moves there, with the context after it; other `/` words, like paths, stay as typed. */
 export function promptContent(context: object, text: string, skills: Skill[]) {
   const block = `<writer_context>${JSON.stringify(context)}</writer_context>`;
-  return startsWithSkill(text, skills) ? `${text}\n\n${block}` : `${block}\n\n${text}`;
+  const skilled = skillFirst(text, skills);
+  return skilled === null ? `${block}\n\n${text}` : `${skilled}\n\n${block}`;
 }
