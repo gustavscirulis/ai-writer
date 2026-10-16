@@ -39,9 +39,10 @@ work.
 
 These shortcuts are bound to the native app menu (Tauri menu accelerators) rather than the global JS handler.
 
-| Shortcut | Action                                                |
-| -------- | ----------------------------------------------------- |
-| Cmd+,    | Open Preferences (Settings tab) in the focused window |
+| Shortcut    | Action                                                                |
+| ----------- | --------------------------------------------------------------------- |
+| Cmd+,       | Open Preferences (Settings tab) in the focused window                 |
+| Cmd+Shift+C | Copy as Rich Text: the editor selection as formatted HTML (Edit menu) |
 
 ## Editor Formatting
 

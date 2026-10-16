@@ -2,6 +2,8 @@
 
 ## 2026-10-16
 
+- Edit → Copy as Rich Text (⌘⇧C) copies the selected text as formatted text instead of markdown, so headings, bold, lists, tables, links and code keep their formatting when you paste into Google Docs, Mail, Notion or Slack. Images from your notes come along too. Apps that only take plain text get the markdown. With nothing selected it does nothing.
+
 - You can now type / anywhere in a Co-writer message to pick a skill. Before, the list only opened when / was the first thing in the message box. Picking a skill puts `/name` where you typed it and leaves the rest of the message alone. When you send, Co-writer moves the first skill to the start of the message, because that's the only place Claude Code and Codex run one.
 
 ## 2026-10-15

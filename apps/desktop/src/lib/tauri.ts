@@ -369,6 +369,10 @@ export function saveClipboardImage(
   return invoke("save_clipboard_image", { markdownFilePath, imageData, format });
 }
 
+export function readImageDataUrl(path: string): Promise<string> {
+  return invoke("read_image_data_url", { path });
+}
+
 export type AgentEvent =
   | { type: "started"; processId: string; provider: string }
   | { type: "line"; line: string }

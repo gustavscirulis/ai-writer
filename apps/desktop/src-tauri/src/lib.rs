@@ -290,9 +290,9 @@ fn position_new_window(app: &tauri::AppHandle, window: &WebviewWindow) {
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
-/// Build the native menu bar and wire updater menu events. macOS only needs a
-/// menu at all because of the auto-updater; the rest of the items are standard
-/// predefined actions so nothing has to be rewired on the frontend.
+/// Build the native menu bar and wire its custom items. Most items are standard
+/// predefined actions; custom ones either run here or emit a `menu:*` event to
+/// the focused window (see `use-menu-events.ts`).
 #[cfg(desktop)]
 fn install_app_menu(
     app: &tauri::AppHandle,
@@ -302,6 +302,10 @@ fn install_app_menu(
 
     let preferences_item = MenuItemBuilder::with_id("preferences.open", "Preferences…")
         .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+
+    let copy_rich_text_item = MenuItemBuilder::with_id("edit.copy-rich-text", "Copy as Rich Text")
+        .accelerator("CmdOrCtrl+Shift+C")
         .build(app)?;
 
     #[cfg(target_os = "macos")]
@@ -337,6 +341,7 @@ fn install_app_menu(
         .separator()
         .cut()
         .copy()
+        .item(&copy_rich_text_item)
         .paste()
         .select_all()
         .build()?;
@@ -367,6 +372,7 @@ fn install_app_menu(
     app.on_menu_event(|app, event| match event.id().0.as_str() {
         "updater.check" => updater::start_check(app.clone(), true),
         "preferences.open" => emit_to_focused_window(app, "menu:open-preferences"),
+        "edit.copy-rich-text" => emit_to_focused_window(app, "menu:copy-rich-text"),
         #[cfg(target_os = "macos")]
         "cli.toggle" => run_cli_toggle(app.clone()),
         _ => {}
@@ -648,6 +654,7 @@ pub fn run() {
             commands::search::fuzzy_search,
             commands::search::find_file_by_name,
             commands::images::save_clipboard_image,
+            commands::images::read_image_data_url,
             commands::chat_files::resolve_chat_files,
             commands::chat_files::save_chat_image,
             open_dropped_paths,
