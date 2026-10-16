@@ -109,7 +109,12 @@ export const sendChat = (
   options?: Pick<SendOptions, "attachments" | "feedbackIds" | "files">,
 ) => useClaudeStore.getState().send(path, text, options);
 export const stopChat = (path: string) => useClaudeStore.getState().stop(path);
-export const newChat = (path: string) => useClaudeStore.getState().newChat(path);
+// Focus after the reset: it clears the draft, so earlier keystrokes would be lost.
+export const newChat = (path: string) =>
+  useClaudeStore
+    .getState()
+    .newChat(path)
+    .then(() => focusChatComposer(path));
 export const rewriteChatPaths = (root: string, from: string, to: string, isDir: boolean) =>
   useClaudeStore.getState().rewriteChatPaths(root, from, to, isDir);
 

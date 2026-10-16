@@ -46,6 +46,7 @@ import {
   WORKSPACE_CHAT,
 } from "../src/lib/agent-turn";
 import { registerEditorView } from "../src/lib/editor-views";
+import { newChat, registerChatComposer } from "../src/hooks/use-claude";
 import { EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 const mockedInvoke = vi.mocked(invoke);
@@ -2167,4 +2168,19 @@ test("an unknown agent in Settings fails the send without starting anything", as
     error: 'Unknown Co-writer agent "gemini". Choose one in Settings → Co-writer.',
   });
   expect(mockedInvoke.mock.calls.some(([c]) => c.endsWith("_start"))).toBe(false);
+});
+
+test("New conversation focuses the composer once the old draft is cleared", async () => {
+  await send("First");
+  useClaudeStore.getState().setDraft("/notes/a.md", "Half-typed");
+  const focus = vi.fn(() => expect(chatState().draft).toBe(""));
+  registerChatComposer("/notes/a.md", {
+    focus,
+    isConnected: true,
+  } as unknown as HTMLTextAreaElement);
+
+  await newChat("/notes/a.md");
+
+  expect(focus).toHaveBeenCalledOnce();
+  registerChatComposer("/notes/a.md", null);
 });

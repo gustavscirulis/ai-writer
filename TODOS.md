@@ -19,6 +19,8 @@
 
 ## Done
 
+- New conversation focuses the composer: the hook-level `newChat` in `use-claude.ts` calls `focusChatComposer` once the reset resolves (not before, since the reset clears the draft). `focusChatComposer`'s pending request covers a composer that is remounting, such as after a permission prompt.
+
 - Copy as Rich Text: an Edit menu item (⌘⇧C, `edit.copy-rich-text` in `lib.rs`) emits `menu:copy-rich-text`. The handler in `use-menu-events.ts` renders the active editor's selection with react-markdown + remark-gfm (`lib/rich-text-copy.ts`) and writes it with `writeHtml`, using the markdown as the plain-text fallback. Local images are inlined as data URLs through the new `read_image_data_url` command; wiki links, embeds, math and mermaid stay as plain text.
 
 - Skills anywhere in the composer: `/` at the caret, at the start of the draft or after whitespace, opens the skill menu, the same way `@` works (`slashQuery` in `lib/co-writer-skills.ts`). The pick goes through `insertToken`, the same helper mentions use. `promptContent` moves the first mid-message skill to the front, because both agents only run a leading `/name`. Claude's `--tools` has no `Skill` tool, so the model can't run a skill that appears later in the message.
