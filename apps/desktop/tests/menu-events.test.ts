@@ -13,6 +13,9 @@ vi.mock("@/lib/theme", () => ({
   applyCssVarBindings: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeHtml: vi.fn() }));
+
+import { writeHtml } from "@tauri-apps/plugin-clipboard-manager";
 import { MENU_EVENT_HANDLERS } from "../src/hooks/use-menu-events";
 import { useEditorStore } from "../src/stores/editor-store";
 import { useWorkspaceStore } from "../src/stores/workspace-store";
@@ -62,5 +65,11 @@ describe("menu-events", () => {
     MENU_EVENT_HANDLERS["menu:open-preferences"]!();
 
     expect(useEditorStore.getState().tabs).toEqual([]);
+  });
+
+  test("menu:copy-rich-text is a no-op without an active file", () => {
+    MENU_EVENT_HANDLERS["menu:copy-rich-text"]!();
+
+    expect(writeHtml).not.toHaveBeenCalled();
   });
 });

@@ -67,6 +67,33 @@ pub fn save_clipboard_image_impl(
     })
 }
 
+/// Read a local image as a `data:` URL so it survives being pasted into other
+/// apps, which can't load the webview's `asset://` URLs.
+#[tauri::command]
+pub fn read_image_data_url(path: String) -> Result<String, AppError> {
+    read_image_data_url_impl(&path)
+}
+
+pub fn read_image_data_url_impl(path: &str) -> Result<String, AppError> {
+    use base64::Engine;
+
+    let ext = std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => return Err(AppError::Io(format!("Not a supported image: {path}"))),
+    };
+    let data = fs::read(path)?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+    Ok(format!("data:{mime};base64,{encoded}"))
+}
+
 pub(crate) fn epoch_to_datetime(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
     // Simple epoch to date conversion (good enough for filenames)
     let days = secs / 86400;
@@ -172,5 +199,24 @@ mod tests {
 
         let saved = fs::read(dir.path().join(&result.relative_path)).unwrap();
         assert_eq!(saved, data);
+    }
+
+    #[test]
+    fn test_read_image_data_url_encodes_with_mime() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("pic.PNG");
+        fs::write(&path, [1, 2, 3]).unwrap();
+
+        let url = read_image_data_url_impl(&path.to_string_lossy()).unwrap();
+        assert_eq!(url, "data:image/png;base64,AQID");
+    }
+
+    #[test]
+    fn test_read_image_data_url_rejects_non_images() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("notes.md");
+        fs::write(&path, "# Note").unwrap();
+
+        assert!(read_image_data_url_impl(&path.to_string_lossy()).is_err());
     }
 }
