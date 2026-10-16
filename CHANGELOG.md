@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-16
+
+- You can now type / anywhere in a Co-writer message to pick a skill. Before, the list only opened when / was the first thing in the message box. Picking a skill puts `/name` where you typed it and leaves the rest of the message alone. When you send, Co-writer moves the first skill to the start of the message, because that's the only place Claude Code and Codex run one.
+
 ## 2026-10-15
 
 - New app icon. On macOS 26 and later it uses Liquid Glass and follows the system's icon appearance settings.

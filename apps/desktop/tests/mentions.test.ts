@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test";
 import {
   deleteMention,
-  insertMention,
+  insertToken,
   mentionQuery,
   mentionRanges,
   snapOutOfMention,
@@ -18,18 +18,22 @@ test("the menu opens for an @ word at the caret that starts the draft or follows
   expect(mentionQuery("match @sty", 3)).toBeNull();
 });
 
-test("a mention replaces only the query and leaves the caret after one space", () => {
-  expect(insertMention("match @sty", { query: "sty", from: 6, to: 10 }, "Style guide")).toEqual({
+test("a picked token replaces only the query and leaves the caret after one space", () => {
+  expect(insertToken("match @sty", { query: "sty", from: 6, to: 10 }, "@Style guide")).toEqual({
     text: "match @Style guide ",
     caret: 19,
   });
-  expect(insertMention("@sty please", { query: "sty", from: 0, to: 4 }, "Style guide")).toEqual({
+  expect(insertToken("@sty please", { query: "sty", from: 0, to: 4 }, "@Style guide")).toEqual({
     text: "@Style guide please",
     caret: 13,
   });
-  expect(insertMention("@x,", { query: "x", from: 0, to: 2 }, "Notes/Plan")).toEqual({
+  expect(insertToken("@x,", { query: "x", from: 0, to: 2 }, "@Notes/Plan")).toEqual({
     text: "@Notes/Plan ,",
     caret: 12,
+  });
+  expect(insertToken("tighten /ux this", { query: "ux", from: 8, to: 11 }, "/ux-copy")).toEqual({
+    text: "tighten /ux-copy this",
+    caret: 17,
   });
 });
 

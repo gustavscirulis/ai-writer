@@ -47,7 +47,7 @@ import { matchSkills, slashQuery, type Skill } from "@/lib/co-writer-skills";
 import { attachmentLabel, type FeedbackAnchor } from "@/lib/feedback-anchors";
 import {
   deleteMention,
-  insertMention,
+  insertToken,
   mentionQuery,
   mentionRanges,
   snapOutOfMention,
@@ -153,25 +153,27 @@ export function Composer() {
   const notes = useMemo(() => items.filter((item) => item.status === "pending"), [items]);
   const [trayOpen, setTrayOpen] = useState(false);
   const skills = useSkills();
-  const slash = slashQuery(text);
-  const skillMatches = useMemo(
-    () => (slash === null ? [] : matchSkills(slash, skills)),
-    [slash, skills],
-  );
   // The caret only counts for the draft it was read from, so a draft set from elsewhere opens no menu.
   const [selection, setSelection] = useState({ text, caret: 0 });
   const caret = selection.text === text ? selection.caret : null;
   const trackCaret = (input: HTMLTextAreaElement) =>
     setSelection({ text: input.value, caret: input.selectionStart });
+  const slash = caret === null ? null : slashQuery(text, caret);
+  const slashText = slash?.query ?? null;
+  const skillMatches = useMemo(
+    () => (slashText === null ? [] : matchSkills(slashText, skills)),
+    [slashText, skills],
+  );
   const typed = slash === null && caret !== null ? mentionQuery(text, caret) : null;
   // Right after a one-word pill the caret also reads as `@word`; that's the pill, not a search.
   const mention = typed && !pills.some((pill) => pill.from === typed.from) ? typed : null;
   const mentionFiles = useMentionFiles(mention?.query ?? null, path);
   const pendingCaret = useRef<number | null>(null);
-  const pickSkill = (skill: Skill) => setChatDraft(path, `/${skill.name} `);
+  const pickSkill = (match: MentionMatch, skill: Skill) =>
+    edit(insertToken(text, match, `/${skill.name}`));
   const pickFile = (match: MentionMatch, file: SearchResult) => {
     const label = canonicalWikiTarget(file, mentionFiles);
-    edit(insertMention(text, match, label));
+    edit(insertToken(text, match, `@${label}`));
     void mentionChatFile(path, file.path, label);
   };
   const edit = (next: { text: string; caret: number }) => {
@@ -181,12 +183,12 @@ export function Composer() {
   };
   const [scrollTop, setScrollTop] = useState(0);
   const menu =
-    skillMatches.length > 0
+    slash && skillMatches.length > 0
       ? {
-          key: `/${slash}`,
+          key: `/${slash.query}@${slash.from}`,
           id: SLASH_MENU_ID,
           count: skillMatches.length,
-          pick: (index: number) => pickSkill(skillMatches[index]!),
+          pick: (index: number) => pickSkill(slash, skillMatches[index]!),
         }
       : mention && mentionFiles.length > 0
         ? {
@@ -284,23 +286,23 @@ export function Composer() {
         className={`relative rounded-[18px] border ${dropActive ? "border-[var(--focus-border)]" : "border-[var(--line-subtle)]"} bg-[var(--bg-base)] pb-2 [[data-theme=dark]_&]:bg-[var(--surface-subtle)] pl-3.5 pr-2.5 pt-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_6px_20px_rgba(0,0,0,0.05)] transition-colors duration-150 focus-within:border-[var(--focus-border)]`}
       >
         {menuOpen &&
-          (menu.id === SLASH_MENU_ID ? (
-            <SlashMenu
-              skills={skillMatches}
-              active={active}
-              onActive={setActive}
-              onPick={pickSkill}
-            />
-          ) : (
-            mention && (
-              <MentionMenu
-                files={mentionFiles}
-                active={active}
-                onActive={setActive}
-                onPick={(file) => pickFile(mention, file)}
-              />
-            )
-          ))}
+          (menu.id === SLASH_MENU_ID
+            ? slash && (
+                <SlashMenu
+                  skills={skillMatches}
+                  active={active}
+                  onActive={setActive}
+                  onPick={(skill) => pickSkill(slash, skill)}
+                />
+              )
+            : mention && (
+                <MentionMenu
+                  files={mentionFiles}
+                  active={active}
+                  onActive={setActive}
+                  onPick={(file) => pickFile(mention, file)}
+                />
+              ))}
         {(attached.length > 0 || chips.length > 0) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap gap-1">
             {attached.map((item) => (
