@@ -1,23 +1,21 @@
-import { useRef, type PointerEvent } from "react";
+import { useRef, useState, type PointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, Clock01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
-import { toggleVersionHistory, useHistoryPath } from "@/hooks/use-version-history";
+import { PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import {
   newChat,
   setChatPanelWidth,
-  toggleChatPanel,
   useChatPanelWidth,
   useChatPath,
   useChatStatus,
+  useHasChatMessages,
   useToolPermissions,
 } from "@/hooks/use-claude";
-import { isWorkspaceChat } from "@/lib/agent-turn";
 import { PermissionRequest } from "./permission-request";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 
 const HEADER_BUTTON =
-  "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40 aria-pressed:bg-[var(--surface-subtle)] aria-pressed:text-[var(--text-primary)]";
+  "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40";
 
 export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5) {
   return Math.max(260, Math.min(560, maxWidth, Math.round(width)));
@@ -26,8 +24,10 @@ export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5
 export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
   const path = useChatPath();
-  const historyOpen = useHistoryPath() === path;
+  // A hidden window holds animations on their first frame, which would leave the panel invisible.
+  const [animateIn] = useState(() => document.visibilityState === "visible");
   const status = useChatStatus(path);
+  const hasMessages = useHasChatMessages(path);
   const awaitingApproval = useToolPermissions(path).length > 0;
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -47,7 +47,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
     <aside
       ref={rootRef}
       aria-label="Co-writer"
-      className="relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] text-[13px] text-[var(--text-primary)]"
+      className={`${animateIn ? "co-writer-panel-enter " : ""}relative flex h-full min-w-0 shrink-0 flex-col border-l border-[var(--line-subtler)] bg-[var(--bg)] text-[13px] text-[var(--text-primary)]`}
       style={{ width: "var(--agent-panel-width)" }}
     >
       <div
@@ -90,27 +90,21 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
       />
       <header
         data-tauri-drag-region
-        className="flex shrink-0 items-center justify-between gap-3 pl-[18px] pr-2.5"
+        className="@container flex shrink-0 items-center gap-2 pl-[18px]"
         style={{
           height: "calc(var(--chrome-control-height) + var(--chrome-control-padding) * 2)",
           paddingBlock: "var(--chrome-control-padding)",
+          // NoteTools sits over the right of this header and closes the panel.
+          paddingRight: "calc(var(--note-tools-width, 0px) + 18px)",
         }}
       >
-        <h2 data-tauri-drag-region className="text-[13px] font-semibold text-[var(--text-primary)]">
+        <h2
+          data-tauri-drag-region
+          className="text-[13px] font-semibold text-[var(--text-primary)] @max-[104px]:hidden"
+        >
           Co-writer
         </h2>
-        <div data-tauri-drag-region className="flex items-center gap-0.5">
-          <button
-            type="button"
-            title="Version history (⌘⇧H)"
-            aria-label="Version history"
-            aria-pressed={historyOpen}
-            disabled={isWorkspaceChat(path)}
-            onClick={() => toggleVersionHistory(path)}
-            className={HEADER_BUTTON}
-          >
-            <HugeiconsIcon icon={Clock01Icon} size={16} strokeWidth={1.8} />
-          </button>
+        {hasMessages && (
           <button
             type="button"
             title="New conversation"
@@ -121,16 +115,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
           >
             <HugeiconsIcon icon={PencilEdit02Icon} size={16} strokeWidth={1.8} />
           </button>
-          <button
-            type="button"
-            title="Close"
-            aria-label="Close Co-writer"
-            onClick={toggleChatPanel}
-            className={HEADER_BUTTON}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.8} />
-          </button>
-        </div>
+        )}
       </header>
       <MessageList key={`messages:${path}`} />
       {awaitingApproval ? (

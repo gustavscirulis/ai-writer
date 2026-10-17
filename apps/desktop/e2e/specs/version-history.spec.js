@@ -162,15 +162,15 @@ describe("Version history", function () {
     ok((await $(".cm-content").getText()).includes("First draft."));
   });
 
-  it("opens from the Co-writer header and leaves Co-writer open", async function () {
+  it("opens from the note tools and leaves Co-writer open", async function () {
     const toggled = !(await $('aside[aria-label="Co-writer"]').isExisting());
     if (toggled) await press("L", { metaKey: true, shiftKey: true });
-    const button = await $('aside[aria-label="Co-writer"] button[aria-label="Version history"]');
+    const button = await $('[aria-label="Note tools"] button[aria-label="Version history"]');
     await button.waitForExist({ timeout: 5_000 });
     await button.click();
     await $('section[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
     strictEqual(await $('aside[aria-label="Co-writer"]').isExisting(), true);
-    await shot("history-chat-header");
+    await shot("history-note-tools");
     await button.click();
     await $('section[aria-label="Version history"]').waitForExist({
       reverse: true,

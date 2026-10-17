@@ -1,11 +1,9 @@
 import { useActiveFilePath, useActiveTab } from "@/hooks/use-tabs";
 import { pageKind } from "./editor-area/page-kinds";
 import { ClaudePanel, clampChatWidth } from "./claude-panel";
-import { toggleVersionHistory, useHistoryPath } from "@/hooks/use-version-history";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Clock01Icon } from "@hugeicons/core-free-icons";
+import { useHistoryPath } from "@/hooks/use-version-history";
+import { NoteTools } from "./note-tools";
 import {
-  toggleChatPanel,
   useChatPanelVisible,
   useChatPanelWidth,
   useViewportWidth,
@@ -172,7 +170,9 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           className="pointer-events-none absolute top-0 z-40"
           style={{
             left: tabChromeLeft,
-            right: chatVisible ? "calc(var(--agent-panel-width) + 12px)" : 104,
+            right: chatVisible
+              ? "calc(var(--agent-panel-width) + 12px)"
+              : "calc(var(--note-tools-width, 0px) + 22px)",
             transition: isSidebarDragging ? "none" : "left 140ms ease-out",
           }}
         >
@@ -181,30 +181,8 @@ function WorkspaceLayout({ showWelcome }: { showWelcome: boolean }) {
           </div>
         </div>
       )}
-      {!showWelcome && activeShowsChat && !chatVisible && (
-        <div className="absolute right-4 top-4 z-50 flex items-center gap-1">
-          {activeFilePath && (
-            <button
-              type="button"
-              onClick={() => toggleVersionHistory(activeFilePath)}
-              aria-label="Version history"
-              aria-pressed={historyOpen}
-              title="Version history (⌘⇧H)"
-              className="grid size-[26px] place-items-center rounded-md text-[var(--text-muted)] transition-[background-color,color,scale] duration-150 ease-out hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] active:scale-[0.96] aria-pressed:bg-[var(--surface-subtle)] aria-pressed:text-[var(--text-primary)]"
-            >
-              <HugeiconsIcon icon={Clock01Icon} size={15} strokeWidth={1.8} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={toggleChatPanel}
-            aria-label="Open Co-writer"
-            title="Open Co-writer (⌘⇧L)"
-            className="rounded-md px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)]"
-          >
-            Co-writer
-          </button>
-        </div>
+      {!showWelcome && activeShowsChat && (
+        <NoteTools filePath={activeFilePath} historyOpen={historyOpen} chatOpen={chatVisible} />
       )}
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex min-h-0 flex-1">

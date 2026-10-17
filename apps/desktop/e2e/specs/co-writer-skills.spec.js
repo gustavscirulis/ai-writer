@@ -57,7 +57,7 @@ describe("Co-writer skills menu", function () {
     await row.waitForExist({ timeout: 10_000 });
     await row.click();
     await $(".cm-content").waitForExist({ timeout: 5_000 });
-    const open = await $('button[aria-label="Open Co-writer"]');
+    const open = await $('button[aria-label="Co-writer"][aria-pressed="false"]');
     if (await open.isExisting()) await open.click();
     await composer().waitForExist({ timeout: 5_000 });
   });
