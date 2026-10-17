@@ -2,7 +2,7 @@
 
 ## Summary
 
-Every workspace note gets durable version history, in the style of Google Docs. A clock button at the top right, which moves into the Co-writer header while Co-writer is open (or ⌘⇧H, or "Show Version History" in the command palette) opens a timeline dock along the bottom of the note. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ←/→ (or ↓/↑) steps between versions, Esc closes, and "Restore" brings an earlier version back as a new "Restored" version.
+Every workspace note gets durable version history, in the style of Google Docs. The History toggle at the top right, which stays put whether or not Co-writer is open (or ⌘⇧H, or "Show Version History" in the command palette) opens a timeline dock along the bottom of the note. Selecting a version shows a read-only preview of the note at that point, with what that version changed highlighted inline. ←/→ (or ↓/↑) steps between versions, Esc closes, and "Restore" brings an earlier version back as a new "Restored" version.
 
 ## Storage
 
