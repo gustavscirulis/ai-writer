@@ -6,6 +6,8 @@ describe("Version history", function () {
   const FIRST = "# History check\n\nFirst draft.\n";
   const SECOND = "# History check\n\nSecond draft from another app.\n";
   const SHOTS = process.env.WRITER_E2E_SHOTS;
+  // History outlives the note, so each run needs a fresh name.
+  const FILE_STEM = `version-history-e2e-${Date.now()}`;
 
   let workspaceRestored = false;
   let filePath = null;
@@ -53,9 +55,12 @@ describe("Version history", function () {
     const recents = await invoke("get_recent_workspaces", {});
     const root = recents.ok && Array.isArray(recents.value) ? recents.value[0] : null;
     ok(root, "no workspace root to seed the note into");
-    filePath = `${root}/version-history-e2e.md`;
+    filePath = `${root}/${FILE_STEM}.md`;
     const wrote = await invoke("write_file", { path: filePath, content: FIRST });
     ok(wrote.ok, `failed to seed ${filePath}: ${wrote.error}`);
+    // The watcher drops the app's own writes, so reload to rescan the workspace.
+    await browser.refresh();
+    await $('[data-sidebar-surface][data-workspace-open="true"]').waitForExist({ timeout: 15_000 });
   });
 
   beforeEach(function () {
@@ -67,8 +72,14 @@ describe("Version history", function () {
   });
 
   it("records the seeded save, an outside edit and a typed edit as versions", async function () {
-    const row = await $("span*=History check");
-    await row.waitForExist({ timeout: 10_000 });
+    let row = await $("span*=History check");
+    let found = await row.waitForExist({ timeout: 10_000 }).catch(() => false);
+    if (!found) {
+      row = await $(`span*=${FILE_STEM}`);
+      found = await row.waitForExist({ timeout: 2_000 }).catch(() => false);
+    }
+    if (!found) await shot("history-no-row");
+    ok(found, "seeded note never appeared in the sidebar");
     await row.click();
     await $(".cm-content").waitForExist({ timeout: 5_000 });
 
@@ -88,7 +99,7 @@ describe("Version history", function () {
 
   it("opens history on the current version with its changes highlighted", async function () {
     await press("H", { metaKey: true, shiftKey: true });
-    await $('aside[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
+    await $('section[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
     await $(".writer-history-preview").waitForExist({ timeout: 5_000 });
     await browser.waitUntil(
       async () => (await $$(".writer-history-preview .cm-changedText")).length > 0,
@@ -115,8 +126,11 @@ describe("Version history", function () {
   });
 
   it("restores the oldest version as a new Restored version", async function () {
-    await $("button=Restore this version").click();
-    await $('aside[aria-label="Version history"]').waitForExist({ reverse: true, timeout: 5_000 });
+    await $("button=Restore").click();
+    await $('section[aria-label="Version history"]').waitForExist({
+      reverse: true,
+      timeout: 5_000,
+    });
     strictEqual(readFileSync(filePath, "utf8"), FIRST);
     await browser.waitUntil(async () => (await versions())[0]?.source === "restore", {
       timeout: 5_000,
@@ -127,15 +141,41 @@ describe("Version history", function () {
     await press("Escape");
   });
 
-  it("opens from the Co-writer header while Co-writer is open", async function () {
-    await press("L", { metaKey: true, shiftKey: true });
+  it("leaves the note alone when Esc closes history on an older version", async function () {
+    const before = readFileSync(filePath, "utf8");
+    const count = (await versions()).length;
+    await press("H", { metaKey: true, shiftKey: true });
+    await $('section[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
+    await $(".writer-history-preview").waitForExist({ timeout: 5_000 });
+    await press("ArrowLeft");
+    await $(".history-dock-actions[data-shown]").waitForExist({ timeout: 5_000 });
+    await shot("history-esc-older");
+    await press("Escape");
+    await $('section[aria-label="Version history"]').waitForExist({
+      reverse: true,
+      timeout: 5_000,
+    });
+    // Longer than the save debounce, so a stray write would have landed.
+    await browser.pause(2_500);
+    strictEqual(readFileSync(filePath, "utf8"), before);
+    strictEqual((await versions()).length, count);
+    ok((await $(".cm-content").getText()).includes("First draft."));
+  });
+
+  it("opens from the Co-writer header and leaves Co-writer open", async function () {
+    const toggled = !(await $('aside[aria-label="Co-writer"]').isExisting());
+    if (toggled) await press("L", { metaKey: true, shiftKey: true });
     const button = await $('aside[aria-label="Co-writer"] button[aria-label="Version history"]');
     await button.waitForExist({ timeout: 5_000 });
+    await button.click();
+    await $('section[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
+    strictEqual(await $('aside[aria-label="Co-writer"]').isExisting(), true);
     await shot("history-chat-header");
     await button.click();
-    await $('aside[aria-label="Version history"]').waitForExist({ timeout: 5_000 });
-    await $("button[aria-label='Close version history']").click();
-    await $('aside[aria-label="Co-writer"]').waitForExist({ timeout: 5_000 });
-    await press("L", { metaKey: true, shiftKey: true });
+    await $('section[aria-label="Version history"]').waitForExist({
+      reverse: true,
+      timeout: 5_000,
+    });
+    if (toggled) await press("L", { metaKey: true, shiftKey: true });
   });
 });

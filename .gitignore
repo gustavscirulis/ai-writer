@@ -32,3 +32,6 @@ dist-ssr
 
 # QA recordings (large binaries; see the report's README)
 SPECs/Agent/qa-typing-pass-2026-10-04/videos/
+
+# Playwright MCP session output
+.playwright-mcp/

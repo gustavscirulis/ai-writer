@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-17
+
+- Version history is now a timeline along the bottom of the note instead of a list on the right, so Co-writer stays open while you look back. Drag along it, or use ← and →, to step through versions. The note shows what each version changed. Co-writer's versions are marked in orange, and the days are labelled underneath. Restore and Back to now appear when you're on an earlier version. The timeline slides in and out gently, and the note glides to each change instead of jumping. On notes with lots of versions, the timeline magnifies around your pointer like the macOS Dock, so you can see and pick out the version you're pointing at.
+
 ## 2026-10-16
 
 - Starting a new conversation in Co-writer puts the cursor in the message box, so you can type straight away.

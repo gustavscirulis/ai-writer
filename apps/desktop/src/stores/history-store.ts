@@ -87,8 +87,8 @@ export const useHistoryStore = create<HistoryState>((set, get) => {
       await get().refresh(path);
     },
 
-    close: () =>
-      set({ path: null, versions: [], selectedId: null, bodies: new Map(), error: null }),
+    // Versions stay until the next open, so the dock exits showing them.
+    close: () => set({ path: null, bodies: new Map(), error: null }),
 
     refresh: async (path) => {
       try {

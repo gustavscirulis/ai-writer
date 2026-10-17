@@ -1,7 +1,7 @@
 import { useRef, type PointerEvent } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, Clock01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
-import { toggleVersionHistory } from "@/hooks/use-version-history";
+import { toggleVersionHistory, useHistoryPath } from "@/hooks/use-version-history";
 import {
   newChat,
   setChatPanelWidth,
@@ -17,7 +17,7 @@ import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 
 const HEADER_BUTTON =
-  "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40";
+  "grid size-7 place-items-center rounded-[7px] text-[var(--text-icon-muted)] transition-colors duration-150 hover:bg-[var(--surface-subtle)] hover:text-[var(--text-primary)] disabled:opacity-40 aria-pressed:bg-[var(--surface-subtle)] aria-pressed:text-[var(--text-primary)]";
 
 export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5) {
   return Math.max(260, Math.min(560, maxWidth, Math.round(width)));
@@ -26,6 +26,7 @@ export function clampChatWidth(width: number, maxWidth = window.innerWidth * 0.5
 export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   const width = useChatPanelWidth();
   const path = useChatPath();
+  const historyOpen = useHistoryPath() === path;
   const status = useChatStatus(path);
   const awaitingApproval = useToolPermissions(path).length > 0;
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
@@ -103,6 +104,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
             type="button"
             title="Version history (⌘⇧H)"
             aria-label="Version history"
+            aria-pressed={historyOpen}
             disabled={isWorkspaceChat(path)}
             onClick={() => toggleVersionHistory(path)}
             className={HEADER_BUTTON}
