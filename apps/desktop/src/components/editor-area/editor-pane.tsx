@@ -7,7 +7,9 @@ import { SectionRail } from "./section-rail";
 import { useCloseEditorSearchWhenInactive } from "./use-close-editor-search-when-inactive";
 import { useIsFileLoading } from "@/hooks/use-tabs";
 import { useHistoryPath } from "@/hooks/use-version-history";
+import { usePresence } from "@/hooks/use-presence";
 import { HistoryPreview } from "@/components/version-history/history-preview";
+import { HistoryDock } from "@/components/version-history/history-dock";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -36,6 +38,7 @@ export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPan
     [],
   );
   const showsHistory = useHistoryPath() === path && isActive;
+  const dock = usePresence(showsHistory);
   useCloseEditorSearchWhenInactive(isActive);
 
   const getScrollContainer = useCallback(() => scrollContainerRef.current, []);
@@ -89,6 +92,7 @@ export const EditorPane = memo(function EditorPane({ path, isActive }: EditorPan
       )}
       {isActive && <EditorSearchOverview scrollContainerRef={scrollContainerRef} />}
       {showsHistory && <HistoryPreview path={path} />}
+      {dock.present && <HistoryDock open={showsHistory} onExited={dock.onExited} />}
     </div>
   );
 });

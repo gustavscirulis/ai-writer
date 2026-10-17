@@ -34,3 +34,276 @@
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--writer-diff-deleted) 70%, transparent);
 }
+
+/* Diff highlights settle in as each version swaps into the preview. */
+@keyframes writer-diff-in {
+  from {
+    opacity: 0;
+  }
+}
+:not([data-scrubbing]) > .writer-history-preview .cm-changedText,
+:not([data-scrubbing]) > .writer-history-preview ins.cm-insertedLine,
+:not([data-scrubbing]) > .writer-history-preview .cm-deletedChunk {
+  animation: writer-diff-in 240ms ease-out;
+}
+
+.history-dock {
+  --history-ease: cubic-bezier(0.2, 0, 0, 1);
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(var(--writer-editor-max-width), calc(100% - 2 * var(--writer-editor-side-padding)));
+  margin-inline: auto;
+  padding: 12px 16px 10px;
+  border-radius: 12px 12px 0 0;
+  background: var(--surface-palette);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  backdrop-filter: blur(20px) saturate(1.3);
+  box-shadow:
+    0 0 0 1px var(--line-subtler),
+    0 -6px 24px rgb(0 0 0 / 0.07);
+  color: var(--text-primary);
+  font-size: 13px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    opacity 150ms ease-in,
+    transform 150ms ease-in;
+}
+.history-dock[data-open] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  transition:
+    opacity 280ms var(--history-ease),
+    transform 280ms var(--history-ease);
+}
+
+.history-dock-row,
+.history-dock-timeline {
+  transition:
+    opacity 280ms var(--history-ease),
+    transform 280ms var(--history-ease),
+    filter 280ms var(--history-ease);
+}
+.history-dock[data-open] .history-dock-row {
+  transition-delay: 60ms;
+}
+.history-dock[data-open] .history-dock-timeline {
+  transition-delay: 120ms;
+}
+
+@starting-style {
+  .history-dock[data-open] {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  .history-dock[data-open] .history-dock-row,
+  .history-dock[data-open] .history-dock-timeline {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(4px);
+  }
+}
+
+.history-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  margin-bottom: 10px;
+}
+.history-dock-when {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.history-dock-muted,
+.history-dock-note {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.history-dock-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Both buttons stay mounted and cross-fade, so stepping onto and off the
+   current version never shifts the row. */
+.history-dock-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  transform-origin: right center;
+  transition:
+    opacity 200ms var(--history-ease),
+    transform 200ms var(--history-ease),
+    filter 200ms var(--history-ease);
+}
+.history-dock-actions:not([data-shown]) {
+  opacity: 0;
+  transform: scale(0.96);
+  filter: blur(4px);
+}
+
+.history-track {
+  position: relative;
+  height: 22px;
+  cursor: pointer;
+  outline: none;
+  touch-action: none;
+}
+.history-rail {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--line-subtle);
+}
+.history-mark {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--fg-base) 40%, transparent);
+  transform-origin: bottom;
+  transition: opacity 160ms ease-out;
+}
+.history-mark[data-agent] {
+  background: var(--accent);
+}
+.history-mark[data-future] {
+  opacity: 0.3;
+}
+/* Under the lens the rest step back, so the version you're pointing at stands out. */
+.history-track[data-lens] .history-mark {
+  opacity: 0.5;
+}
+.history-track[data-lens] .history-mark[data-future] {
+  opacity: 0.22;
+}
+.history-track[data-lens] .history-mark[data-hover] {
+  opacity: 1;
+}
+
+/* Full-width layers move by transform, so a percentage is a share of the track.
+   Under the lens the playhead rides with its tick instead of chasing it. */
+.history-head-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: transform 220ms var(--history-ease);
+}
+.history-dock-timeline[data-magnified] .history-head-layer {
+  transition: none;
+}
+.history-head {
+  position: absolute;
+  top: -2px;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text-primary);
+}
+.history-track:focus-visible {
+  outline: none;
+}
+
+.history-days {
+  position: relative;
+  height: 15px;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--text-muted);
+}
+.history-days span {
+  position: absolute;
+  left: 0;
+  white-space: nowrap;
+  translate: -1px 0;
+  transition: opacity 150ms ease-out;
+}
+.history-days span[data-hidden] {
+  opacity: 0;
+}
+.history-days span[data-end] {
+  translate: calc(-100% + 1px) 0;
+}
+
+.history-tip-layer {
+  position: absolute;
+  inset-inline: 16px;
+  bottom: calc(100% + 8px);
+  pointer-events: none;
+  transition: transform 160ms var(--history-ease);
+}
+.history-tip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--text-primary);
+  color: var(--bg-base);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+  opacity: 0;
+  translate: -50% 0;
+  transform: translateY(4px);
+  transition:
+    opacity 120ms ease-out,
+    translate 160ms var(--history-ease),
+    transform 160ms var(--history-ease);
+}
+.history-tip[data-align="start"] {
+  translate: -12px 0;
+}
+.history-tip[data-align="end"] {
+  translate: calc(-100% + 12px) 0;
+}
+.history-tip span {
+  margin-left: 6px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+.history-tip-layer[data-show] .history-tip {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-dock,
+  .history-dock *,
+  .writer-history-preview .cm-changedText,
+  .writer-history-preview ins.cm-insertedLine,
+  .writer-history-preview .cm-deletedChunk {
+    transition-property: opacity !important;
+    transition-delay: 0ms !important;
+    animation: none !important;
+  }
+  .history-dock,
+  .history-dock-row,
+  .history-dock-timeline {
+    transform: none !important;
+    filter: none !important;
+  }
+}
