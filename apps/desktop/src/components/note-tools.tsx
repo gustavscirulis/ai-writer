@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { Clock01Icon, SidebarRightIcon } from "@hugeicons/core-free-icons";
+import { BubbleChatIcon, Clock01Icon } from "@hugeicons/core-free-icons";
 import { toggleChatPanel } from "@/hooks/use-claude";
 import { toggleVersionHistory } from "@/hooks/use-version-history";
 
@@ -16,15 +16,15 @@ const CLOCK_FILLED: IconSvgElement = [
     },
   ],
 ];
-const SIDEBAR_RIGHT_FILLED: IconSvgElement = [
-  ...SidebarRightIcon.filter(([, attrs]) => attrs.key !== "2").map(
-    ([tag, attrs]) => [tag, { ...attrs, strokeWidth: "2" }] as const,
-  ),
+const BUBBLE = BubbleChatIcon[0][1].d;
+const BUBBLE_CHAT_FILLED: IconSvgElement = [
+  ["path", { ...BubbleChatIcon[0][1], strokeWidth: "2" }],
   [
     "path",
     {
-      d: "M14.5 3C17.5 3 19 3 20.08 3.92C20.51 4.25 20.89 4.68 21.19 5.16C22 6.47 22 8.31 22 12C22 15.69 22 17.53 21.19 18.84C20.89 19.33 20.51 19.75 20.08 20.08C19 21 17.5 21 14.5 21Z",
+      d: `${BUBBLE}M9.1 12a1.1 1.1 0 1 0-2.2 0a1.1 1.1 0 1 0 2.2 0ZM13.1 12a1.1 1.1 0 1 0-2.2 0a1.1 1.1 0 1 0 2.2 0ZM17.1 12a1.1 1.1 0 1 0-2.2 0a1.1 1.1 0 1 0 2.2 0Z`,
       fill: "currentColor",
+      fillRule: "evenodd",
       key: "fill",
     },
   ],
@@ -98,9 +98,9 @@ export function NoteTools({ filePath, historyOpen, chatOpen }: NoteToolsProps) {
       >
         <span className={GLYPH}>
           {chatOpen ? (
-            <HugeiconsIcon icon={SIDEBAR_RIGHT_FILLED} size={18} />
+            <HugeiconsIcon icon={BUBBLE_CHAT_FILLED} size={18} />
           ) : (
-            <HugeiconsIcon icon={SidebarRightIcon} size={18} strokeWidth={2} />
+            <HugeiconsIcon icon={BubbleChatIcon} size={18} strokeWidth={2} />
           )}
         </span>
       </button>
