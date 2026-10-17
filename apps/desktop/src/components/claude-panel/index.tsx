@@ -7,6 +7,7 @@ import {
   useChatPanelWidth,
   useChatPath,
   useChatStatus,
+  useHasChatMessages,
   useToolPermissions,
 } from "@/hooks/use-claude";
 import { PermissionRequest } from "./permission-request";
@@ -26,6 +27,7 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
   // A hidden window holds animations on their first frame, which would leave the panel invisible.
   const [animateIn] = useState(() => document.visibilityState === "visible");
   const status = useChatStatus(path);
+  const hasMessages = useHasChatMessages(path);
   const awaitingApproval = useToolPermissions(path).length > 0;
   const drag = useRef<{ x: number; width: number; current: number } | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -102,16 +104,18 @@ export function ClaudePanel({ maxWidth }: { maxWidth: number }) {
         >
           Co-writer
         </h2>
-        <button
-          type="button"
-          title="New conversation"
-          aria-label="New conversation"
-          disabled={status === "stopping"}
-          onClick={() => void newChat(path)}
-          className={HEADER_BUTTON}
-        >
-          <HugeiconsIcon icon={PencilEdit02Icon} size={16} strokeWidth={1.8} />
-        </button>
+        {hasMessages && (
+          <button
+            type="button"
+            title="New conversation"
+            aria-label="New conversation"
+            disabled={status === "stopping"}
+            onClick={() => void newChat(path)}
+            className={HEADER_BUTTON}
+          >
+            <HugeiconsIcon icon={PencilEdit02Icon} size={16} strokeWidth={1.8} />
+          </button>
+        )}
       </header>
       <MessageList key={`messages:${path}`} />
       {awaitingApproval ? (

@@ -1,11 +1,39 @@
 import { useLayoutEffect, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { BubbleChatIcon, Clock01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { Clock01Icon, SidebarRightIcon } from "@hugeicons/core-free-icons";
 import { toggleChatPanel } from "@/hooks/use-claude";
 import { toggleVersionHistory } from "@/hooks/use-version-history";
 
-const SEGMENT =
-  "flex h-7 items-center gap-1.5 rounded-[7px] pl-2 pr-2.5 text-[12.5px] text-[var(--text-muted)] transition-[background-color,color,scale] duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.97] aria-pressed:bg-[var(--tab-active-bg)] aria-pressed:text-[var(--text-primary)]";
+// The free icon set has no solid variants, so the pressed glyphs are drawn here.
+const CLOCK_FILLED: IconSvgElement = [
+  [
+    "path",
+    {
+      d: "M12 1.25a10.75 10.75 0 1 0 0 21.5a10.75 10.75 0 1 0 0-21.5ZM11.15 7.5H12.85V11.65L14.6 13.4L13.4 14.6L11.15 12.35Z",
+      fill: "currentColor",
+      fillRule: "evenodd",
+      key: "0",
+    },
+  ],
+];
+const SIDEBAR_RIGHT_FILLED: IconSvgElement = [
+  ...SidebarRightIcon.filter(([, attrs]) => attrs.key !== "2").map(
+    ([tag, attrs]) => [tag, { ...attrs, strokeWidth: "2" }] as const,
+  ),
+  [
+    "path",
+    {
+      d: "M14.5 3C17.5 3 19 3 20.08 3.92C20.51 4.25 20.89 4.68 21.19 5.16C22 6.47 22 8.31 22 12C22 15.69 22 17.53 21.19 18.84C20.89 19.33 20.51 19.75 20.08 20.08C19 21 17.5 21 14.5 21Z",
+      fill: "currentColor",
+      key: "fill",
+    },
+  ],
+];
+
+const TOOL =
+  "group flex size-7 items-center justify-center rounded-md text-[var(--fg-base)] transition-[background-color,scale] duration-150 ease-out hover:bg-[var(--surface-subtle)] active:scale-[0.94]";
+const GLYPH =
+  "opacity-60 transition-opacity group-hover:opacity-100 group-aria-pressed:opacity-100";
 
 interface NoteToolsProps {
   filePath: string | null;
@@ -39,7 +67,7 @@ export function NoteTools({ filePath, historyOpen, chatOpen }: NoteToolsProps) {
       ref={ref}
       role="group"
       aria-label="Note tools"
-      className="absolute right-2.5 z-50 flex gap-0.5 rounded-[9px] bg-[var(--surface-subtle)] p-0.5 shadow-[inset_0_0_0_1px_var(--line-subtler)]"
+      className="absolute right-2.5 z-50 flex h-8 items-center gap-1.5"
       style={{ top: "var(--chrome-control-padding)" }}
     >
       {filePath && (
@@ -49,10 +77,15 @@ export function NoteTools({ filePath, historyOpen, chatOpen }: NoteToolsProps) {
           aria-label="Version history"
           aria-pressed={historyOpen}
           title="Version history (⌘⇧H)"
-          className={SEGMENT}
+          className={TOOL}
         >
-          <HugeiconsIcon icon={Clock01Icon} size={15} strokeWidth={1.8} />
-          History
+          <span className={GLYPH}>
+            {historyOpen ? (
+              <HugeiconsIcon icon={CLOCK_FILLED} size={18} />
+            ) : (
+              <HugeiconsIcon icon={Clock01Icon} size={18} strokeWidth={2} />
+            )}
+          </span>
         </button>
       )}
       <button
@@ -61,10 +94,15 @@ export function NoteTools({ filePath, historyOpen, chatOpen }: NoteToolsProps) {
         aria-label="Co-writer"
         aria-pressed={chatOpen}
         title="Co-writer (⌘⇧L)"
-        className={SEGMENT}
+        className={TOOL}
       >
-        <HugeiconsIcon icon={BubbleChatIcon} size={15} strokeWidth={1.8} />
-        Co-writer
+        <span className={GLYPH}>
+          {chatOpen ? (
+            <HugeiconsIcon icon={SIDEBAR_RIGHT_FILLED} size={18} />
+          ) : (
+            <HugeiconsIcon icon={SidebarRightIcon} size={18} strokeWidth={2} />
+          )}
+        </span>
       </button>
     </div>
   );
